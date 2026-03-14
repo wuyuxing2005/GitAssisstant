@@ -55,3 +55,38 @@ class AsyncSimpleLLM(SimpleLLM):
         )
 
         return resp.choices[0].message.content
+
+# utils
+def extract_statements(answer, llm):
+
+    prompt = f"""
+    Break the following text into atomic factual statements.
+    Each statement should be a single fact that can be verified independently.
+    One line per statement.
+    Text:
+    {answer}
+
+    Statements:
+    """
+
+    resp = llm.generate(prompt)
+
+    statements = parse_list(resp)
+
+    return statements
+
+def parse_list(text):
+    """
+    Parses a text containing a list of statements and returns them as a list.
+    Assumes statements are separated by newlines or numbered.
+    """
+    lines = text.strip().split('\n')
+    statements = []
+    for line in lines:
+        # Remove numbering or bullet points
+        statement = line.strip()
+        if statement:
+            statement = statement.lstrip('0123456789. ').strip('- ')
+            if statement:
+                statements.append(statement)
+    return statements
