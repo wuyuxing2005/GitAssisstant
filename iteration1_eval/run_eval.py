@@ -1,16 +1,41 @@
+import importlib.util
 import json
-from openai import OpenAI
+from pathlib import Path
 
-from llm import SimpleLLM
 from evaluator import Evaluator
-llm = SimpleLLM()
-
-# resp = llm.generate(
-#     "Explain what RAG is",
-#     system="You are an AI researcher"
-# )
 
 
-# print(resp[0])
+def load_dataset(dataset_path):
+    with open(dataset_path, "r", encoding="utf-8") as file:
+        return json.load(file)
 
-Evaluator = Evaluator(metrics=[], llm=llm)
+
+def load_metric(metric_path):
+    spec = importlib.util.spec_from_file_location("metric_module", metric_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"failed to load metric module from {metric_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.build_metric()
+
+
+dataset_path = Path(__file__).parent / "data" / "eval_dataset.json"
+metric_path_topicAdherence = Path(
+    __file__).parent / "metrics" / "1" / "metric.py"
+# 在这里增加你的metric路径
+# metric_path_XXX = Path(__file__).parent / "metrics" / "2" / "metric.py"
+dataset = load_dataset(dataset_path)
+
+# 在这里loadn你需要的metric（通过load_metirc(path）
+metric_TopicAdherence = load_metric(metric_path_topicAdherence)
+# metric_XXX = load_metric(metric_path_XXX)
+
+# 在metrics里面添加其他的metric       这里添加到[]中->v
+evaluator = Evaluator(metrics=[metric_TopicAdherence], llm=None)
+
+
+results = evaluator.evaluate(dataset)
+
+for index, result in enumerate(results, start=1):
+    # 在这里进行成绩的打印,每一个metric有自己的key,通过result.get(key)来获取成绩
+    print(index, result.get("topic_adherence"))

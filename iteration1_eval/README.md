@@ -1,19 +1,14 @@
 # 迭代一
 
-## 目录结构
+在metrics里面的1，2，3，4文件夹下编写代码
+需要完成评估指标，输入数据集，输出成绩，每一个你的metric类中要包含你的类的name，以便在成绩计算时与其他的metric区分开
 
-```text
-iteration1_eval/
-├── data/
-│   └── eval_dataset.json
-├── metrics/
-├── README.md
-└── run_eval.py
-```
+evaluator类目前不需要再修改
 
-## 目录说明
+run_eval.py中包含了数据的load和评估的流程，你需要在这里调用你的metric类来计算成绩。
 
-- `data/`：存放评测数据集。
-- `metrics/`：存放评测结果或指标输出文件。
-- `run_eval.py`：评测执行脚本。
-- `README.md`：当前迭代一的说明文档。
+调用方法先填写你的metric类的地址，然后通过地址加载你的metric类到Evaluator中
+Evaluator会自动调用你的metric计算，并且根据你的metric类中的name来区分不同的metric  # run_eval.py文件里面我标识了具体怎么写
+
+至于最后是独立展示各项指标分数还是别的先不考虑。暂时确定是独立展示各项指标分数
+
