@@ -29,6 +29,8 @@ metric_path_topicAdherence = Path(
     __file__).parent / "metrics" / "1" / "metric.py"
 metric_path_taskCompletion = Path(
     __file__).parent / "metrics" / "taskCompletion" / "metric.py"
+metric_path_toolCallF1 = Path(
+    __file__).parent / "metrics" / "3" / "metric.py"
 
 # 在这里增加你的metric路径
 # metric_path_XXX = Path(__file__).parent / "metrics" / "2" / "metric.py"
@@ -37,15 +39,19 @@ dataset = load_dataset(dataset_path)
 # 在这里loadn你需要的metric（通过load_metirc(path）
 metric_TopicAdherence = load_metric(metric_path_topicAdherence)
 metric_taskCompletion =load_metric(metric_path_taskCompletion)
+metric_toolCallF1 = load_metric(metric_path_toolCallF1)
 # metric_XXX = load_metric(metric_path_XXX)
 
 # 在metrics里面添加其他的metric       这里添加到[]中->v
-evaluator = Evaluator(metrics=[metric_taskCompletion], llm=SimpleLLM())
+evaluator = Evaluator(metrics=[metric_toolCallF1], llm=SimpleLLM())
 
 
 results = evaluator.evaluate(dataset)
 
+# print(f"index \ttool_call_f1")
+print(f"index \ttool_call_f1")
+
 for index, result in enumerate(results, start=1):
     # 在这里进行成绩的打印,每一个metric有自己的key,通过result.get(key)来获取成绩
-    # print(index, result.get("topic_adherence"))
-    print(index,result.get("task_completion")["score"])
+    # print(f"{index} \t{result.get("tool_call_f1")["score"]}")
+    print(f"{index} \t{result.get("tool_call_f1")["score"]}")
