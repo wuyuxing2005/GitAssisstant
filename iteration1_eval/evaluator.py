@@ -7,13 +7,14 @@ class Evaluator:
     def evaluate(self, dataset):
 
         results = []
+        # print("dataset[0] type:", type(dataset[0]))
+        # print("dataset[0] content:", dataset[0])
 
         for sample in dataset:
-
             sample_result = {}
 
             for metric in self.metrics:
-
+                # print(type(sample))
                 score = metric.score(sample, self.llm)
 
                 sample_result[metric.name] = score

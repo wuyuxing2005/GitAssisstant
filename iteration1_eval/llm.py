@@ -1,6 +1,8 @@
 from openai import OpenAI
 from dataclasses import dataclass
 from typing import List
+import json
+import re
 
 
 from openai import AsyncOpenAI
@@ -18,20 +20,52 @@ class SimpleLLM:
 
     def generate(
         self,
-        prompt: str,
-        system: str | None = None,
+        user_prompt: str,
+        system_prompt: str | None = None,
         max_tokens: int = 512,
         n: int = 1,
     ) -> List[str]:
         """生成文本"""
-
+        resp = self.generate_raw(user_prompt,system_prompt,max_tokens,n)
+        return [c.message.content for c in resp.choices]
+    
+    def generate_raw(self,
+        user_prompt: str,
+        system_prompt: str | None = None,
+        max_tokens: int = 512,
+        n: int = 1,
+        ) -> List[str]:
+        """生成文本"""
         messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-
-        messages.append({"role": "user", "content": prompt})
-
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_prompt})
         resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=self.temperature,
+            max_tokens=max_tokens,
+            n=n,
+        )
+        return resp
+
+class AsyncSimpleLLM(SimpleLLM):
+
+    def __post_init__(self):
+        self.client = AsyncOpenAI()
+
+    async def agenerate(self,
+        user_prompt: str,
+        system_prompt: str | None = None,
+        max_tokens: int = 512,
+        n: int = 1,
+        ) -> List[str]:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        messages.append({"role": "user", "content": user_prompt})
+        resp = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             temperature=self.temperature,
@@ -40,21 +74,6 @@ class SimpleLLM:
         )
 
         return [c.message.content for c in resp.choices]
-    
-
-class AsyncSimpleLLM(SimpleLLM):
-
-    def __post_init__(self):
-        self.client = AsyncOpenAI()
-
-    async def agenerate(self, prompt: str):
-
-        resp = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        return resp.choices[0].message.content
 
 # utils
 def extract_statements(answer, llm):
@@ -90,3 +109,5 @@ def parse_list(text):
             if statement:
                 statements.append(statement)
     return statements
+
+
