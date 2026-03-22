@@ -21,11 +21,11 @@ REFUSAL_PATTERNS = (
     "拒绝回答",
 )
 
-SENTENCE_SPLIT_PATTERN = r"[\n.!?;\u3002\uff01\uff1f\uff1b]"
-TOPIC_SPLIT_PATTERN = r",|\uff0c| and | or |/|\u3001|\u548c|\u4ee5\u53ca|\u53ca"
+SENTENCE_SPLIT_PATTERN = r"[\n.!?;。！？；]"
+TOPIC_SPLIT_PATTERN = r",|，| and | or |/|、|和|以及|及"
 LEADING_CN_PREFIX_PATTERN = (
-    r"^(\u8bf7|\u5e2e\u6211|\u544a\u8bc9\u6211|"
-    r"\u4ecb\u7ecd\u4e00\u4e0b|\u8bf4\u8bf4|\u804a\u804a|\u5173\u4e8e)"
+    r"^(请|帮我|告诉我|"
+    r"介绍一下|说说|聊聊|关于)"
 )
 LEADING_EN_PREFIX_PATTERN = (
     r"^(please|can you|could you|tell me about|talk about|discuss|what about)\s+"
@@ -39,8 +39,6 @@ class TopicAdherenceMetric:
         self.mode = mode
 
     def score(self, sample, llm=None):
-        del llm
-
         messages = self._build_messages(sample)
         reference_topics = self._get_reference_topics(sample, messages)
         topics = self._extract_topics(sample, messages)
@@ -51,7 +49,7 @@ class TopicAdherenceMetric:
         topic_answered = self._check_topics_answered(messages, topics)
         topic_classifications = self._classify_topics(reference_topics, topics)
 
-        return float(self._compute_score(topic_answered, topic_classifications))
+        return self._compute_score(topic_answered, topic_classifications)
 
     def _build_messages(self, sample):
         if isinstance(sample.get("messages"), list):
@@ -256,7 +254,13 @@ class TopicAdherenceMetric:
 
         precision = true_positives / (true_positives + false_positives + eps)
         recall = true_positives / (true_positives + false_negatives + eps)
-        return 2 * (precision * recall) / (precision + recall + eps)
+        f1 = 2 * (precision * recall) / (precision + recall + eps)
+        return {
+            "metric": self.name,
+            "score": round(f1, 4),
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+        }
 
 
 def build_metric():

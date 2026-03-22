@@ -12,4 +12,6 @@ Evaluator会自动调用你的metric计算，并且根据你的metric类中的na
 
 至于最后是独立展示各项指标分数还是别的先不考虑。暂时确定是独立展示各项指标分数
 
-1
+**metric的返回值必须包括score字段**
+
+run_eval.py的输出结果保存在output文件夹下的eval_results.csv中
