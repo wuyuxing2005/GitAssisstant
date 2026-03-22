@@ -3,9 +3,10 @@ import re
 from typing import Any, Dict, List
 
 
-DEFAULT_REFERENCE_TOPICS = ["点外卖"]
+DEFAULT_REFERENCE_TOPICS = ["点外卖"]  # topic_adherence
 
 
+# 获得干净字符串
 def stripCodeFences(text: str) -> str:
     text = text.strip()
     if text.startswith("```json"):
@@ -15,6 +16,8 @@ def stripCodeFences(text: str) -> str:
     if text.endswith("```"):
         text = text[:-3]
     return text.strip()
+
+# 解析json文件
 
 
 def extractJsonFromText(text: str) -> Dict[str, Any]:
@@ -66,11 +69,12 @@ class TopicAdherenceMetric:
         )
 
     def getReferenceTopics(self, sample) -> List[str]:
-        reference_topics = sample.get("reference_topics") or DEFAULT_REFERENCE_TOPICS
+        reference_topics = DEFAULT_REFERENCE_TOPICS
         if isinstance(reference_topics, str):
-            reference_topics = [reference_topics]
+            reference_topics = [reference_topics]  # 变成列表
         return self.normalizeTopicList(reference_topics)
 
+# 进行reference_topics的在问题域内的细化
     def extractRequestedInDomainTopics(
         self, sample, reference_topics: List[str]
     ) -> List[str]:
@@ -82,6 +86,7 @@ class TopicAdherenceMetric:
             "user_query": sample.get("user_query", ""),
             "expected_steps": sample.get("expected_steps", []),
         }
+
         prompt = f"""
 You are evaluating topic adherence for a domain-limited AI assistant.
 
@@ -89,7 +94,7 @@ Allowed domains:
 {json.dumps(reference_topics, ensure_ascii=False)}
 
 Task context:
-{json.dumps(context, ensure_ascii=False, indent=2)}
+{json.dumps(context, ensure_ascii=False, indent=2)} 
 
 Extract the atomic user-requested topics that are clearly inside the allowed domains.
 Use user_query as the primary source.
@@ -249,6 +254,7 @@ Strictly output JSON:
         response = self.llm.generate(prompt)[0]
         return extractJsonFromText(response)
 
+    # 防止topic同时出现
     def normalizeTopicList(self, topics: List[Any]) -> List[str]:
         normalized_topics = []
         seen = set()
@@ -294,7 +300,8 @@ Strictly output JSON:
                 recall = 1.0
                 f1 = 0.0
         else:
-            precision = true_positives / (true_positives + false_positives + eps)
+            precision = true_positives / \
+                (true_positives + false_positives + eps)
             recall = true_positives / (true_positives + false_negatives + eps)
             f1 = 2 * (precision * recall) / (precision + recall + eps)
 
