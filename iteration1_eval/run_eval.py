@@ -41,6 +41,8 @@ metric_path_task_completion = Path(
     __file__).parent / "metrics" / "taskCompletion" / "metric.py"
 metric_path_tool_call_f1 = Path(
     __file__).parent / "metrics" / "toolCallF1" / "metric.py"
+metric_path_planning_rationality=Path(
+    __file__).parent / "metrics" / "planningRationality" / "metric.py"
 # TODO
 # 在这里添加你的metric路径，例如：
 # metric_path_your_metric = Path(__file__).parent / "metrics" / "your_metric" / "metric.py"
@@ -51,12 +53,14 @@ dataset = load_dataset(dataset_path)
 metric_topic_adherence = load_metric(metric_path_topic_adherence)
 metric_task_completion = load_metric(metric_path_task_completion)
 metric_tool_call_f1 = load_metric(metric_path_tool_call_f1)
+metric_planning_rationality = load_metric(metric_path_planning_rationality)
+
 # TODO
 # 在这里添加你的metric加载，例如：
 # metric_your_metric = load_metric(metric_path_your_metric)
 
 enabled_metrics = [metric_tool_call_f1,
-                   metric_topic_adherence, metric_task_completion  # TODO ,metric_your_metric
+                   metric_topic_adherence, metric_task_completion,metric_planning_rationality  # TODO ,metric_your_metric
                    ]
 
 evaluator = Evaluator(metrics=enabled_metrics, llm=SimpleLLM())
