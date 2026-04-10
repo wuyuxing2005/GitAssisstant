@@ -1,3 +1,5 @@
+import os
+
 from openai import OpenAI
 from dataclasses import dataclass
 from typing import List
@@ -7,17 +9,64 @@ import re
 
 from openai import AsyncOpenAI
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage
+from .agent_state import AgentState
+from .tools.tools import AGENT_TOOLS
+class Agent:
+    def __init__(self, llm:ChatOpenAI, tools=AGENT_TOOLS):
+        """
+        llm: 基础的大模型实例 (如 ChatOpenAI)
+        tools: 第二组提供的工具列表
+        """
+        # 纯净版模型，用于生成文本（规划、反思）
+        self.llm = llm 
+        
+        # 武装版模型，给 LLM 绑定工具（用于 ReAct 执行）
+        self.llm_with_tools = llm.bind_tools(tools)
 
+    async def generate_plan(self, issue_description: str) -> str:
+        """规划能力"""
+        prompt = f"你是一个高级工程师。针对以下Issue，请给出分步的排查和修复计划：\n{issue_description}"
+        response = await self.llm.ainvoke(prompt)
+        return response.content
+
+    async def run_react(self, messages: list):
+        """ReAct 能力：根据历史消息决定下一步动作（可能调用工具，可能输出文本）"""
+        sys_prompt = SystemMessage(
+            content="你是代码修复 Agent。你可以调用工具收集信息并修复代码。"
+                    "如果你认为修复已经完成，请在回复中包含 'TASK_SUCCESS'。"
+                    "如果穷尽手段依然无法解决，请在回复中包含 'TASK_FAILED'。"
+        )
+        # 将系统提示词与历史消息拼接
+        full_messages = [sys_prompt] + messages
+        # 注意：这里使用的是带工具的模型
+        response = await self.llm_with_tools.ainvoke(full_messages)
+        return response
+
+    async def reflect_on_failure(self, trajectory: list) -> str:
+        history_text = "\n".join([str(m) for m in trajectory])
+
+        prompt = f"""
+        之前的修复尝试未能成功，或者陷入死循环。
+        以下是历史执行轨迹：
+        {history_text}
+        请分析失败原因，并给出新的排查方向。
+        """
+        response = await self.llm.ainvoke(prompt)
+        return response.content
+    async def chat(self, user_input):
+        response = await self.llm.ainvoke(user_input)
+        return response
 # 直接使用 LangChain 提供的 ChatOpenAI
-llm = ChatOpenAI(
-    model="hunyuan-lite",
-    api_key="sk-LKBTrcFAI8TAl0AuNuEsymgBxrGBQvGzc9UcUCALil4SJm1Z",
-    base_url="https://api.hunyuan.cloud.tencent.com/v1",
-    temperature=0.1,
-    max_tokens=2048 # 写代码建议调大
-)
+
 def LLM_factory():
-    return llm
+    return ChatOpenAI(
+        model=os.getenv("MODEL_NAME", "hunyuan-lite"),
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=os.getenv("OPENAI_BASE_URL"),
+        temperature=0.1,
+        max_tokens=2048
+    )
 
 # @dataclass
 # class SimpleLLM:
