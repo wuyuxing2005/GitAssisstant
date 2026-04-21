@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import TypedDict,List, Dict, Any, Optional
+from tools.read_file import execute as read_file_execute
 
 @dataclass
 class ActionRequest:
@@ -53,3 +54,8 @@ async def execute_tool(name: str, inp: dict) -> str:
 
 def get_tools_description():
     pass
+
+def _read_file(inp: dict) -> str:
+    """文件读取工具适配器"""
+    file_path = inp.get("file_path", "")
+    return read_file_execute(file_path)
