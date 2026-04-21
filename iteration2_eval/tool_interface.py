@@ -4,6 +4,7 @@ from tools.read_file import execute as read_file_execute
 from tools.bash_terminal import execute as bash_execute
 from tools.code_search import execute as code_search_execute
 from tools.patch_file import execute as patch_execute
+from tools.pytest_runner import execute as pytest_execute
 
 @dataclass
 class ActionRequest:
@@ -48,6 +49,7 @@ async def execute_tool(name: str, inp: dict) -> str:
         "list_files": _list_files,
         "grep_search": _grep_search,
         "run_shell": _run_shell,
+        "run_test": _run_test,
     }
     handler = handlers.get(name)
     if not handler:
@@ -79,3 +81,9 @@ def _edit_file(inp: dict) -> str:
     file_path = inp.get("file_path", "")
     diff = inp.get("diff", "")
     return patch_execute(file_path, diff)
+
+def _run_test(inp: dict) -> str:
+    """测试运行适配器"""
+    test_path = inp.get("test_path", "tests/")
+    options = inp.get("options", "-v")
+    return pytest_execute(test_path, options)
