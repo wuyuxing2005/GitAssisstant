@@ -3,6 +3,7 @@ from typing import TypedDict,List, Dict, Any, Optional
 from tools.read_file import execute as read_file_execute
 from tools.bash_terminal import execute as bash_execute
 from tools.code_search import execute as code_search_execute
+from tools.patch_file import execute as patch_execute
 
 @dataclass
 class ActionRequest:
@@ -72,3 +73,9 @@ def _grep_search(inp: dict) -> str:
     pattern = inp.get("pattern", "")
     directory = inp.get("directory", ".")
     return code_search_execute(pattern, directory)
+
+def _edit_file(inp: dict) -> str:
+    """代码修改适配器"""
+    file_path = inp.get("file_path", "")
+    diff = inp.get("diff", "")
+    return patch_execute(file_path, diff)
