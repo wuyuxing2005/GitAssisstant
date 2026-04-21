@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import TypedDict,List, Dict, Any, Optional
 from tools.read_file import execute as read_file_execute
+from tools.bash_terminal import execute as bash_execute
 
 @dataclass
 class ActionRequest:
@@ -59,3 +60,8 @@ def _read_file(inp: dict) -> str:
     """文件读取工具适配器"""
     file_path = inp.get("file_path", "")
     return read_file_execute(file_path)
+
+def _run_shell(inp: dict) -> str:
+    """终端执行适配器"""
+    command = inp.get("command", "")
+    return bash_execute(command)
