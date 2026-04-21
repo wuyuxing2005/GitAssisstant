@@ -22,13 +22,13 @@ ________________________________________
 职责
 •	实现 Read_File、Code_Search、Patch_File 
 •	实现 Bash_Terminal 和 pytest runner 
-•	统一工具返回与 observation 格式 
+•	基于 LangChain `@tool` 统一工具声明与调用 
 •	设计执行环境约束 
 交付
 •	文件读取、代码搜索、代码修改、终端执行、测试运行工具 
-•	ToolResult / Observation 数据结构 
-•	patch diff 生成逻辑 
-•	工具接口文档 
+•	LangChain 工具定义与 `ToolNode` 接入
+•	patch diff 生成逻辑
+•	工具使用说明
 •	执行环境说明 
 ________________________________________
 第三组：可视化 + 工程保障组

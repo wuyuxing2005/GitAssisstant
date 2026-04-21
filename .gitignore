@@ -12,3 +12,6 @@ ENV/
 # IDE配置
 .vscode/
 .idea/
+
+#test
+repos
