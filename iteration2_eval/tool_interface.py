@@ -5,6 +5,8 @@ from tools.bash_terminal import execute as bash_execute
 from tools.code_search import execute as code_search_execute
 from tools.patch_file import execute as patch_execute
 from tools.pytest_runner import execute as pytest_execute
+from tools.write_file import execute as write_file_execute
+from tools.list_files import execute as list_files_execute
 
 @dataclass
 class ActionRequest:
@@ -87,3 +89,14 @@ def _run_test(inp: dict) -> str:
     test_path = inp.get("test_path", "tests/")
     options = inp.get("options", "-v")
     return pytest_execute(test_path, options)
+
+def _write_file(inp: dict) -> str:
+    """文件写入适配器"""
+    file_path = inp.get("file_path", "")
+    content = inp.get("content", "")
+    return write_file_execute(file_path, content)
+
+def _list_files(inp: dict) -> str:
+    """目录列表适配器"""
+    directory = inp.get("directory", ".")
+    return list_files_execute(directory)
