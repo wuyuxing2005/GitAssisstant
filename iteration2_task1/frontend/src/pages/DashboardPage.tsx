@@ -4,14 +4,12 @@ import { TaskTable } from "../components/TaskTable";
 import type {
   ComparisonResponse,
   CreateTaskPayload,
-  EvaluationMetadataResponse,
   EvaluationTask,
   RunMode
 } from "../types/task";
 
 interface DashboardPageProps {
   tasks: EvaluationTask[];
-  metadata: EvaluationMetadataResponse | null;
   comparison: ComparisonResponse | null;
   selectedTaskId: string | null;
   busyTaskId: string | null;
@@ -42,7 +40,6 @@ function statusText(status: EvaluationTask["status"]): string {
 
 export function DashboardPage({
   tasks,
-  metadata,
   comparison,
   selectedTaskId,
   busyTaskId,
@@ -54,6 +51,8 @@ export function DashboardPage({
   const running = tasks.filter((task) => task.status === "running" || task.status === "scheduled").length;
   const completed = tasks.filter((task) => task.status === "completed").length;
   const failed = tasks.filter((task) => task.status === "failed").length;
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0] ?? null;
+  const previewLogs = selectedTask?.result?.logs_preview ?? [];
 
   const [formState, setFormState] = useState<CreateTaskPayload>({
     name: "",
@@ -80,6 +79,7 @@ export function DashboardPage({
           model_name: formState.config.model_name?.trim() || null
         }
       });
+
       setFormState({
         name: "",
         description: "",
@@ -100,12 +100,8 @@ export function DashboardPage({
 
   return (
     <div className="page-grid">
-      <SummaryCards
-        total={tasks.length}
-        running={running}
-        completed={completed}
-        failed={failed}
-      />
+      <SummaryCards total={tasks.length} running={running} completed={completed} failed={failed} />
+
       <section className="card composer-card">
         <div className="section-header">
           <div>
@@ -113,6 +109,7 @@ export function DashboardPage({
             <p>输入仓库地址或本地路径，再给出 Issue 文本、编号或 GitHub issue 链接。</p>
           </div>
         </div>
+
         <form className="task-form" onSubmit={handleSubmit}>
           <label>
             <span>任务名称</span>
@@ -125,6 +122,7 @@ export function DashboardPage({
               placeholder="例如：修复代码搜索工具路径判断"
             />
           </label>
+
           <label>
             <span>仓库路径或 Git URL</span>
             <input
@@ -139,6 +137,7 @@ export function DashboardPage({
               placeholder="例如：repos/myproject 或 https://github.com/org/repo.git"
             />
           </label>
+
           <label>
             <span>Issue 描述 / 编号 / 链接</span>
             <textarea
@@ -151,9 +150,10 @@ export function DashboardPage({
                   config: { ...current.config, issue_input: event.target.value }
                 }))
               }
-              placeholder="例如：#123 或完整 issue 文本"
+              placeholder="例如：123 或完整 issue 文本"
             />
           </label>
+
           <label>
             <span>补充说明</span>
             <textarea
@@ -165,6 +165,7 @@ export function DashboardPage({
               placeholder="记录预期修复范围、限制条件或上下文说明"
             />
           </label>
+
           <div className="form-row">
             <label>
               <span>本地目录名</span>
@@ -179,6 +180,7 @@ export function DashboardPage({
                 placeholder="可选，远程仓库克隆目录名"
               />
             </label>
+
             <label>
               <span>模型名</span>
               <input
@@ -192,6 +194,7 @@ export function DashboardPage({
                 placeholder="可选，覆盖默认 MODEL_NAME"
               />
             </label>
+
             <label>
               <span>最大轮数</span>
               <input
@@ -210,6 +213,7 @@ export function DashboardPage({
                 }
               />
             </label>
+
             <label>
               <span>运行模式</span>
               <select
@@ -229,6 +233,7 @@ export function DashboardPage({
               </select>
             </label>
           </div>
+
           <label className="checkbox-row">
             <input
               type="checkbox"
@@ -239,6 +244,7 @@ export function DashboardPage({
             />
             <span>创建后立即按当前模式执行</span>
           </label>
+
           <div className="action-row">
             <button className="primary-button" type="submit" disabled={busyTaskId === "create"}>
               创建任务
@@ -246,6 +252,7 @@ export function DashboardPage({
           </div>
         </form>
       </section>
+
       <TaskTable
         tasks={tasks}
         selectedTaskId={selectedTaskId}
@@ -254,35 +261,49 @@ export function DashboardPage({
         onRunTask={onRunTask}
         onDeleteTask={onDeleteTask}
       />
-      <section id="settings" className="card two-column-panel">
-        <div>
-          <h2>运行能力</h2>
-          <ul className="bullet-list">
-            <li>支持本地仓库路径和 Git URL 两种输入。</li>
-            <li>支持直接输入 Issue 文本、编号或 GitHub issue 链接。</li>
-            <li>自动模式会后台持续运行；单步模式适合调试轨迹。</li>
-            <li>执行过程中的 plan、AI 消息、工具输出和反思会完整回放。</li>
-          </ul>
-          <h2>环境要求</h2>
-          <ul className="bullet-list">
-            {(metadata?.runtime_requirements ?? []).map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
+
+      <section className="card dashboard-terminal-card">
+        <div className="section-header">
+          <div>
+            <h2>实时日志</h2>
+            <p>{selectedTask ? `当前任务：${selectedTask.name}` : "选中任务后这里会显示日志预览。"}</p>
+          </div>
         </div>
-        <div>
-          <h2>工具目录</h2>
-          <div className="tool-grid">
-            {(metadata?.builtin_tools ?? []).map((tool) => (
-              <article key={tool.name} className="tool-card">
-                <strong>{tool.name}</strong>
-                <span>{tool.category}</span>
-                <p>{tool.summary}</p>
-              </article>
-            ))}
+
+        <div className="terminal-panel">
+          <div className="terminal-header">
+            <div className="terminal-actions" aria-hidden="true">
+              <span className="terminal-dot terminal-dot-close" />
+              <span className="terminal-dot terminal-dot-minimize" />
+              <span className="terminal-dot terminal-dot-expand" />
+            </div>
+            <span className="terminal-title">bash</span>
+          </div>
+
+          <div className="terminal-body dashboard-terminal-body">
+            {previewLogs.map((logLine, index) => {
+              const match = logLine.match(/^(\d{2}:\d{2}:\d{2})(.*)$/);
+              const time = match?.[1];
+              const message = match?.[2]?.trimStart() ?? logLine;
+
+              return (
+                <div key={`${selectedTask?.id ?? "task"}-preview-log-${index}`} className="terminal-line">
+                  <span className="terminal-prompt">$</span>
+                  <code>
+                    {time ? <span className="terminal-time">{time}</span> : null}
+                    <span>{message}</span>
+                  </code>
+                </div>
+              );
+            })}
+
+            {!previewLogs.length ? (
+              <p className="muted-copy terminal-empty">当前任务还没有日志输出。</p>
+            ) : null}
           </div>
         </div>
       </section>
+
       <section id="compare" className="card comparison-panel">
         <div className="section-header">
           <div>
@@ -290,6 +311,7 @@ export function DashboardPage({
             <p>横向比较不同任务的成功情况、迭代轮数、工具使用和测试验证情况。</p>
           </div>
         </div>
+
         {comparison && comparison.items.length > 0 ? (
           <div className="comparison-grid">
             {comparison.items.map((item) => (
@@ -301,6 +323,7 @@ export function DashboardPage({
                   </div>
                   <span className={`status-badge ${item.status}`}>{statusText(item.status)}</span>
                 </div>
+
                 <div className="metric-list">
                   {item.scores.map((score) => (
                     <div key={`${item.task_id}-${score.name}`} className="metric-row">

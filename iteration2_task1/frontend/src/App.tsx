@@ -15,8 +15,21 @@ import type {
   CreateTaskPayload,
   EvaluationMetadataResponse,
   EvaluationTask,
+  TaskStatus,
   RunMode
 } from "./types/task";
+
+function formatTaskStatus(status: TaskStatus): string {
+  const labels: Record<TaskStatus, string> = {
+    draft: "草稿",
+    scheduled: "排队中",
+    running: "执行中",
+    completed: "已完成",
+    failed: "失败"
+  };
+
+  return labels[status];
+}
 
 export default function App() {
   const [tasks, setTasks] = useState<EvaluationTask[]>([]);
@@ -137,14 +150,22 @@ export default function App() {
           <p className="eyebrow">GitIssueAssitant Console</p>
           <h1>Agent 运行与评估台</h1>
         </div>
+
         <nav>
           <a href="#dashboard">任务总览</a>
           <a href="#detail">任务详情</a>
           <a href="#compare">横向对比</a>
-          <a href="#settings">运行能力</a>
         </nav>
+
         <div className="sidebar-panel">
           <span className={`health-pill ${backendStatus}`}>后端：{backendStatus}</span>
+          <div className="sidebar-current-task">
+            <span className="sidebar-current-task-label">当前任务状态</span>
+            <strong>{currentTask?.name ?? "未选择任务"}</strong>
+            <span className={`sidebar-task-status ${currentTask?.status ?? "draft"}`}>
+              {currentTask ? formatTaskStatus(currentTask.status) : "未开始"}
+            </span>
+          </div>
           <dl className="sidebar-stats">
             <div>
               <dt>任务数</dt>
@@ -161,15 +182,15 @@ export default function App() {
           </dl>
         </div>
       </aside>
+
       <main className="content">
         <header className="hero card">
           <div>
             <p className="eyebrow">Iteration 2 / GitHub Issue Repair Agent</p>
-            <h2>把 gitIssueAssitant 封装成可视化任务平台</h2>
-            <p>
-              这里直接管理仓库、Issue、执行模式和运行轨迹，前端展示的状态全部来自后端真实接口。
-            </p>
+            <h2>把 GitIssueAssitant 封装成可视化任务平台</h2>
+            <p>这里直接管理仓库、Issue、执行模式和运行轨迹，前端展示的状态全部来自后端真实接口。</p>
           </div>
+
           <div className="hero-actions">
             <div className="hero-highlight">
               <span>当前选中</span>
@@ -180,12 +201,13 @@ export default function App() {
             </button>
           </div>
         </header>
+
         {banner ? <div className="banner success">{banner}</div> : null}
         {errorMessage ? <div className="banner error">{errorMessage}</div> : null}
+
         <section id="dashboard">
           <DashboardPage
             tasks={tasks}
-            metadata={metadata}
             comparison={comparison}
             selectedTaskId={selectedTaskId}
             busyTaskId={busyTaskId}
@@ -195,6 +217,7 @@ export default function App() {
             onDeleteTask={handleDeleteTask}
           />
         </section>
+
         <section id="detail">
           <TaskDetailPage task={currentTask} busyTaskId={busyTaskId} onRunTask={handleRunTask} />
         </section>
