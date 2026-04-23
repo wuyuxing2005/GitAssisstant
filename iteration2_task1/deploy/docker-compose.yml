@@ -1,0 +1,16 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE}:${IMAGE_TAG}
+    container_name: agent-eval-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+
+  frontend:
+    image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
+    container_name: agent-eval-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"

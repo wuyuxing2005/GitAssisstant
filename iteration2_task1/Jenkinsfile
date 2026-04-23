@@ -1,0 +1,156 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+
+    parameters {
+        booleanParam(name: 'PUSH_IMAGES', defaultValue: false, description: '是否推送 Docker 镜像到仓库')
+        choice(name: 'DEPLOY_ENV', choices: ['none', 'staging', 'production'], description: '选择部署环境')
+    }
+
+    environment {
+        PROJECT_DIR = 'iteration2_eval'
+        REGISTRY_HOST = 'registry.example.com'
+        REGISTRY_NAMESPACE = 'agent-eval'
+        FRONTEND_IMAGE = "${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/frontend"
+        BACKEND_IMAGE = "${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/backend"
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        DEPLOY_HOST = 'deploy.example.com'
+        DEPLOY_PATH = '/opt/agent-eval'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Detect Relevant Changes') {
+            steps {
+                script {
+                    def changedFiles = []
+
+                    for (changeLogSet in currentBuild.changeSets) {
+                        for (entry in changeLogSet.items) {
+                            for (file in entry.affectedFiles) {
+                                changedFiles << file.path.replace('\\', '/')
+                            }
+                        }
+                    }
+
+                    if (changedFiles.isEmpty()) {
+                        env.SHOULD_BUILD = 'true'
+                        echo 'No changelog found. Continue build for first/manual run.'
+                        return
+                    }
+
+                    def projectPrefix = "${env.PROJECT_DIR}/"
+                    def hasProjectChanges = changedFiles.any { path ->
+                        path == env.PROJECT_DIR || path.startsWith(projectPrefix)
+                    }
+
+                    env.SHOULD_BUILD = hasProjectChanges ? 'true' : 'false'
+
+                    if (hasProjectChanges) {
+                        echo "Detected changes under ${env.PROJECT_DIR}. Continue build."
+                    } else {
+                        currentBuild.result = 'NOT_BUILT'
+                        echo "No changes under ${env.PROJECT_DIR}. Skip CI/CD stages."
+                    }
+                }
+            }
+        }
+
+        stage('Backend CI') {
+            when {
+                expression { return env.SHOULD_BUILD == 'true' }
+            }
+            steps {
+                dir(env.PROJECT_DIR) {
+                    sh 'chmod +x ci/backend_ci.sh && ./ci/backend_ci.sh'
+                }
+            }
+        }
+
+        stage('Frontend CI') {
+            when {
+                expression { return env.SHOULD_BUILD == 'true' }
+            }
+            steps {
+                dir(env.PROJECT_DIR) {
+                    sh 'chmod +x ci/frontend_ci.sh && ./ci/frontend_ci.sh'
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            when {
+                expression { return env.SHOULD_BUILD == 'true' }
+            }
+            steps {
+                dir(env.PROJECT_DIR) {
+                    sh '''
+                        docker build -t ${FRONTEND_IMAGE}:${IMAGE_TAG} ./frontend
+                        docker build -t ${BACKEND_IMAGE}:${IMAGE_TAG} ./backend
+                    '''
+                }
+            }
+        }
+
+        stage('Push Docker Images') {
+            when {
+                allOf {
+                    expression { return env.SHOULD_BUILD == 'true' }
+                    expression { return params.PUSH_IMAGES }
+                }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-registry-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh '''
+                        echo "$DOCKER_PASS" | docker login ${REGISTRY_HOST} -u "$DOCKER_USER" --password-stdin
+                        docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+                        docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+                    '''
+                }
+            }
+        }
+
+        // stage('Deploy') {
+        //     when {
+        //         allOf {
+        //             expression { return env.SHOULD_BUILD == 'true' }
+        //             expression { return params.PUSH_IMAGES }
+        //             expression { return params.DEPLOY_ENV != 'none' }
+        //         }
+        //     }
+        //     steps {
+        //         withCredentials([sshUserPrivateKey(credentialsId: 'deploy-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
+        //             dir(env.PROJECT_DIR) {
+        //                 sh '''
+        //                     chmod +x ci/deploy_remote.sh
+        //                     ./ci/deploy_remote.sh ${DEPLOY_ENV}
+        //                 '''
+        //             }
+        //         }
+        //     }
+        // }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: "${env.PROJECT_DIR}/frontend/dist/**,${env.PROJECT_DIR}/deploy/docker-compose.yml,${env.PROJECT_DIR}/deploy/.env.example", allowEmptyArchive: true
+        }
+        success {
+            echo 'Jenkins CI/CD pipeline finished successfully.'
+        }
+        failure {
+            echo 'Jenkins pipeline failed. Check stage logs.'
+        }
+    }
+}

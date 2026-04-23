@@ -1,50 +1,27 @@
-# GitIssueAssitant Web 操控台
+# Agent 应用评估平台 - 前端
 
-## 说明
+## 技术选型
 
-这个前端现在是 **真实驱动 Agent 的 Web 操控台**：
+- React 18
+- TypeScript
+- Vite
 
-- 前端按钮调用现有 FastAPI backend
-- backend 调用 `gitIssueAssitant` 的 `SessionManager` 和 `AgentOrchestrator`
-- 页面负责收集仓库、Issue、模型和模式
-- 页面展示运行状态、轨迹和结果
-- 页面保留 CLI 指令作为兜底执行方式
+## 页面骨架
 
-通信链路：
+- 任务总览：任务列表、状态展示、快捷入口
+- 单次结果页：展示单个评测任务的核心指标
+- 对比分析区：预留任务间对比能力
+- 指标配置入口：预留自定义指标和组合策略能力
 
-```text
-Frontend button
-  -> HTTP /api/tasks
-  -> backend EvaluationService
-  -> gitIssueAssitant AgentOrchestrator
-  -> task result / timeline
-  -> frontend polling refresh
-```
+## 启动方式
 
-## 启动
-
-先启动 backend：
-
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -e .
-uvicorn app.main:app --reload --port 8000
-```
-
-再启动 frontend：
-
-```powershell
-cd frontend
+```bash
 npm install
 npm run dev
 ```
 
-打开浏览器访问 `http://localhost:5173/`。
+## 后续建议
 
-## 后续可选增强
-
-- 增加 WebSocket 实时日志流，替代轮询
-- 增加停止 / 暂停 endpoint
-- 增加任务编辑和历史筛选
+- 接入真实后端接口
+- 补充表单、图表、筛选器和分页
+- 加入任务配置编辑与结果详情路由
