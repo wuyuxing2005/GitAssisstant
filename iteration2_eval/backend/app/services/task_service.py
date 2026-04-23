@@ -21,7 +21,14 @@ class TaskService:
             config=task.config,
             created_at=task.created_at,
             updated_at=task.updated_at,
+            result=task.result,
         )
+
+    def get_task_record(self, task_id: str) -> EvaluationTaskRecord | None:
+        return task_repository.get(task_id)
+
+    def save_task_record(self, task: EvaluationTaskRecord) -> EvaluationTaskRecord:
+        return task_repository.save(task)
 
     def list_tasks(self) -> list[EvaluationTaskResponse]:
         return [self._to_response(task) for task in task_repository.list()]
@@ -58,6 +65,11 @@ class TaskService:
             task.status = payload.status
         if payload.config is not None:
             task.config = payload.config
+            task.result = None
+            task.thread_id = None
+            task.repo_path = None
+            task.started_at = None
+            task.finished_at = None
 
         return self._to_response(task_repository.save(task))
 

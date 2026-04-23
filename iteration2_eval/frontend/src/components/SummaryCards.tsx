@@ -2,14 +2,14 @@ interface SummaryCardsProps {
   total: number;
   running: number;
   completed: number;
-  customMetrics: number;
+  failed: number;
 }
 
 const cardItems = [
-  { key: "total", label: "评测任务总数" },
-  { key: "running", label: "执行中任务" },
+  { key: "total", label: "任务总数" },
+  { key: "running", label: "执行中 / 排队中" },
   { key: "completed", label: "已完成任务" },
-  { key: "customMetrics", label: "自定义指标数" }
+  { key: "failed", label: "失败任务" }
 ] as const;
 
 export function SummaryCards(props: SummaryCardsProps) {
@@ -17,7 +17,7 @@ export function SummaryCards(props: SummaryCardsProps) {
     total: props.total,
     running: props.running,
     completed: props.completed,
-    customMetrics: props.customMetrics
+    failed: props.failed
   };
 
   return (

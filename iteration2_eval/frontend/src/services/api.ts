@@ -1,48 +1,78 @@
-import type { EvaluationTask } from "../types/task";
+import type {
+  ComparisonResponse,
+  CreateTaskPayload,
+  EvaluationMetadataResponse,
+  EvaluationTask,
+  TaskRunRequest
+} from "../types/task";
 
-const mockTasks: EvaluationTask[] = [
-  {
-    id: "eval-001",
-    name: "客服 Agent 基线评测",
-    description: "验证基础问答效果、时延和安全性。",
-    status: "completed",
-    createdAt: "2026-04-21 09:00",
-    updatedAt: "2026-04-21 10:15",
-    config: {
-      agentVersion: "v1.3.0",
-      dataset: "customer-support-v2",
-      evaluationMethods: ["面向结果", "显式指标", "效果维度"],
-      metrics: ["answer_correctness", "latency", "safety"],
-      strategy: "标准组合策略"
+const API_ROOT = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api";
+const HEALTH_ROOT = API_ROOT.replace(/\/api\/?$/, "");
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_ROOT}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {})
     },
-    scores: [
-      { name: "任务成功率", value: 86, trend: "up" },
-      { name: "平均响应时间", value: 72, trend: "stable" },
-      { name: "安全得分", value: 93, trend: "up" }
-    ]
-  },
-  {
-    id: "eval-002",
-    name: "工具调用链路评测",
-    description: "关注 Agent 推理过程与工具调用正确率。",
-    status: "running",
-    createdAt: "2026-04-22 08:30",
-    updatedAt: "2026-04-22 08:45",
-    config: {
-      agentVersion: "v1.4.0-rc1",
-      dataset: "tool-usage-benchmark",
-      evaluationMethods: ["面向过程", "模糊指标", "性能"],
-      metrics: ["tool_accuracy", "reasoning_quality", "token_usage"],
-      strategy: "过程+结果混合策略"
-    },
-    scores: [
-      { name: "工具调用正确率", value: 79, trend: "up" },
-      { name: "推理质量", value: 74, trend: "stable" },
-      { name: "Token 消耗效率", value: 68, trend: "down" }
-    ]
+    ...init
+  });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      detail = payload.detail ?? detail;
+    } catch {
+      detail = response.statusText;
+    }
+    throw new Error(detail || "请求失败");
   }
-];
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function fetchHealth(): Promise<{ status: string }> {
+  const response = await fetch(`${HEALTH_ROOT}/health`);
+  if (!response.ok) {
+    throw new Error("后端不可用");
+  }
+  return (await response.json()) as { status: string };
+}
 
 export async function fetchTasks(): Promise<EvaluationTask[]> {
-  return Promise.resolve(mockTasks);
+  return request<EvaluationTask[]>("/tasks/");
+}
+
+export async function createTask(payload: CreateTaskPayload): Promise<EvaluationTask> {
+  return request<EvaluationTask>("/tasks/", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function runTask(taskId: string, payload: TaskRunRequest): Promise<EvaluationTask> {
+  return request<EvaluationTask>(`/tasks/${taskId}/run`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteTask(taskId: string): Promise<void> {
+  await request(`/tasks/${taskId}`, { method: "DELETE" });
+}
+
+export async function fetchMetadata(): Promise<EvaluationMetadataResponse> {
+  return request<EvaluationMetadataResponse>("/metadata/evaluation-options");
+}
+
+export async function compareTasks(taskIds: string[]): Promise<ComparisonResponse> {
+  const query = new URLSearchParams();
+  taskIds.forEach((taskId) => query.append("task_ids", taskId));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request<ComparisonResponse>(`/analytics/compare${suffix}`);
 }
