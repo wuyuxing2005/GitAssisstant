@@ -1,4 +1,5 @@
 import type { EvaluationTask, MetricScore, RunMode } from "../types/task";
+import { formatDisplayTime } from "../utils/time";
 
 interface TaskDetailPageProps {
   task: EvaluationTask | null;
@@ -26,6 +27,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask }: TaskDetailPagePr
   const result = task.result;
   const snapshot = result?.current_state;
   const isBusy = busyTaskId === task.id;
+  const showSeparateError = !!result?.error_message && result.error_message !== result.summary;
 
   return (
     <section className="card">
@@ -118,11 +120,11 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask }: TaskDetailPagePr
             </div>
             <div>
               <dt>开始时间</dt>
-              <dd>{result?.started_at ? new Date(result.started_at).toLocaleString() : "-"}</dd>
+              <dd>{result?.started_at ? formatDisplayTime(result.started_at) : "-"}</dd>
             </div>
             <div>
               <dt>结束时间</dt>
-              <dd>{result?.finished_at ? new Date(result.finished_at).toLocaleString() : "-"}</dd>
+              <dd>{result?.finished_at ? formatDisplayTime(result.finished_at) : "-"}</dd>
             </div>
           </dl>
         </article>
@@ -131,7 +133,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask }: TaskDetailPagePr
         <article>
           <h3>执行摘要</h3>
           <p className="paragraph-block">{result?.summary ?? "尚未开始执行。"}</p>
-          {result?.error_message ? <p className="error-copy">{result.error_message}</p> : null}
+          {showSeparateError ? <p className="error-copy">{result.error_message}</p> : null}
           <h3>计划</h3>
           <ul className="bullet-list">
             {(snapshot?.plan ?? []).map((planItem, index) => (
@@ -172,7 +174,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask }: TaskDetailPagePr
             <article key={entry.id} className="timeline-item">
               <div className="timeline-meta">
                 <span className="timeline-node">{entry.node}</span>
-                <time>{new Date(entry.created_at).toLocaleString()}</time>
+                <time>{formatDisplayTime(entry.created_at)}</time>
               </div>
               <strong>{entry.title}</strong>
               {entry.content ? <pre>{entry.content}</pre> : <p className="muted-copy">无文本输出</p>}

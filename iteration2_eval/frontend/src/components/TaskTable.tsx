@@ -1,4 +1,5 @@
 import type { EvaluationTask, RunMode } from "../types/task";
+import { formatDisplayTime } from "../utils/time";
 
 interface TaskTableProps {
   tasks: EvaluationTask[];
@@ -102,7 +103,7 @@ export function TaskTable({
                     <span>-</span>
                   )}
                 </td>
-                <td>{new Date(task.updated_at).toLocaleString()}</td>
+                <td>{formatDisplayTime(task.updated_at)}</td>
                 <td>
                   <div className="action-row">
                     <button

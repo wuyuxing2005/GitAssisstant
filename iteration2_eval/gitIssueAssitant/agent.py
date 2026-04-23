@@ -12,15 +12,40 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage
 from .agent_state import AgentState
 from .tools.tools import AGENT_TOOLS
+
+
+def _get_env(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _validate_llm_settings(model_name: str, base_url: str | None) -> None:
+    if base_url and not re.match(r"^https?://", base_url):
+        raise RuntimeError(
+            "OPENAI_BASE_URL 配置无效，必须是 http:// 或 https:// 开头的接口地址，"
+            " 不能填写 API Key。"
+        )
+
+    if model_name == "hunyuan-lite" and not base_url:
+        raise RuntimeError(
+            "MODEL_NAME=hunyuan-lite 但未配置 OPENAI_BASE_URL。"
+            " 如果你使用 OpenAI 官方接口，请把 MODEL_NAME 改成可用的 OpenAI 模型；"
+            " 如果你使用兼容网关，请补充 OPENAI_BASE_URL。"
+        )
+
+
 class Agent:
-    def __init__(self, llm:ChatOpenAI, tools=AGENT_TOOLS):
+    def __init__(self, llm: ChatOpenAI, tools=AGENT_TOOLS):
         """
         llm: 基础的大模型实例 (如 ChatOpenAI)
         tools: 第二组提供的工具列表
         """
         # 纯净版模型，用于生成文本（规划、反思）
-        self.llm = llm 
-        
+        self.llm = llm
+
         # 武装版模型，给 LLM 绑定工具（用于 ReAct 执行）
         self.llm_with_tools = llm.bind_tools(tools)
 
@@ -46,6 +71,12 @@ class Agent:
                     "所有读写、搜索、测试工具默认都以当前 repo_root 为基准，不需要自己拼路径。"
                     "如需确认路径上下文，先调用 current_repo_info。"
                     "优先先阅读仓库和相关文件，再做修改，并在可能时运行测试验证。"
+                    "如果确认缺少文件，应优先直接调用 write_file 创建文件，而不是只给操作建议。"
+                    "完成修改后，不要立刻宣称成功；应继续检查仓库当前状态是否已经满足 issue 要求。"
+                    "例如 issue 说缺少 1.cpp，那么只有在仓库里实际存在 1.cpp 时才算成功。"
+                    "一旦你已经完成了实际文件修改（例如成功调用 write_file、replace_in_file 或 patch_file），"
+                    "你的下一条回复必须明确说明修改结果，并包含精确字样 'TASK_SUCCESS'。"
+                    "修改完成后不要继续输出泛泛而谈的建议、排查步骤或求助说明。"
                     "如果你认为修复已经完成，请在回复中包含 'TASK_SUCCESS'。"
                     "如果穷尽手段依然无法解决，请在回复中包含 'TASK_FAILED'。\n\n"
                     f"当前仓库根目录：{repo_path}\n"
@@ -71,16 +102,24 @@ class Agent:
         """
         response = await self.llm.ainvoke(prompt)
         return response.content
+
     async def chat(self, user_input):
         response = await self.llm.ainvoke(user_input)
         return response
 # 直接使用 LangChain 提供的 ChatOpenAI
 
+
 def LLM_factory():
+    model_name = _get_env("MODEL_NAME") or "hunyuan-lite"
+    api_key = _get_env("OPENAI_API_KEY")
+    base_url = _get_env("OPENAI_BASE_URL")
+
+    _validate_llm_settings(model_name, base_url)
+
     return ChatOpenAI(
-        model=os.getenv("MODEL_NAME", "hunyuan-lite"),
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL"),
+        model=model_name,
+        api_key=api_key,
+        base_url=base_url,
         temperature=0.1,
         max_tokens=2048
     )

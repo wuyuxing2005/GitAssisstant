@@ -1,4 +1,3 @@
-from datetime import datetime
 from uuid import uuid4
 
 from app.models.task import EvaluationTaskRecord
@@ -8,6 +7,7 @@ from app.schemas.task import (
     EvaluationTaskResponse,
     EvaluationTaskUpdate,
 )
+from app.utils.time import now_local
 
 
 class TaskService:
@@ -38,7 +38,7 @@ class TaskService:
         return self._to_response(task) if task else None
 
     def create_task(self, payload: EvaluationTaskCreate) -> EvaluationTaskResponse:
-        now = datetime.utcnow()
+        now = now_local()
         task = EvaluationTaskRecord(
             id=f"eval-{uuid4().hex[:8]}",
             name=payload.name,

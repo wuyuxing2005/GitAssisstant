@@ -1,6 +1,5 @@
-from datetime import datetime
-
 from app.models.task import EvaluationTaskRecord
+from app.utils.time import now_local
 
 
 class TaskRepository:
@@ -18,7 +17,7 @@ class TaskRepository:
         return self._tasks.get(task_id)
 
     def save(self, task: EvaluationTaskRecord) -> EvaluationTaskRecord:
-        task.updated_at = datetime.utcnow()
+        task.updated_at = now_local()
         self._tasks[task.id] = task
         return task
 

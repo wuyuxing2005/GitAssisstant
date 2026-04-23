@@ -23,8 +23,13 @@ from app.schemas.task import (
     ToolUsageItem,
 )
 from app.services.task_service import task_service
+from app.utils.time import now_local
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
+ENV_FILES = (
+    WORKSPACE_ROOT / "backend" / ".env",
+    WORKSPACE_ROOT / ".env",
+)
 EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
 TEST_TOOL_NAMES = {"run_pytest"}
 TERMINAL_TASK_STATUSES = {"completed", "failed"}
@@ -38,7 +43,7 @@ class AssistantRuntimeHandle:
 
 
 def _utcnow() -> datetime:
-    return datetime.utcnow()
+    return now_local()
 
 
 def _serialize_content(content: Any) -> str:
@@ -73,14 +78,18 @@ def _to_tool_call_records(tool_calls: list[dict[str, Any]]) -> list[ToolCallReco
     ]
 
 
+def _load_runtime_env() -> None:
+    from dotenv import load_dotenv
+
+    for env_file in ENV_FILES:
+        if env_file.exists():
+            load_dotenv(env_file, override=False)
+
+
 @lru_cache
 def _assistant_components() -> tuple[Any, Any, Any, Any]:
     if str(WORKSPACE_ROOT) not in sys.path:
         sys.path.insert(0, str(WORKSPACE_ROOT))
-
-    from dotenv import load_dotenv
-
-    load_dotenv(WORKSPACE_ROOT / ".env")
 
     from gitIssueAssitant.agent import Agent, LLM_factory
     from gitIssueAssitant.orchestrator import AgentOrchestrator
@@ -123,11 +132,17 @@ class EvaluationService:
             os.chdir(handle.manager.current_repo)
 
     def _build_runtime_sync(self, task: EvaluationTaskRecord) -> AssistantRuntimeHandle:
+        _load_runtime_env()
         Agent, AgentOrchestrator, SessionManager, LLM_factory = _assistant_components()
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise RuntimeError("缺少 OPENAI_API_KEY，无法启动 gitIssueAssitant。")
+            checked_paths = ", ".join(str(path) for path in ENV_FILES)
+            raise RuntimeError(
+                "缺少 OPENAI_API_KEY，无法启动 gitIssueAssitant。"
+                f" 已检查进程环境变量以及 {checked_paths}。"
+                " backend/.env.example 不会被自动加载。"
+            )
 
         os.environ["GIT_ISSUE_ASSISTANT_HOME"] = str(WORKSPACE_ROOT)
         original_model_name = os.getenv("MODEL_NAME")
@@ -144,11 +159,13 @@ class EvaluationService:
         agent = Agent(llm)
         orchestrator = AgentOrchestrator(agent)
         manager = SessionManager(orchestrator, workspace_root=WORKSPACE_ROOT)
-        manager.create_or_switch_session(task.config.repo_source, task.config.target_dir)
+        manager.create_or_switch_session(
+            task.config.repo_source, task.config.target_dir)
         manager.set_issue(task.config.issue_input)
         thread_id = manager.get_current_thread_id()
         config = {"configurable": {"thread_id": thread_id}}
-        orchestrator.graph.update_state(config, {"max_iterations": task.config.max_iterations})
+        orchestrator.graph.update_state(
+            config, {"max_iterations": task.config.max_iterations})
 
         return AssistantRuntimeHandle(
             orchestrator=orchestrator,
@@ -185,15 +202,18 @@ class EvaluationService:
         messages = state.get("messages") or []
         last_message = ""
         if messages:
-            last_message = _serialize_content(getattr(messages[-1], "content", ""))
+            last_message = _serialize_content(
+                getattr(messages[-1], "content", ""))
 
         return RuntimeSnapshot(
             thread_id=task.thread_id,
             repo_path=state.get("repo_path") or task.repo_path,
-            issue_description=state.get("issue_description") or task.config.issue_input,
+            issue_description=state.get(
+                "issue_description") or task.config.issue_input,
             status=str(state.get("status") or "INIT"),
             iteration_count=int(state.get("iteration_count") or 0),
-            max_iterations=int(state.get("max_iterations") or task.config.max_iterations),
+            max_iterations=int(state.get("max_iterations")
+                               or task.config.max_iterations),
             plan=[str(item) for item in (state.get("plan") or [])],
             reflexion_notes=str(state.get("reflexion_notes") or ""),
             last_message=last_message,
@@ -221,7 +241,8 @@ class EvaluationService:
             return f"{task.id}-event-{len(result.timeline) + 1}"
 
         if node_name == "planner":
-            plan_content = "\n".join(str(item) for item in (payload.get("plan") or []) if item)
+            plan_content = "\n".join(str(item) for item in (
+                payload.get("plan") or []) if item)
             result.timeline.append(
                 TimelineEntry(
                     id=next_id(),
@@ -244,7 +265,8 @@ class EvaluationService:
                     node="react",
                     event_type="assistant",
                     title="Agent 思考",
-                    content=_serialize_content(getattr(ai_message, "content", "")),
+                    content=_serialize_content(
+                        getattr(ai_message, "content", "")),
                     tool_calls=_to_tool_call_records(tool_calls),
                     created_at=created_at,
                 )
@@ -266,14 +288,16 @@ class EvaluationService:
 
         if node_name == "tools":
             for message in payload.get("messages") or []:
-                tool_name = getattr(message, "name", None) or getattr(message, "tool_call_id", None) or "tool"
+                tool_name = getattr(message, "name", None) or getattr(
+                    message, "tool_call_id", None) or "tool"
                 result.timeline.append(
                     TimelineEntry(
                         id=next_id(),
                         node="tools",
                         event_type="tool",
                         title=f"工具输出：{tool_name}",
-                        content=_serialize_content(getattr(message, "content", "")),
+                        content=_serialize_content(
+                            getattr(message, "content", "")),
                         created_at=created_at,
                     )
                 )
@@ -294,20 +318,22 @@ class EvaluationService:
         task: EvaluationTaskRecord,
         result: EvaluationResult,
     ) -> list[MetricScore]:
-        snapshot = result.current_state or RuntimeSnapshot(max_iterations=task.config.max_iterations)
+        snapshot = result.current_state or RuntimeSnapshot(
+            max_iterations=task.config.max_iterations)
         tool_usage = {item.name: item.count for item in result.tool_usage}
         duration_seconds = 0.0
         if task.started_at:
             end_time = task.finished_at or _utcnow()
-            duration_seconds = max((end_time - task.started_at).total_seconds(), 0.0)
+            duration_seconds = max(
+                (end_time - task.started_at).total_seconds(), 0.0)
 
         return [
             MetricScore(
                 name="success",
                 value=1.0 if task.status == "completed" else 0.0,
                 category="结果",
-                unit="布尔",
-                description="是否达到 TASK_SUCCESS 终态。",
+                unit=None,
+                description="1 表示成功，0 表示暂未成功。",
             ),
             MetricScore(
                 name="iteration_count",
@@ -325,14 +351,16 @@ class EvaluationService:
             ),
             MetricScore(
                 name="file_edit_count",
-                value=float(sum(tool_usage.get(name, 0) for name in EDIT_TOOL_NAMES)),
+                value=float(sum(tool_usage.get(name, 0)
+                            for name in EDIT_TOOL_NAMES)),
                 category="工具",
                 unit="次",
                 description="代码修改相关工具调用次数。",
             ),
             MetricScore(
                 name="test_run_count",
-                value=float(sum(tool_usage.get(name, 0) for name in TEST_TOOL_NAMES)),
+                value=float(sum(tool_usage.get(name, 0)
+                            for name in TEST_TOOL_NAMES)),
                 category="验证",
                 unit="次",
                 description="pytest 工具调用次数。",
@@ -353,7 +381,7 @@ class EvaluationService:
         result.logs_preview = [
             f"{entry.created_at.strftime('%H:%M:%S')} {entry.title}: "
             f"{(entry.content.splitlines()[0] if entry.content else '无输出')}"
-            for entry in result.timeline[-12:]
+            for entry in result.timeline
         ]
 
         if task.status == "completed":
@@ -428,7 +456,8 @@ class EvaluationService:
         if mode == "step":
             async for event in handle.orchestrator.graph.astream(None, config=config, stream_mode="updates"):
                 node_name = next(iter(event))
-                self._append_timeline_entries(task, node_name, event[node_name])
+                self._append_timeline_entries(
+                    task, node_name, event[node_name])
                 state = handle.orchestrator.graph.get_state(config).values
                 self._sync_state(task, state)
                 task_service.save_task_record(task)
@@ -436,7 +465,8 @@ class EvaluationService:
         else:
             async for event in handle.orchestrator.graph.astream(None, config=config, stream_mode="updates"):
                 node_name = next(iter(event))
-                self._append_timeline_entries(task, node_name, event[node_name])
+                self._append_timeline_entries(
+                    task, node_name, event[node_name])
                 state = handle.orchestrator.graph.get_state(config).values
                 self._sync_state(task, state)
                 task_service.save_task_record(task)
@@ -485,7 +515,8 @@ class EvaluationService:
             task.status = "scheduled"
             self._refresh_result(task)
             task_service.save_task_record(task)
-            self._background_jobs[task_id] = asyncio.create_task(self._execute(task_id, run_request))
+            self._background_jobs[task_id] = asyncio.create_task(
+                self._execute(task_id, run_request))
             return task
 
         await self._execute(task_id, run_request)
@@ -510,7 +541,8 @@ class EvaluationService:
 
     def compare(self, task_ids: list[str]) -> ComparisonResponse:
         tasks = task_service.list_tasks()
-        selected_ids = set(task_ids) if task_ids else {task.id for task in tasks}
+        selected_ids = set(task_ids) if task_ids else {
+            task.id for task in tasks}
         items: list[ComparisonItem] = []
         compared_metric_names: list[str] = []
 
@@ -520,7 +552,8 @@ class EvaluationService:
             result = task_response.result or self.get_result(task_response.id)
             if result is None:
                 continue
-            compared_metric_names.extend(metric.name for metric in result.metrics)
+            compared_metric_names.extend(
+                metric.name for metric in result.metrics)
             items.append(
                 ComparisonItem(
                     task_id=task_response.id,
