@@ -81,7 +81,7 @@ class Agent:
         )
 
     async def generate_plan(self, issue_description: str) -> str:
-        response = await self.llm.ainvoke(self._build_plan_prompt(issue_description))
+        response = await self.llm_with_tools.ainvoke(self._build_plan_prompt(issue_description))
         return response.content
 
     async def run_react(
@@ -114,7 +114,7 @@ class Agent:
             "下一步工具: ...\n"
             "下一步目的: ..."
         )
-        response = await self.llm.ainvoke(prompt)
+        response = await self.llm_with_tools.ainvoke(prompt)
         return response.content
 
     async def chat(self, user_input):
