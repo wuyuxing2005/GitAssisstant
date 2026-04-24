@@ -15,6 +15,19 @@ MAX_TOOL_OUTPUT_CHARS = 12000
 DEFAULT_READ_END_LINE = 200
 DEFAULT_LIST_LIMIT = 200
 DEFAULT_SEARCH_LIMIT = 100
+DEFAULT_IGNORED_DIR_NAMES = {
+    ".git",
+    ".hg",
+    ".svn",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "venv",
+    "node_modules",
+}
 
 
 def _workspace_root() -> Path:
@@ -48,6 +61,10 @@ def _truncate_output(text: str, limit: int = MAX_TOOL_OUTPUT_CHARS) -> str:
     if len(text) <= limit:
         return text
     return f"{text[:limit]}\n...<truncated>"
+
+
+def _is_ignored_path(path: Path) -> bool:
+    return any(part in DEFAULT_IGNORED_DIR_NAMES for part in path.parts)
 
 
 def _format_command_result(result: subprocess.CompletedProcess[str]) -> str:
@@ -108,7 +125,7 @@ def _list_files_impl(
 ) -> str:
     base_path = _resolve_workspace_path(path)
     iterator = base_path.rglob(file_glob) if recursive else base_path.glob(file_glob)
-    files = [item for item in iterator if item.is_file()]
+    files = [item for item in iterator if item.is_file() and not _is_ignored_path(item.relative_to(base_path))]
     files = sorted(files)[: max(1, int(limit))]
     if not files:
         return f"No files matched in {base_path}."
@@ -129,6 +146,8 @@ def _search_code_python_fallback(
 
     for file_path in sorted(base_path.rglob(file_glob)):
         if not file_path.is_file():
+            continue
+        if _is_ignored_path(file_path.relative_to(base_path)):
             continue
         try:
             with file_path.open("r", encoding="utf-8") as file:
@@ -156,7 +175,34 @@ def _search_code_impl(
     max_results = max(1, int(max_results))
 
     if shutil.which("rg"):
-        command = ["rg", "-n", "--no-heading", "--hidden", "--glob", file_glob, "--max-count", str(max_results)]
+        command = [
+            "rg",
+            "-n",
+            "--no-heading",
+            "--hidden",
+            "--glob",
+            file_glob,
+            "--glob",
+            "!.git/**",
+            "--glob",
+            "!__pycache__/**",
+            "--glob",
+            "!.pytest_cache/**",
+            "--glob",
+            "!.mypy_cache/**",
+            "--glob",
+            "!.ruff_cache/**",
+            "--glob",
+            "!.tox/**",
+            "--glob",
+            "!.venv/**",
+            "--glob",
+            "!venv/**",
+            "--glob",
+            "!node_modules/**",
+            "--max-count",
+            str(max_results),
+        ]
         if not case_sensitive:
             command.append("-i")
         command.extend([pattern, str(base_path)])
