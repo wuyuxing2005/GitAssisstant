@@ -349,6 +349,78 @@ def _git_diff_impl(repo_path: str = ".", staged: bool = False) -> str:
         command.append("--staged")
     return _run_command(command, cwd=resolved_repo_path, timeout=60)
 
+def _git_add_impl(file_paths: list[str] | str = ".") -> str:
+    """Add files to staging area."""
+    if shutil.which("git") is None:
+        return "Error: git is not installed or not available in PATH."
+    
+    # 处理参数
+    if isinstance(file_paths, list):
+        paths = file_paths
+    else:
+        paths = [file_paths]
+    
+    command = ["git", "add"] + paths
+    return _run_command(command, cwd=_repo_root(), timeout=30)
+
+def _git_commit_impl(message: str, all_changes: bool = True) -> str:
+    """Commit staged changes."""
+    if shutil.which("git") is None:
+        return "Error: git is not installed or not available in PATH."
+    
+    command = ["git", "commit"]
+    if all_changes:
+        command.append("-a")  # 自动暂存所有已跟踪文件的修改
+    command.extend(["-m", message])
+    
+    result = _run_command(command, cwd=_repo_root(), timeout=30)
+    
+    # 如果没有需要提交的内容，返回友好提示
+    if "nothing to commit" in result.lower():
+        return "Nothing to commit - working tree clean."
+    return result
+
+def _git_push_impl(
+    remote: str = "origin",
+    branch: str = "",
+    force: bool = False,
+    set_upstream: bool = False,
+    timeout_seconds: int = 120,
+) -> str:
+    """Push local commits to remote repository."""
+    if shutil.which("git") is None:
+        return "Error: git is not installed or not available in PATH."
+
+    if not branch:
+        # 获取当前分支
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True,
+                text=True,
+                cwd=str(_repo_root()),
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return f"Error: failed to get current branch: {result.stderr.strip()}"
+            branch = result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            return "Error: timed out while getting current branch."
+        except Exception as exc:
+            return f"Error: {exc}"
+
+    command = ["git", "push"]
+    
+    if force:
+        command.append("--force")
+    
+    command.append(remote)
+    command.append(branch)
+    
+    if set_upstream:
+        command.append("--set-upstream")
+    
+    return _run_command(command, timeout=timeout_seconds, cwd=_repo_root())
 
 @tool
 def list_files(
@@ -441,6 +513,48 @@ def current_repo_info() -> str:
     """Return the assistant root and the current repository root. Use this before path-sensitive operations if needed."""
     return _current_repo_info_impl()
 
+@tool
+def git_add(file_paths: str = ".") -> str:
+    """
+    Add files to staging area.
+    
+    Args:
+        file_paths: Space-separated file paths, or "." for all changes
+    """
+    paths = file_paths.split() if file_paths != "." else ["."]
+    return _git_add_impl(paths)
+
+@tool
+def git_commit(message: str) -> str:
+    """
+    Commit staged changes with a message.
+    
+    Args:
+        message: Commit message describing the changes
+    """
+    return _git_commit_impl(message)
+
+
+@tool
+def git_push(
+    remote: str = "origin",
+    branch: str = "",
+    force: bool = False,
+    set_upstream: bool = False,
+    timeout_seconds: int = 120,
+) -> str:
+    """
+    Push local commits to remote repository.
+    
+    Args:
+        remote: Remote name to push to (default: "origin")
+        branch: Branch name to push (default: current branch)
+        force: Force push, use with caution (default: False)
+        set_upstream: Set upstream for the branch (default: False)
+        timeout_seconds: Maximum execution time in seconds (default: 120)
+    """
+    return _git_push_impl(remote, branch, force, set_upstream, timeout_seconds)
+
 AGENT_TOOLS = [
     current_repo_info,
     list_files,
@@ -454,4 +568,7 @@ AGENT_TOOLS = [
     git_clone_repo,
     git_status,
     git_diff,
+    git_add,
+    git_commit,
+    git_push,
 ]

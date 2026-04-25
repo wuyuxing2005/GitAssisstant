@@ -33,6 +33,69 @@ class CLI:
             if content:
                 print(f"💬 最近输出: {content}")
 
+    async def _get_commit_plan_from_agent(self, state: dict, diff: str) -> dict | None:
+            """让 Agent 根据修改内容和 issue 决定提交方案"""
+            
+            import json
+            import re
+            
+            issue_description = state.get("issue_description", "")
+            modified_files = self._extract_modified_files_from_diff(diff)
+            
+            prompt = f"""你是 Git 提交助手。根据以下信息，决定应该提交哪些文件以及撰写 commit message。
+
+        ## 当前任务（Issue）
+        {issue_description}
+
+        ## 修改的文件列表
+        {chr(10).join(f'- {f}' for f in modified_files)}
+
+        ## 完整的修改内容（diff）
+        {diff[:2000]}
+
+        ## 请按照以下 JSON 格式输出（不要输出其他内容）：
+        ```json
+        {{
+            "files": ["file1.py", "file2.py"],
+            "message": "fix: 简要描述修复内容"
+        }}
+        ```
+        ## 规则：
+        只提交与修复直接相关的文件，排除自动生成的测试文件（除非 issue 要求添加测试）
+
+        commit message 使用中文，格式：fix: 修复了XXX问题
+
+        如果修改了多个文件，全部列入 files 数组
+
+        不要添加 pycache、.pytest_cache 等临时文件"""
+            try:
+                response = await self.orchestrator.agent.llm.ainvoke(prompt)
+                content = response.content.strip()
+                json_match = re.search(r'json\s*(\{.*?\})\s*', content, re.DOTALL)
+                if json_match:
+                    plan = json.loads(json_match.group(1))
+                else:
+                    plan = json.loads(content)
+                if "files" in plan and "message" in plan:
+                    return plan
+                else:
+                    print(f"❌ Agent 输出的提交方案格式不正确:{plan}")
+                    return None
+            except Exception as exc:
+                print(f"❌ 解析 Agent 提交方案失败: {exc}")
+                return None
+    
+    def _extract_modified_files_from_diff(self, diff: str) -> list[str]:
+        """从 diff 输出中提取修改的文件列表"""
+        import re
+        files = []
+        for line in diff.splitlines():
+            if line.startswith("diff --git a/"):
+                match = re.search(r'a/(.+?) b/', line)
+            if match:
+                files.append(match.group(1))
+        return files
+    
     async def handle_command(self, cmd: str):
         parts = shlex.split(cmd)
         command = parts[0]
@@ -70,6 +133,55 @@ class CLI:
                 thread_id = self.manager.get_current_thread_id()
                 verbose = any(flag in parts[1:] for flag in ["--verbose", "-v"])
                 final_state = await self.orchestrator.run_auto(thread_id, verbose=verbose)
+                # 求解完成后，展示 diff 并询问是否推送
+                if final_state.get("status") == "SUCCESS":
+                    repo_path = final_state.get("repo_path")
+                    from .tools.tools import _git_diff_impl, _git_push_impl, _git_add_impl, _git_commit_impl
+                    
+                    diff = _git_diff_impl(repo_path)
+                    if diff.strip():
+                        print("\n" + "="*60)
+                        print("📝 Agent 完成的修改内容：")
+                        print("="*60)
+                        print(diff)
+                        print("="*60)
+                        
+                        # 让 Agent 决定提交哪些文件和 commit message
+                        print("🤖 Agent 正在决定提交方案...")
+                        
+                        # 调用 Agent 生成提交计划
+                        commit_plan = await self._get_commit_plan_from_agent(
+                            final_state, 
+                            diff
+                        )
+                        
+                        if commit_plan:
+                            print(f"\n📦 Agent 建议提交的文件: {commit_plan['files']}")
+                            print(f"📝 Agent 建议的提交信息: {commit_plan['message']}")
+                            
+                            confirm = input("\n🔐 是否按照 Agent 的建议提交并推送？(y/n): ")
+                            if confirm.lower() == 'y':
+                                # 1. 添加文件
+                                add_result = _git_add_impl(commit_plan['files'])
+                                print(f"📦 添加结果:\n{add_result}")
+                                
+                                # 2. 提交
+                                commit_result = _git_commit_impl(commit_plan['message'])
+                                print(f"📝 提交结果:\n{commit_result}")
+                                
+                                # 3. 推送
+                                if "nothing to commit" not in commit_result.lower():
+                                    print("🚀 正在推送...")
+                                    push_result = _git_push_impl()
+                                    print(push_result)
+                                else:
+                                    print("⏭️ 没有新提交，跳过推送")
+                            else:
+                                print("⏭️ 已跳过提交和推送")
+                        else:
+                            print("❌ Agent 无法生成提交计划，请手动处理")
+                    else:
+                        print("📝 没有检测到文件修改")
                 print("✅ 自动求解结束。")
                 self._print_status(final_state or self.manager.get_current_state())
 
