@@ -1,44 +1,49 @@
 from datetime import datetime
 
-from app.models.task import EvaluationTaskRecord
-from app.schemas.task import EvaluationConfig
+from sqlalchemy.orm import Session
+
+from app.db.models import TaskORM
+from app.schemas.task import EvaluationConfig, EvaluationTaskResponse
+
+
+def _to_response(task: TaskORM) -> EvaluationTaskResponse:
+    return EvaluationTaskResponse(
+        id=task.id,
+        name=task.name,
+        description=task.description,
+        status=task.status,
+        config=EvaluationConfig.model_validate(task.config),
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+    )
 
 
 class TaskRepository:
-    def __init__(self) -> None:
-        self._tasks: dict[str, EvaluationTaskRecord] = {
-            "eval-001": EvaluationTaskRecord(
-                id="eval-001",
-                name="客服 Agent 基线评测",
-                description="验证基础问答效果、时延和安全性。",
-                status="completed",
-                config=EvaluationConfig(
-                    agent_version="v1.3.0",
-                    dataset="customer-support-v2",
-                    evaluation_modes=["面向结果"],
-                    evaluation_methods=["显式指标"],
-                    dimensions=["效果", "安全", "性能"],
-                    metrics=["answer_correctness", "latency", "safety"],
-                    strategy="标准组合策略",
-                ),
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-            )
-        }
+    def list(self, db: Session) -> list[EvaluationTaskResponse]:
+        tasks = db.query(TaskORM).order_by(TaskORM.updated_at.desc()).all()
+        return [_to_response(task) for task in tasks]
 
-    def list(self) -> list[EvaluationTaskRecord]:
-        return list(self._tasks.values())
+    def get(self, db: Session, task_id: str) -> EvaluationTaskResponse | None:
+        task = db.get(TaskORM, task_id)
+        return _to_response(task) if task else None
 
-    def get(self, task_id: str) -> EvaluationTaskRecord | None:
-        return self._tasks.get(task_id)
+    def get_model(self, db: Session, task_id: str) -> TaskORM | None:
+        return db.get(TaskORM, task_id)
 
-    def save(self, task: EvaluationTaskRecord) -> EvaluationTaskRecord:
+    def save(self, db: Session, task: TaskORM) -> EvaluationTaskResponse:
         task.updated_at = datetime.utcnow()
-        self._tasks[task.id] = task
-        return task
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        return _to_response(task)
 
-    def delete(self, task_id: str) -> bool:
-        return self._tasks.pop(task_id, None) is not None
+    def delete(self, db: Session, task_id: str) -> bool:
+        task = db.get(TaskORM, task_id)
+        if task is None:
+            return False
+        db.delete(task)
+        db.commit()
+        return True
 
 
 task_repository = TaskRepository()

@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import uuid4
 
-from app.models.task import EvaluationTaskRecord
+from sqlalchemy.orm import Session
+
+from app.db.models import TaskORM
 from app.repositories.task_repository import task_repository
 from app.schemas.task import (
     EvaluationTaskCreate,
@@ -11,42 +13,31 @@ from app.schemas.task import (
 
 
 class TaskService:
-    @staticmethod
-    def _to_response(task: EvaluationTaskRecord) -> EvaluationTaskResponse:
-        return EvaluationTaskResponse(
-            id=task.id,
-            name=task.name,
-            description=task.description,
-            status=task.status,
-            config=task.config,
-            created_at=task.created_at,
-            updated_at=task.updated_at,
-        )
+    def list_tasks(self, db: Session) -> list[EvaluationTaskResponse]:
+        return task_repository.list(db)
 
-    def list_tasks(self) -> list[EvaluationTaskResponse]:
-        return [self._to_response(task) for task in task_repository.list()]
+    def get_task(self, db: Session, task_id: str) -> EvaluationTaskResponse | None:
+        return task_repository.get(db, task_id)
 
-    def get_task(self, task_id: str) -> EvaluationTaskResponse | None:
-        task = task_repository.get(task_id)
-        return self._to_response(task) if task else None
-
-    def create_task(self, payload: EvaluationTaskCreate) -> EvaluationTaskResponse:
+    def create_task(
+        self, db: Session, payload: EvaluationTaskCreate
+    ) -> EvaluationTaskResponse:
         now = datetime.utcnow()
-        task = EvaluationTaskRecord(
+        task = TaskORM(
             id=f"eval-{uuid4().hex[:8]}",
             name=payload.name,
             description=payload.description,
-            status="draft",
-            config=payload.config,
+            status=payload.status,
+            config=payload.config.model_dump(mode="json"),
             created_at=now,
             updated_at=now,
         )
-        return self._to_response(task_repository.save(task))
+        return task_repository.save(db, task)
 
     def update_task(
-        self, task_id: str, payload: EvaluationTaskUpdate
+        self, db: Session, task_id: str, payload: EvaluationTaskUpdate
     ) -> EvaluationTaskResponse | None:
-        task = task_repository.get(task_id)
+        task = task_repository.get_model(db, task_id)
         if task is None:
             return None
 
@@ -57,12 +48,12 @@ class TaskService:
         if payload.status is not None:
             task.status = payload.status
         if payload.config is not None:
-            task.config = payload.config
+            task.config = payload.config.model_dump(mode="json")
 
-        return self._to_response(task_repository.save(task))
+        return task_repository.save(db, task)
 
-    def delete_task(self, task_id: str) -> bool:
-        return task_repository.delete(task_id)
+    def delete_task(self, db: Session, task_id: str) -> bool:
+        return task_repository.delete(db, task_id)
 
 
 task_service = TaskService()

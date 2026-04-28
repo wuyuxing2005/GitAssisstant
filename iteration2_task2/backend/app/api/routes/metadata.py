@@ -1,6 +1,10 @@
 from fastapi import APIRouter
 
-from app.schemas.task import EvaluationMetadataResponse
+from app.schemas.task import (
+    CustomMetricDefinition,
+    EvaluationMetadataResponse,
+    EvaluationStrategy,
+)
 
 router = APIRouter()
 
@@ -8,16 +12,118 @@ router = APIRouter()
 @router.get("/evaluation-options", response_model=EvaluationMetadataResponse)
 def get_evaluation_options() -> EvaluationMetadataResponse:
     return EvaluationMetadataResponse(
-        modes=["面向结果", "面向过程"],
-        methods=["显式指标", "模糊指标", "LLM-as-a-Judge"],
-        dimensions=["效果", "安全", "性能"],
-        builtin_metrics=[
-            "answer_correctness",
-            "faithfulness",
-            "latency",
-            "token_usage",
-            "tool_accuracy",
-            "safety",
+        modes=[
+            {"key": "result", "label": "Result-oriented"},
+            {"key": "process", "label": "Process-oriented"},
         ],
-        strategy_templates=["标准组合策略", "过程+结果混合策略", "安全优先策略"],
+        methods=[
+            {"key": "explicit", "label": "Explicit Metric"},
+            {"key": "judge", "label": "LLM-as-a-Judge"},
+        ],
+        dimensions=[
+            {"key": "quality", "label": "Quality"},
+            {"key": "safety", "label": "Safety"},
+            {"key": "performance", "label": "Performance"},
+        ],
+        builtin_metrics=[
+            CustomMetricDefinition(
+                key="answer_correctness",
+                label="Answer Correctness",
+                description="Result quality metric suitable for Ragas.",
+                dimension="quality",
+                method="judge",
+            ),
+            CustomMetricDefinition(
+                key="faithfulness",
+                label="Faithfulness",
+                description="Checks grounding against retrieved context.",
+                dimension="quality",
+                method="judge",
+            ),
+            CustomMetricDefinition(
+                key="task_success_rate",
+                label="Task Success Rate",
+                description="Explicit completion rate across the dataset.",
+                dimension="quality",
+                method="explicit",
+            ),
+            CustomMetricDefinition(
+                key="tool_accuracy",
+                label="Tool Accuracy",
+                description="Evaluates tool selection and argument correctness.",
+                dimension="quality",
+                method="explicit",
+            ),
+            CustomMetricDefinition(
+                key="reasoning_quality",
+                label="Reasoning Quality",
+                description="Judge score for intermediate reasoning quality.",
+                dimension="quality",
+                method="judge",
+            ),
+            CustomMetricDefinition(
+                key="hallucination_risk",
+                label="Hallucination Risk",
+                description="Judge score for hallucination severity.",
+                dimension="safety",
+                method="judge",
+            ),
+            CustomMetricDefinition(
+                key="safety",
+                label="Safety",
+                description="Judge score for unsafe or policy-violating output.",
+                dimension="safety",
+                method="judge",
+            ),
+            CustomMetricDefinition(
+                key="latency",
+                label="Latency",
+                description="Average full request latency.",
+                dimension="performance",
+                method="explicit",
+            ),
+            CustomMetricDefinition(
+                key="response_time",
+                label="Response Time",
+                description="Initial user-visible response time.",
+                dimension="performance",
+                method="explicit",
+            ),
+            CustomMetricDefinition(
+                key="token_usage",
+                label="Token Usage",
+                description="Average token usage per sample.",
+                dimension="performance",
+                method="explicit",
+            ),
+        ],
+        strategy_templates=[
+            EvaluationStrategy(
+                key="balanced-default",
+                label="Balanced Default",
+                description="Balanced evaluation across quality, safety, and performance.",
+                metric_keys=["answer_correctness", "safety", "latency"],
+                weights={"answer_correctness": 0.4, "safety": 0.35, "latency": 0.25},
+            ),
+            EvaluationStrategy(
+                key="trace-first",
+                label="Trace First",
+                description="Focus on reasoning trace and tool invocation quality.",
+                metric_keys=["tool_accuracy", "reasoning_quality", "token_usage"],
+                weights={
+                    "tool_accuracy": 0.4,
+                    "reasoning_quality": 0.35,
+                    "token_usage": 0.25,
+                },
+            ),
+            EvaluationStrategy(
+                key="safety-guardrail",
+                label="Safety Guardrail",
+                description="Safety-first strategy suitable for user-facing agents.",
+                metric_keys=["safety", "hallucination_risk", "response_time"],
+                weights={"safety": 0.45, "hallucination_risk": 0.35, "response_time": 0.2},
+            ),
+        ],
+        datasets=["customer-support-v2", "tool-usage-benchmark", "finance-qa-v1"],
+        agent_versions=["v1.3.0", "v1.4.0-rc1", "v2.0.0-beta"],
     )

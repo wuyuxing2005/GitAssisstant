@@ -1,8 +1,26 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: agent-eval-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agent_eval
+      POSTGRES_USER: agent_eval
+      POSTGRES_PASSWORD: agent_eval
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   backend:
     image: ${BACKEND_IMAGE}:${IMAGE_TAG}
     container_name: agent-eval-backend
     restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      AGENT_EVAL_DATABASE_URL: postgresql+psycopg://agent_eval:agent_eval@postgres:5432/agent_eval
+      AGENT_EVAL_RAGAS_ENABLED: "false"
     ports:
       - "8000:8000"
 
@@ -14,3 +32,6 @@ services:
       - backend
     ports:
       - "80:80"
+
+volumes:
+  postgres_data:

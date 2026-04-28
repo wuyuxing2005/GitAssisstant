@@ -4,16 +4,37 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 TaskStatus = Literal["draft", "scheduled", "running", "completed", "failed"]
+EvaluationMode = Literal["result", "process"]
+EvaluationMethod = Literal["explicit", "judge"]
+EvaluationDimension = Literal["quality", "safety", "performance"]
+
+
+class CustomMetricDefinition(BaseModel):
+    key: str = Field(..., description="Unique metric key")
+    label: str = Field(..., description="Display name")
+    description: str = Field(default="", description="Metric description")
+    dimension: EvaluationDimension = Field(..., description="Metric dimension")
+    method: EvaluationMethod = Field(..., description="Metric scoring method")
+    enabled: bool = Field(default=True, description="Whether the metric is enabled")
+
+
+class EvaluationStrategy(BaseModel):
+    key: str = Field(..., description="Strategy identifier")
+    label: str = Field(..., description="Strategy display name")
+    description: str = Field(default="", description="Strategy summary")
+    metric_keys: list[str] = Field(default_factory=list)
+    weights: dict[str, float] = Field(default_factory=dict)
 
 
 class EvaluationConfig(BaseModel):
-    agent_version: str = Field(..., description="待评测的 Agent 版本")
-    dataset: str = Field(..., description="评测数据集标识")
-    evaluation_modes: list[str] = Field(default_factory=list)
-    evaluation_methods: list[str] = Field(default_factory=list)
-    dimensions: list[str] = Field(default_factory=list)
-    metrics: list[str] = Field(default_factory=list)
-    strategy: str = Field(..., description="组合评估策略")
+    agent_version: str = Field(..., description="Target Agent version")
+    dataset: str = Field(..., description="Dataset identifier")
+    evaluation_modes: list[EvaluationMode] = Field(default_factory=list)
+    evaluation_methods: list[EvaluationMethod] = Field(default_factory=list)
+    dimensions: list[EvaluationDimension] = Field(default_factory=list)
+    builtin_metrics: list[str] = Field(default_factory=list)
+    custom_metrics: list[CustomMetricDefinition] = Field(default_factory=list)
+    strategy: EvaluationStrategy
 
 
 class EvaluationTaskBase(BaseModel):
@@ -23,7 +44,7 @@ class EvaluationTaskBase(BaseModel):
 
 
 class EvaluationTaskCreate(EvaluationTaskBase):
-    pass
+    status: TaskStatus = "draft"
 
 
 class EvaluationTaskUpdate(BaseModel):
@@ -41,15 +62,30 @@ class EvaluationTaskResponse(EvaluationTaskBase):
 
 
 class MetricScore(BaseModel):
-    name: str
+    key: str
+    label: str
     value: float
-    category: str
+    unit: str = "score"
+    category: EvaluationDimension
+    method: EvaluationMethod
+    source: Literal["builtin", "custom"] = "builtin"
+    description: str = ""
+
+
+class EvaluationTimelineEvent(BaseModel):
+    stage: str
+    status: Literal["pending", "running", "completed"]
+    message: str
 
 
 class EvaluationResult(BaseModel):
     task_id: str
+    task_name: str
     summary: str
+    status: TaskStatus
+    scorecard: dict[str, float]
     metrics: list[MetricScore]
+    timeline: list[EvaluationTimelineEvent]
     charts: list[str]
     logs_preview: list[str]
 
@@ -57,6 +93,10 @@ class EvaluationResult(BaseModel):
 class ComparisonItem(BaseModel):
     task_id: str
     task_name: str
+    agent_version: str
+    dataset: str
+    status: TaskStatus
+    scorecard: dict[str, float]
     scores: list[MetricScore]
 
 
@@ -66,8 +106,10 @@ class ComparisonResponse(BaseModel):
 
 
 class EvaluationMetadataResponse(BaseModel):
-    modes: list[str]
-    methods: list[str]
-    dimensions: list[str]
-    builtin_metrics: list[str]
-    strategy_templates: list[str]
+    modes: list[dict[str, str]]
+    methods: list[dict[str, str]]
+    dimensions: list[dict[str, str]]
+    builtin_metrics: list[CustomMetricDefinition]
+    strategy_templates: list[EvaluationStrategy]
+    datasets: list[str]
+    agent_versions: list[str]

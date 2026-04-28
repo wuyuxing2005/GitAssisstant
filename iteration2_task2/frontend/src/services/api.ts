@@ -1,48 +1,71 @@
-import type { EvaluationTask } from "../types/task";
+import type {
+  ComparisonResponse,
+  EvaluationMetadata,
+  EvaluationResult,
+  EvaluationTask,
+  EvaluationTaskCreatePayload,
+  TaskStatus
+} from "../types/task";
 
-const mockTasks: EvaluationTask[] = [
-  {
-    id: "eval-001",
-    name: "客服 Agent 基线评测",
-    description: "验证基础问答效果、时延和安全性。",
-    status: "completed",
-    createdAt: "2026-04-21 09:00",
-    updatedAt: "2026-04-21 10:15",
-    config: {
-      agentVersion: "v1.3.0",
-      dataset: "customer-support-v2",
-      evaluationMethods: ["面向结果", "显式指标", "效果维度"],
-      metrics: ["answer_correctness", "latency", "safety"],
-      strategy: "标准组合策略"
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api";
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {})
     },
-    scores: [
-      { name: "任务成功率", value: 86, trend: "up" },
-      { name: "平均响应时间", value: 72, trend: "stable" },
-      { name: "安全得分", value: 93, trend: "up" }
-    ]
-  },
-  {
-    id: "eval-002",
-    name: "工具调用链路评测",
-    description: "关注 Agent 推理过程与工具调用正确率。",
-    status: "running",
-    createdAt: "2026-04-22 08:30",
-    updatedAt: "2026-04-22 08:45",
-    config: {
-      agentVersion: "v1.4.0-rc1",
-      dataset: "tool-usage-benchmark",
-      evaluationMethods: ["面向过程", "模糊指标", "性能"],
-      metrics: ["tool_accuracy", "reasoning_quality", "token_usage"],
-      strategy: "过程+结果混合策略"
-    },
-    scores: [
-      { name: "工具调用正确率", value: 79, trend: "up" },
-      { name: "推理质量", value: 74, trend: "stable" },
-      { name: "Token 消耗效率", value: 68, trend: "down" }
-    ]
+    ...init
+  });
+
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status}`);
   }
-];
 
-export async function fetchTasks(): Promise<EvaluationTask[]> {
-  return Promise.resolve(mockTasks);
+  return response.json() as Promise<T>;
+}
+
+export function fetchTasks(): Promise<EvaluationTask[]> {
+  return request<EvaluationTask[]>("/tasks/");
+}
+
+export function createTask(payload: EvaluationTaskCreatePayload): Promise<EvaluationTask> {
+  return request<EvaluationTask>("/tasks/", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateTaskStatus(taskId: string, status: TaskStatus): Promise<EvaluationTask> {
+  return request<EvaluationTask>(`/tasks/${taskId}`, {
+    method: "PUT",
+    body: JSON.stringify({ status })
+  });
+}
+
+export function deleteTask(taskId: string): Promise<{ message: string }> {
+  return request<{ message: string }>(`/tasks/${taskId}`, {
+    method: "DELETE"
+  });
+}
+
+export function runTask(taskId: string): Promise<EvaluationResult> {
+  return request<EvaluationResult>(`/tasks/${taskId}/run`, {
+    method: "POST"
+  });
+}
+
+export function fetchTaskResult(taskId: string): Promise<EvaluationResult> {
+  return request<EvaluationResult>(`/tasks/${taskId}/results`);
+}
+
+export function fetchComparison(taskIds: string[]): Promise<ComparisonResponse> {
+  const query = new URLSearchParams();
+  taskIds.forEach((taskId) => query.append("task_ids", taskId));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request<ComparisonResponse>(`/analytics/compare${suffix}`);
+}
+
+export function fetchEvaluationMetadata(): Promise<EvaluationMetadata> {
+  return request<EvaluationMetadata>("/metadata/evaluation-options");
 }
