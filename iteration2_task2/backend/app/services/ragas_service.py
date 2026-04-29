@@ -10,8 +10,36 @@ settings = get_settings()
 
 
 class RagasService:
-    def is_enabled(self) -> bool:
-        return settings.ragas_enabled
+    def _create_llm(self):
+        """创建 LLM 实例，支持 OpenAI 兼容接口（DeepSeek、GLM 等）"""
+        from langchain_openai import ChatOpenAI
+
+        llm = ChatOpenAI(
+            model=settings.ragas_llm_model,
+            api_key=settings.ragas_llm_api_key,
+            base_url=settings.ragas_llm_base_url,
+        )
+        return llm
+
+    def _create_embeddings(self):
+        """创建 Embedding 实例，支持 OpenAI 兼容接口或本地模型"""
+        from langchain_openai import OpenAIEmbeddings
+
+        # 如果是 OpenAI 兼容接口
+        if settings.ragas_embedding_api_key:
+            embeddings = OpenAIEmbeddings(
+                model=settings.ragas_embedding_model,
+                api_key=settings.ragas_embedding_api_key,
+                base_url=settings.ragas_embedding_base_url,
+            )
+        else:
+            # 使用 OpenAI 兼容接口配置作为 fallback
+            embeddings = OpenAIEmbeddings(
+                model=settings.ragas_embedding_model,
+                api_key=settings.ragas_llm_api_key,
+                base_url=settings.ragas_llm_base_url,
+            )
+        return embeddings
 
     def evaluate_task(self, task: EvaluationTaskResponse) -> list[dict[str, Any]]:
         """
@@ -31,9 +59,6 @@ class RagasService:
         - tool_calls
         - rubrics
         """
-        if not self.is_enabled():
-            raise RuntimeError("Ragas integration is disabled.")
-
         dataset_path = Path(settings.ragas_dataset_dir) / f"{task.config.dataset}.jsonl"
         if not dataset_path.exists():
             raise FileNotFoundError(f"Ragas dataset not found: {dataset_path}")
@@ -44,28 +69,28 @@ class RagasService:
             from ragas.embeddings import LangchainEmbeddingsWrapper
             from ragas.llms import LangchainLLMWrapper
             from ragas.metrics import (
-                AgentGoalAccuracy,
-                FactualCorrectness,
-                Faithfulness,
-                SemanticSimilarity,
-                ToolCallAccuracy,
+                _Faithfulness as Faithfulness,
+                _FactualCorrectness as FactualCorrectness,
+                _SemanticSimilarity as SemanticSimilarity,
+                _ToolCallAccuracy as ToolCallAccuracy,
+            )
+            from ragas.metrics._goal_accuracy import (
+                AgentGoalAccuracyWithReference as AgentGoalAccuracy,
             )
         except ImportError as exc:
             raise RuntimeError(
                 "Ragas dependencies are missing. Install backend extras for ragas execution."
             ) from exc
 
-        llm = LangchainLLMWrapper(ChatOpenAI(model=settings.ragas_llm_model))
-        embeddings = LangchainEmbeddingsWrapper(
-            OpenAIEmbeddings(model=settings.ragas_embedding_model)
-        )
+        llm = LangchainLLMWrapper(self._create_llm())
+        embeddings = LangchainEmbeddingsWrapper(self._create_embeddings())
         dataset = EvaluationDataset.from_jsonl(str(dataset_path))
 
         metric_map = {
             "faithfulness": Faithfulness(llm=llm),
             "answer_correctness": FactualCorrectness(llm=llm),
             "semantic_similarity": SemanticSimilarity(embeddings=embeddings),
-            "tool_accuracy": ToolCallAccuracy(llm=llm),
+            "tool_accuracy": ToolCallAccuracy(),
             "task_success_rate": AgentGoalAccuracy(llm=llm),
         }
         metrics = [metric_map[key] for key in task.config.builtin_metrics if key in metric_map]

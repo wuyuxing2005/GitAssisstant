@@ -8,3 +8,4 @@ repos
 frontend/dist/
 backend/.venv/
 deploy/.env
+backend/*.egg-info/

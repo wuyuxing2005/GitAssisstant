@@ -12,9 +12,14 @@ dependencies = [
     "psycopg[binary]>=3.2.3",
     "uvicorn[standard]>=0.30.6",
     "ragas>=0.2.0",
-    "langchain-openai>=0.2.14"
+    "langchain-openai>=0.2.14",
+    "langchain-community>=0.3.0",
 ]
 
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["data*"]
