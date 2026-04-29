@@ -128,10 +128,15 @@ def LLM_factory():
 
     _validate_llm_settings(model_name, base_url)
 
+    llm_kwargs = {}
+    if "deepseek" in model_name.lower() or (base_url and "deepseek" in base_url.lower()):
+        llm_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+
     return ChatOpenAI(
         model=model_name,
         api_key=api_key,
         base_url=base_url,
         temperature=0.1,
         max_tokens=2048,
+        **llm_kwargs,
     )
