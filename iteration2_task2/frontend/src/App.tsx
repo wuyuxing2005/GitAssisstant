@@ -1,4 +1,15 @@
 import { useEffect, useState } from "react";
+import {
+  LayoutDashboard,
+  PlusSquare,
+  Search,
+  Scale,
+  Files,
+  Zap,
+  CheckCircle,
+  XCircle,
+  Info
+} from "lucide-react";
 
 import { ComparisonPanel } from "./components/ComparisonPanel";
 import { TaskForm } from "./components/TaskForm";
@@ -22,6 +33,22 @@ import type {
   EvaluationTaskCreatePayload
 } from "./types/task";
 
+type ActivePage = "dashboard" | "builder" | "detail" | "compare" | "datasets";
+
+interface NavItem {
+  id: ActivePage;
+  label: string;
+  icon: string;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { id: "dashboard", label: "Dashboard", icon: "layout-dashboard" },
+  { id: "builder", label: "Task Builder", icon: "plus-square" },
+  { id: "detail", label: "Analysis", icon: "search" },
+  { id: "compare", label: "Comparison", icon: "scale" },
+  { id: "datasets", label: "Datasets", icon: "files" },
+];
+
 export default function App() {
   const [tasks, setTasks] = useState<EvaluationTask[]>([]);
   const [metadata, setMetadata] = useState<EvaluationMetadata | null>(null);
@@ -33,6 +60,23 @@ export default function App() {
   const [datasetKey, setDatasetKey] = useState(0);
   const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [activePage, setActivePage] = useState<ActivePage>("dashboard");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: "success" | "error" | "info" }>>([]);
+
+  // 添加 toast 通知
+  const addToast = (message: string, type: "success" | "error" | "info" = "info") => {
+    const id = Date.now().toString();
+    const iconMap = {
+      success: <CheckCircle size={18} />,
+      error: <XCircle size={18} />,
+      info: <Info size={18} />
+    };
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  };
 
   async function loadTasks() {
     const nextTasks = await fetchTasks();
@@ -41,16 +85,19 @@ export default function App() {
   }
 
   useEffect(() => {
-    Promise.all([loadTasks(), fetchEvaluationMetadata().then(setMetadata)]).catch((err) =>
-      setError(err instanceof Error ? err.message : "Failed to load")
-    );
+    Promise.all([loadTasks(), fetchEvaluationMetadata().then(setMetadata)]).catch((err) => {
+      const errorMsg = err instanceof Error ? err.message : "Failed to load";
+      setError(errorMsg);
+      addToast(errorMsg, "error");
+    });
   }, []);
 
   useEffect(() => {
     if (datasetKey > 0) {
-      fetchEvaluationMetadata().then(setMetadata).catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to refresh metadata")
-      );
+      fetchEvaluationMetadata().then(setMetadata).catch((err) => {
+        const errorMsg = err instanceof Error ? err.message : "Failed to refresh metadata";
+        addToast(errorMsg, "error");
+      });
     }
   }, [datasetKey]);
 
@@ -60,8 +107,12 @@ export default function App() {
     }
 
     fetchTaskResult(selectedTaskId)
-      .then((result) => setResultMap((current) => ({ ...current, [selectedTaskId]: result })))
-      .catch(() => undefined);
+      .then((result) => {
+        setResultMap((current) => ({ ...current, [selectedTaskId]: result }));
+      })
+      .catch(() => {
+        // Silent fail for result loading
+      });
   }, [selectedTaskId]);
 
   useEffect(() => {
@@ -72,14 +123,25 @@ export default function App() {
 
     fetchComparison(selectedCompareIds)
       .then(setComparison)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to compare"));
+      .catch((err) => {
+        const errorMsg = err instanceof Error ? err.message : "Failed to compare";
+        setError(errorMsg);
+        addToast(errorMsg, "error");
+      });
   }, [selectedCompareIds]);
 
   async function handleCreateTask(payload: EvaluationTaskCreatePayload) {
-    const created = await createTask(payload);
-    setTasks((current) => [created, ...current]);
-    setSelectedTaskId(created.id);
-    setDatasetKey((key) => key + 1);
+    try {
+      const created = await createTask(payload);
+      setTasks((current) => [created, ...current]);
+      setSelectedTaskId(created.id);
+      setDatasetKey((key) => key + 1);
+      addToast("Task created successfully", "success");
+      setActivePage("dashboard");
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to create task";
+      addToast(errorMsg, "error");
+    }
   }
 
   async function handleRunTask(taskId: string) {
@@ -90,20 +152,21 @@ export default function App() {
       setResultMap((current) => ({ ...current, [taskId]: result }));
       await loadTasks();
       setSelectedTaskId(taskId);
+      addToast("Task completed successfully", "success");
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Failed to run task";
       setRunError(errorMsg);
+      addToast(errorMsg, "error");
       console.error("Run task error:", err);
     } finally {
       setRunningTaskId(null);
     }
   }
 
-  // 定时轮询运行中的任务状态 - 只在有任务运行时才轮询
+  // 定时轮询运行中的任务状态
   useEffect(() => {
     const hasRunningTask = tasks.some((t) => t.status === "running");
 
-    // 如果没有正在运行的任务，不进行轮询
     if (!hasRunningTask && !runningTaskId) {
       return;
     }
@@ -111,31 +174,43 @@ export default function App() {
     const pollInterval = setInterval(async () => {
       const currentTasks = await fetchTasks();
 
-      // 如果有任务状态变化，更新列表
       const tasksChanged = tasks.length !== currentTasks.length ||
         tasks.some((t, i) => t.status !== currentTasks[i]?.status);
 
       if (tasksChanged) {
         setTasks(currentTasks);
+
+        // 检查是否有任务刚完成
+        const completedTask = currentTasks.find(
+          (t, i) => tasks[i]?.status === "running" && t.status === "completed"
+        );
+        if (completedTask) {
+          addToast(`Task "${completedTask.name}" completed`, "success");
+        }
       }
 
-      // 如果之前有手动触发的运行任务，检查是否已完成
       if (runningTaskId) {
         const targetTask = currentTasks.find((t) => t.id === runningTaskId);
         if (targetTask && targetTask.status !== "running") {
           setRunningTaskId(null);
         }
       }
-    }, 2000); // 每 2 秒轮询一次
+    }, 2000);
 
     return () => clearInterval(pollInterval);
   }, [tasks, runningTaskId]);
 
   async function handleDeleteTask(taskId: string) {
-    await deleteTask(taskId);
-    setTasks((current) => current.filter((task) => task.id !== taskId));
-    setSelectedCompareIds((current) => current.filter((id) => id !== taskId));
-    setSelectedTaskId((current) => (current === taskId ? undefined : current));
+    try {
+      await deleteTask(taskId);
+      setTasks((current) => current.filter((task) => task.id !== taskId));
+      setSelectedCompareIds((current) => current.filter((id) => id !== taskId));
+      setSelectedTaskId((current) => (current === taskId ? undefined : current));
+      addToast("Task deleted successfully", "success");
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to delete task";
+      addToast(errorMsg, "error");
+    }
   }
 
   function handleToggleCompare(taskId: string) {
@@ -148,69 +223,141 @@ export default function App() {
   const selectedResult = selectedTaskId ? resultMap[selectedTaskId] : undefined;
 
   if (!metadata) {
-    return <div className="loading-screen">Loading platform metadata...</div>;
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner-large">
+          <div className="spinner"></div>
+          <p>Loading platform...</p>
+        </div>
+      </div>
+    );
   }
 
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <h1>Agent Evaluation Platform</h1>
-        <nav>
-          <a href="#dashboard">Tasks</a>
-          <a href="#builder">Task Builder</a>
-          <a href="#detail">Single Analysis</a>
-          <a href="#compare">Comparison</a>
-          <a href="#datasets">Datasets</a>
-        </nav>
-      </aside>
-      <main className="content">
-        <header className="hero card">
-          <div>
-            <p className="eyebrow">Iteration 2 / Runnable Scaffold</p>
-            <h2>Task management, execution, custom metrics, and comparison are wired end-to-end.</h2>
-            <p>
-              The current version uses FastAPI in-memory persistence plus simulated evaluation results,
-              with clear extension points for Ragas execution and trace-based process evaluation.
-            </p>
-          </div>
-          <div className="hero-tags">
-            <span>Result + Process</span>
-            <span>Explicit + Judge</span>
-            <span>Quality / Safety / Performance</span>
-          </div>
-        </header>
-
-        {error ? <div className="error-banner">{error}</div> : null}
-
-        <section id="dashboard">
+  const renderPage = () => {
+    switch (activePage) {
+      case "dashboard":
+        return (
           <DashboardPage
             tasks={tasks}
             selectedTaskId={selectedTaskId}
             selectedCompareIds={selectedCompareIds}
-            onSelectTask={setSelectedTaskId}
+            onSelectTask={(id) => {
+              setSelectedTaskId(id);
+              setActivePage("detail");
+            }}
             onToggleCompare={handleToggleCompare}
             onRunTask={(taskId) => void handleRunTask(taskId)}
             onDeleteTask={(taskId) => void handleDeleteTask(taskId)}
             runningTaskId={runningTaskId}
             runError={runError}
           />
-        </section>
+        );
+      case "builder":
+        return <TaskForm metadata={metadata} tasks={tasks} onSubmit={handleCreateTask} datasetRefreshKey={datasetKey} />;
+      case "detail":
+        return <TaskDetailPage task={selectedTask} result={selectedResult} />;
+      case "compare":
+        return <ComparisonPanel comparison={comparison} />;
+      case "datasets":
+        return <DatasetsPage key={datasetKey} onDatasetUpdated={() => setDatasetKey((key) => key + 1)} />;
+      default:
+        return null;
+    }
+  };
 
-        <section id="builder">
-          <TaskForm metadata={metadata} tasks={tasks} onSubmit={handleCreateTask} datasetRefreshKey={datasetKey} />
-        </section>
+  return (
+    <div className="app-shell">
+      {/* Toast Notifications */}
+      <div className="toast-container">
+        {toasts.map((toast) => {
+          const iconMap = {
+            success: <CheckCircle size={18} />,
+            error: <XCircle size={18} />,
+            info: <Info size={18} />
+          };
+          return (
+            <div key={toast.id} className={`toast toast-${toast.type}`}>
+              <span className="toast-icon">{iconMap[toast.type]}</span>
+              <span className="toast-message">{toast.message}</span>
+            </div>
+          );
+        })}
+      </div>
 
-        <section id="detail">
-          <TaskDetailPage task={selectedTask} result={selectedResult} />
-        </section>
+      {/* Error Banner */}
+      {error && (
+        <div className="error-banner-fixed">
+          <span>{error}</span>
+          <button className="btn-close" onClick={() => setError(undefined)}>×</button>
+        </div>
+      )}
 
-        <section id="compare">
-          <ComparisonPanel comparison={comparison} />
-        </section>
+      {/* Sidebar */}
+      <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
+        <div className="sidebar-header">
+          <div className="logo">
+            <span className="logo-icon"><Zap size={24} /></span>
+            {!sidebarCollapsed && <span className="logo-text">AgentEval</span>}
+          </div>
+          <button
+            className="collapse-btn"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed ? "→" : "←"}
+          </button>
+        </div>
 
-        <section id="datasets">
-          <DatasetsPage key={datasetKey} onDatasetUpdated={() => setDatasetKey((key) => key + 1)} />
-        </section>
+        <nav className="sidebar-nav">
+          {NAV_ITEMS.map((item) => {
+            const iconMap: Record<string, JSX.Element> = {
+              "layout-dashboard": <LayoutDashboard size={20} />,
+              "plus-square": <PlusSquare size={20} />,
+              "search": <Search size={20} />,
+              "scale": <Scale size={20} />,
+              "files": <Files size={20} />
+            };
+            return (
+              <button
+                key={item.id}
+                className={`nav-item ${activePage === item.id ? "active" : ""}`}
+                onClick={() => setActivePage(item.id)}
+                title={sidebarCollapsed ? item.label : undefined}
+              >
+                <span className="nav-icon">{iconMap[item.icon]}</span>
+                {!sidebarCollapsed && <span className="nav-label">{item.label}</span>}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="sidebar-footer">
+          {!sidebarCollapsed && (
+            <div className="sidebar-info">
+              <p>Version 2.0</p>
+              <p className="sidebar-info-muted">Phase 3 Complete</p>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="content">
+        <header className="content-header">
+          <div className="content-title">
+            <h1>{NAV_ITEMS.find((item) => item.id === activePage)?.label || "Dashboard"}</h1>
+          </div>
+          <div className="content-actions">
+            <div className="status-indicator">
+              <span className="status-dot"></span>
+              <span>System Online</span>
+            </div>
+          </div>
+        </header>
+
+        <div className={`page-content ${activePage}`}>
+          {renderPage()}
+        </div>
       </main>
     </div>
   );

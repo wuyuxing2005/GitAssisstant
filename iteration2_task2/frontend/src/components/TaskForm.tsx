@@ -7,6 +7,7 @@ import type {
   MetricDefinition,
   TaskStatus
 } from "../types/task";
+import { PromptEditor } from "./PromptEditor";
 
 interface TaskFormProps {
   metadata: EvaluationMetadata;
@@ -262,62 +263,76 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
                 >
                   ×
                 </button>
-                <input
-                  placeholder="metric_key"
-                  value={metric.key}
-                  onChange={(event) => {
-                    const next = [...customMetrics];
-                    next[index] = { ...metric, key: event.target.value };
-                    setCustomMetrics(next);
-                  }}
-                />
-                <input
-                  placeholder="Metric label"
-                  value={metric.label}
-                  onChange={(event) => {
-                    const next = [...customMetrics];
-                    next[index] = { ...metric, label: event.target.value };
-                    setCustomMetrics(next);
-                  }}
-                />
-                <select
-                  value={metric.dimension}
-                  onChange={(event) => {
-                    const next = [...customMetrics];
-                    next[index] = { ...metric, dimension: event.target.value as MetricDefinition["dimension"] };
-                    setCustomMetrics(next);
-                  }}
-                >
-                  {metadata.dimensions.map((item) => (
-                    <option key={item.key} value={item.key}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={metric.method}
-                  onChange={(event) => {
-                    const next = [...customMetrics];
-                    next[index] = { ...metric, method: event.target.value as MetricDefinition["method"] };
-                    setCustomMetrics(next);
-                  }}
-                >
-                  {metadata.methods.map((item) => (
-                    <option key={item.key} value={item.key}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <textarea
-                  placeholder="Description"
-                  value={metric.description}
-                  onChange={(event) => {
-                    const next = [...customMetrics];
-                    next[index] = { ...metric, description: event.target.value };
-                    setCustomMetrics(next);
-                  }}
-                  rows={2}
-                />
+                <div className="custom-metric-fields">
+                  <input
+                    placeholder="metric_key"
+                    value={metric.key}
+                    onChange={(event) => {
+                      const next = [...customMetrics];
+                      next[index] = { ...metric, key: event.target.value };
+                      setCustomMetrics(next);
+                    }}
+                  />
+                  <input
+                    placeholder="Metric label"
+                    value={metric.label}
+                    onChange={(event) => {
+                      const next = [...customMetrics];
+                      next[index] = { ...metric, label: event.target.value };
+                      setCustomMetrics(next);
+                    }}
+                  />
+                  <select
+                    value={metric.dimension}
+                    onChange={(event) => {
+                      const next = [...customMetrics];
+                      next[index] = { ...metric, dimension: event.target.value as MetricDefinition["dimension"] };
+                      setCustomMetrics(next);
+                    }}
+                  >
+                    {metadata.dimensions.map((item) => (
+                      <option key={item.key} value={item.key}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={metric.method}
+                    onChange={(event) => {
+                      const next = [...customMetrics];
+                      next[index] = { ...metric, method: event.target.value as MetricDefinition["method"] };
+                      setCustomMetrics(next);
+                    }}
+                  >
+                    {metadata.methods.map((item) => (
+                      <option key={item.key} value={item.key}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    placeholder="Description"
+                    value={metric.description}
+                    onChange={(event) => {
+                      const next = [...customMetrics];
+                      next[index] = { ...metric, description: event.target.value };
+                      setCustomMetrics(next);
+                    }}
+                    rows={2}
+                  />
+                </div>
+                {metric.method === "judge" && (
+                  <div className="prompt-editor-wrapper">
+                    <PromptEditor
+                      metric={metric}
+                      onChange={(updatedMetric) => {
+                        const next = [...customMetrics];
+                        next[index] = updatedMetric;
+                        setCustomMetrics(next);
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             ))}
           </div>

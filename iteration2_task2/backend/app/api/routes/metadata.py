@@ -8,6 +8,7 @@ from app.schemas.task import (
     EvaluationStrategy,
 )
 from app.core.config import get_settings
+from app.services.judge_prompts import get_available_templates
 
 router = APIRouter()
 
@@ -140,3 +141,9 @@ def get_evaluation_options(db: Session = Depends(get_db)) -> EvaluationMetadataR
         datasets=datasets,
         agent_versions=["v1.3.0", "v1.4.0-rc1", "v2.0.0-beta"],
     )
+
+
+@router.get("/judge-prompts")
+def get_judge_prompts() -> list[dict]:
+    """获取所有可用的 Judge 提示词模板"""
+    return get_available_templates()

@@ -149,3 +149,29 @@ export function deleteDataset(name: string): Promise<{ message: string }> {
     method: "DELETE"
   });
 }
+
+// Report API
+export function exportReport(taskId: string, format: "json" | "md" = "json"): Promise<Blob> {
+  return fetch(`${API_BASE}/reports/${taskId}?format=${format}`, {
+    method: "GET"
+  }).then(async (response) => {
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || errorData.message || `Export failed: ${response.status}`);
+    }
+    return response.blob();
+  });
+}
+
+export function downloadReport(taskId: string, format: "json" | "md" = "json"): void {
+  exportReport(taskId, format).then((blob) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${taskId}_report.${format === "md" ? "md" : "json"}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  }).catch(console.error);
+}

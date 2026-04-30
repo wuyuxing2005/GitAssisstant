@@ -16,6 +16,7 @@ class CustomMetricDefinition(BaseModel):
     dimension: EvaluationDimension = Field(..., description="Metric dimension")
     method: EvaluationMethod = Field(..., description="Metric scoring method")
     enabled: bool = Field(default=True, description="Whether the metric is enabled")
+    judge_prompt: dict[str, str] | None = Field(default=None, description="Judge 方法的自定义提示词配置")
 
 
 class EvaluationStrategy(BaseModel):

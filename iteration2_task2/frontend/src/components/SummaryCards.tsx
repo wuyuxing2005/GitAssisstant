@@ -1,3 +1,5 @@
+import { Clipboard, Play, CheckCircle, Settings } from "lucide-react";
+
 interface SummaryCardsProps {
   total: number;
   running: number;
@@ -6,10 +8,38 @@ interface SummaryCardsProps {
 }
 
 const cardItems = [
-  { key: "total", label: "Tasks", hint: "All evaluation tasks" },
-  { key: "running", label: "Running", hint: "Currently executing" },
-  { key: "completed", label: "Completed", hint: "Finished runs" },
-  { key: "customMetrics", label: "Custom Metrics", hint: "Configured extensions" }
+  {
+    key: "total",
+    label: "Total Tasks",
+    hint: "All evaluation tasks",
+    icon: Clipboard,
+    gradient: "linear-gradient(135deg, rgba(249, 115, 22, 0.1), rgba(202, 91, 39, 0.05))",
+    color: "#ca5b27"
+  },
+  {
+    key: "running",
+    label: "Running",
+    hint: "Currently executing",
+    icon: Play,
+    gradient: "linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.05))",
+    color: "#2563eb"
+  },
+  {
+    key: "completed",
+    label: "Completed",
+    hint: "Finished runs",
+    icon: CheckCircle,
+    gradient: "linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(22, 163, 74, 0.05))",
+    color: "#16a34a"
+  },
+  {
+    key: "customMetrics",
+    label: "Custom Metrics",
+    hint: "Configured extensions",
+    icon: Settings,
+    gradient: "linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(147, 51, 234, 0.05))",
+    color: "#9333ea"
+  }
 ] as const;
 
 export function SummaryCards(props: SummaryCardsProps) {
@@ -22,13 +52,32 @@ export function SummaryCards(props: SummaryCardsProps) {
 
   return (
     <section className="summary-grid">
-      {cardItems.map((item) => (
-        <article key={item.key} className="card metric-card">
-          <span className="card-label">{item.label}</span>
-          <strong className="card-value">{valueMap[item.key]}</strong>
-          <small className="card-hint">{item.hint}</small>
-        </article>
-      ))}
+      {cardItems.map((item) => {
+        const value = valueMap[item.key];
+        const isActive = item.key === "running" && value > 0;
+        const IconComponent = item.icon;
+
+        return (
+          <article
+            key={item.key}
+            className={`card metric-card ${isActive ? "active" : ""}`}
+            style={{
+              background: item.gradient,
+              borderColor: `${item.color}20`,
+            }}
+          >
+            <div className="metric-card-header">
+              <span className="metric-card-icon"><IconComponent size={24} /></span>
+              {isActive && <span className="metric-card-pulse"></span>}
+            </div>
+            <span className="card-label">{item.label}</span>
+            <strong className="card-value" style={{ color: item.color }}>
+              {value}
+            </strong>
+            <small className="card-hint">{item.hint}</small>
+          </article>
+        );
+      })}
     </section>
   );
 }

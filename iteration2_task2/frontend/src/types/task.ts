@@ -15,6 +15,11 @@ export interface MetricDefinition {
   dimension: EvaluationDimension;
   method: EvaluationMethod;
   enabled: boolean;
+  judge_prompt?: {
+    template_key?: string;
+    custom_prompt?: string;
+    criteria?: Record<string, string>;
+  };
 }
 
 export interface EvaluationStrategy {
