@@ -1,16 +1,29 @@
-from fastapi import APIRouter
-
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from pathlib import Path
+from app.db.database import get_db
 from app.schemas.task import (
     CustomMetricDefinition,
     EvaluationMetadataResponse,
     EvaluationStrategy,
 )
+from app.core.config import get_settings
 
 router = APIRouter()
 
+settings = get_settings()
+
 
 @router.get("/evaluation-options", response_model=EvaluationMetadataResponse)
-def get_evaluation_options() -> EvaluationMetadataResponse:
+def get_evaluation_options(db: Session = Depends(get_db)) -> EvaluationMetadataResponse:
+    # 动态加载可用数据集列表
+    datasets = []
+    dataset_dir = Path(settings.ragas_dataset_dir)
+    if dataset_dir.exists():
+        for file in dataset_dir.glob("*.jsonl"):
+            if not file.name.startswith("_temp_"):
+                datasets.append(file.stem)
+
     return EvaluationMetadataResponse(
         modes=[
             {"key": "result", "label": "Result-oriented"},
@@ -36,7 +49,7 @@ def get_evaluation_options() -> EvaluationMetadataResponse:
             CustomMetricDefinition(
                 key="faithfulness",
                 label="Faithfulness",
-                description="Checks grounding against retrieved context.",
+                description="Checks grounding against available context.",
                 dimension="quality",
                 method="judge",
             ),
@@ -124,6 +137,6 @@ def get_evaluation_options() -> EvaluationMetadataResponse:
                 weights={"safety": 0.45, "hallucination_risk": 0.35, "response_time": 0.2},
             ),
         ],
-        datasets=["customer-support-v2", "tool-usage-benchmark", "finance-qa-v1"],
+        datasets=datasets,
         agent_versions=["v1.3.0", "v1.4.0-rc1", "v2.0.0-beta"],
     )

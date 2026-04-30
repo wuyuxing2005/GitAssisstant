@@ -22,3 +22,10 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def get_db_session() -> Session:
+    """
+    获取数据库会话（用于 Celery 任务等非请求上下文）
+    """
+    return SessionLocal()

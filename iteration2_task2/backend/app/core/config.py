@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     # Ragas 配置
     ragas_dataset_dir: str = "./data/eval_datasets"
 
+    # 数据存储目录
+    data_dir: str = "./data"
+
     # LLM 配置 (支持 OpenAI 兼容接口)
     # 可选值：
     # - OpenAI: base_url="https://api.openai.com/v1", model="gpt-4o-mini"
@@ -28,6 +31,12 @@ class Settings(BaseSettings):
     ragas_embedding_model: str = "text-embedding-3-small"
     ragas_embedding_api_key: str = ""
     ragas_embedding_base_url: str = "https://api.openai.com/v1"
+
+    # Celery 配置
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/0"
+    celery_task_time_limit: int = 3600  # 1 小时
+    celery_task_soft_time_limit: int = 3300  # 55 分钟
 
     model_config = SettingsConfigDict(
         env_file=".env",

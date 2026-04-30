@@ -1,6 +1,7 @@
 """
 评测服务 - 基于 Ragas 的 Agent 评测服务
 """
+import json
 import math
 
 from sqlalchemy.orm import Session
@@ -16,6 +17,8 @@ from app.schemas.task import (
     EvaluationTaskResponse,
 )
 from app.services.ragas_service import ragas_service
+from app.services.process_evaluation_service import process_evaluation_service
+from app.services.trace_loader import trace_loader
 
 
 # 内置指标定义
@@ -135,9 +138,9 @@ class EvaluationService:
 
         # 2. 如果启用了过程评测，添加过程指标
         if "process" in task.config.evaluation_modes:
-            process_metrics = self._get_process_metrics_stub(task)
+            process_metrics, process_logs = self._compute_process_metrics(task)
             metrics.extend(process_metrics)
-            logs_preview.append("Process evaluation metrics added (simulated)")
+            logs_preview.extend(process_logs)
 
         # 3. 添加自定义指标
         custom_metrics = self._compute_custom_metrics(task)
@@ -242,31 +245,121 @@ class EvaluationService:
 
         return metrics, logs
 
-    def _get_process_metrics_stub(self, task: EvaluationTaskResponse) -> list[MetricScore]:
-        """获取过程评测指标（当前为模拟值，后续将接入真实 trace 分析）"""
+    def _compute_process_metrics(
+        self, task: EvaluationTaskResponse
+    ) -> tuple[list[MetricScore], list[str]]:
+        """获取过程评测指标（使用真实 trace 数据）"""
+        logs: list[str] = []
         metrics: list[MetricScore] = []
 
-        # 当接入真实 Agent trace 后，这里将调用 process_evaluation_service
-        process_metrics = {
-            "tool_accuracy": ("Tool Accuracy", 0.85),
-            "reasoning_quality": ("Reasoning Quality", 0.78),
-            "process_completeness": ("Process Completeness", 0.92),
+        # 加载 trace 数据
+        traces = trace_loader.get_traces_by_task(task_id=task.id)
+
+        if not traces:
+            logs.append("Warning: No trace data found for process evaluation")
+            # 尝试从数据集加载参考数据
+            logs.append("Attempting to load reference data from dataset...")
+            return self._compute_process_metrics_from_dataset(task, logs)
+
+        logs.append(f"Loaded {len(traces)} traces for process evaluation")
+
+        # 准备参考数据（从数据集加载）
+        reference_data = self._load_reference_data_for_task(task)
+
+        # 使用 ProcessEvaluationService 进行评估
+        process_scores = process_evaluation_service.evaluate_task_traces(
+            task=task,
+            traces=traces,
+            reference_data=reference_data,
+        )
+
+        # 将分数转换为 MetricScore 对象
+        process_metrics_config = {
+            "tool_accuracy": ("Tool Accuracy", "quality", "Tool call accuracy based on trace analysis."),
+            "reasoning_quality": ("Reasoning Quality", "quality", "Reasoning quality score from trace analysis."),
+            "process_completeness": ("Process Completeness", "quality", "Process completeness score from trace analysis."),
         }
 
-        for key, (label, value) in process_metrics.items():
+        for key, (label, category, description) in process_metrics_config.items():
+            value = process_scores.get(key, 0.0)
             metrics.append(
                 MetricScore(
                     key=key,
                     label=label,
-                    value=value,
+                    value=round(value, 4),
                     unit="score",
-                    category="quality",
+                    category=category,
                     method="explicit",
-                    description=f"Process evaluation metric for {label}.",
+                    description=description,
                 )
             )
+            logs.append(f"Process metric '{key}' computed: {value:.4f}")
 
-        return metrics
+        return metrics, logs
+
+    def _compute_process_metrics_from_dataset(
+        self, task: EvaluationTaskResponse, logs: list[str]
+    ) -> tuple[list[MetricScore], list[str]]:
+        """从数据集参考数据计算过程指标（fallback 方案）"""
+        metrics: list[MetricScore] = []
+
+        # 尝试从 ragas 结果中获取过程指标
+        reference_data = self._load_reference_data_for_task(task)
+
+        if reference_data:
+            # 如果有参考数据，计算基于参考的过程指标
+            process_scores = process_evaluation_service.evaluate_task_traces(
+                task=task,
+                traces=[],
+                reference_data=reference_data,
+            )
+
+            process_metrics_config = {
+                "tool_accuracy": ("Tool Accuracy", "quality", "Tool call accuracy based on reference data."),
+                "reasoning_quality": ("Reasoning Quality", "quality", "Reasoning quality score estimated from reference."),
+                "process_completeness": ("Process Completeness", "quality", "Process completeness score estimated from reference."),
+            }
+
+            for key, (label, category, description) in process_metrics_config.items():
+                value = process_scores.get(key, 0.0)
+                metrics.append(
+                    MetricScore(
+                        key=key,
+                        label=label,
+                        value=round(value, 4),
+                        unit="score",
+                        category=category,
+                        method="explicit",
+                        description=description,
+                    )
+                )
+                logs.append(f"Process metric '{key}' computed from reference: {value:.4f}")
+        else:
+            logs.append("No reference data available for process evaluation")
+
+        return metrics, logs
+
+    def _load_reference_data_for_task(self, task: EvaluationTaskResponse) -> list[dict]:
+        """加载任务的参考数据（从数据集）"""
+        from pathlib import Path
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        dataset_path = Path(settings.ragas_dataset_dir) / f"{task.config.dataset}.jsonl"
+
+        if not dataset_path.exists():
+            return []
+
+        reference_data = []
+        try:
+            with open(dataset_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        reference_data.append(json.loads(line))
+        except Exception as e:
+            print(f"Failed to load reference data: {e}")
+
+        return reference_data
 
     def _compute_custom_metrics(self, task: EvaluationTaskResponse) -> list[MetricScore]:
         """计算自定义指标"""
