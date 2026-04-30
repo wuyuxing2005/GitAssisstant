@@ -12,6 +12,7 @@ interface TaskFormProps {
   metadata: EvaluationMetadata;
   tasks: EvaluationTask[];
   onSubmit: (payload: EvaluationTaskCreatePayload) => Promise<void>;
+  datasetRefreshKey?: number;
 }
 
 function buildCustomMetric(): MetricDefinition {
@@ -25,7 +26,7 @@ function buildCustomMetric(): MetricDefinition {
   };
 }
 
-export function TaskForm({ metadata, tasks, onSubmit }: TaskFormProps) {
+export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskFormProps) {
   const defaultStrategy = metadata.strategy_templates[0];
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -46,6 +47,10 @@ export function TaskForm({ metadata, tasks, onSubmit }: TaskFormProps) {
       setBuiltinMetrics(defaultStrategy.metric_keys);
     }
   }, [defaultStrategy, strategyKey]);
+
+  useEffect(() => {
+    setDataset(metadata.datasets[0] ?? "");
+  }, [datasetRefreshKey, metadata.datasets]);
 
   const selectedStrategy =
     metadata.strategy_templates.find((item) => item.key === strategyKey) ?? defaultStrategy;
@@ -145,8 +150,9 @@ export function TaskForm({ metadata, tasks, onSubmit }: TaskFormProps) {
                 <button
                   key={item.key}
                   type="button"
-                  className={modes.includes(item.key) ? "chip active" : "chip"}
+                  className={`chip ${modes.includes(item.key) ? "active" : ""}`}
                   onClick={() => setModes(toggleValue(modes, item.key))}
+                  title={item.label}
                 >
                   {item.label}
                 </button>
@@ -160,8 +166,9 @@ export function TaskForm({ metadata, tasks, onSubmit }: TaskFormProps) {
                 <button
                   key={item.key}
                   type="button"
-                  className={methods.includes(item.key) ? "chip active" : "chip"}
+                  className={`chip ${methods.includes(item.key) ? "active" : ""}`}
                   onClick={() => setMethods(toggleValue(methods, item.key))}
+                  title={item.label}
                 >
                   {item.label}
                 </button>
@@ -175,8 +182,9 @@ export function TaskForm({ metadata, tasks, onSubmit }: TaskFormProps) {
                 <button
                   key={item.key}
                   type="button"
-                  className={dimensions.includes(item.key) ? "chip active" : "chip"}
+                  className={`chip ${dimensions.includes(item.key) ? "active" : ""}`}
                   onClick={() => setDimensions(toggleValue(dimensions, item.key))}
+                  title={item.label}
                 >
                   {item.label}
                 </button>
@@ -209,17 +217,20 @@ export function TaskForm({ metadata, tasks, onSubmit }: TaskFormProps) {
         <div className="metric-picker">
           <h3>Built-in Metrics</h3>
           <div className="metric-list">
-            {metadata.builtin_metrics.map((metric) => (
-              <label key={metric.key} className="metric-option">
-                <input
-                  type="checkbox"
-                  checked={builtinMetrics.includes(metric.key)}
-                  onChange={() => setBuiltinMetrics(toggleValue(builtinMetrics, metric.key))}
-                />
-                <span>{metric.label}</span>
-                <small>{metric.dimension} / {metric.method}</small>
-              </label>
-            ))}
+            {metadata.builtin_metrics.map((metric) => {
+              const isSelected = builtinMetrics.includes(metric.key);
+              return (
+                <button
+                  key={metric.key}
+                  type="button"
+                  className={`metric-card-btn ${isSelected ? "selected" : ""}`}
+                  onClick={() => setBuiltinMetrics(toggleValue(builtinMetrics, metric.key))}
+                >
+                  <span className="metric-card-label">{metric.label}</span>
+                  <small className="metric-card-meta">{metric.dimension} / {metric.method}</small>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -240,6 +251,17 @@ export function TaskForm({ metadata, tasks, onSubmit }: TaskFormProps) {
           <div className="custom-metric-list">
             {customMetrics.map((metric, index) => (
               <div key={`${metric.key}-${index}`} className="custom-metric-card">
+                <button
+                  type="button"
+                  className="remove-metric-btn"
+                  onClick={() => {
+                    const next = customMetrics.filter((_, i) => i !== index);
+                    setCustomMetrics(next);
+                  }}
+                  title="Remove this metric"
+                >
+                  ×
+                </button>
                 <input
                   placeholder="metric_key"
                   value={metric.key}

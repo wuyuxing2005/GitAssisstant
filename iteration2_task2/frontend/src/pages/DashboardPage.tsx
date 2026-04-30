@@ -1,6 +1,6 @@
 import { SummaryCards } from "../components/SummaryCards";
 import { TaskTable } from "../components/TaskTable";
-import type { EvaluationTask, TaskStatus } from "../types/task";
+import type { EvaluationTask } from "../types/task";
 
 interface DashboardPageProps {
   tasks: EvaluationTask[];
@@ -9,8 +9,9 @@ interface DashboardPageProps {
   onSelectTask: (taskId: string) => void;
   onToggleCompare: (taskId: string) => void;
   onRunTask: (taskId: string) => void;
-  onChangeStatus: (taskId: string, status: TaskStatus) => void;
   onDeleteTask: (taskId: string) => void;
+  runningTaskId?: string | null;
+  runError?: string | null;
 }
 
 export function DashboardPage(props: DashboardPageProps) {
@@ -29,6 +30,11 @@ export function DashboardPage(props: DashboardPageProps) {
         completed={completed}
         customMetrics={customMetrics}
       />
+      {props.runError && (
+        <div className="error-banner" style={{ marginBottom: '16px' }}>
+          {props.runError}
+        </div>
+      )}
       <TaskTable
         tasks={props.tasks}
         selectedTaskId={props.selectedTaskId}
@@ -36,8 +42,8 @@ export function DashboardPage(props: DashboardPageProps) {
         onSelectTask={props.onSelectTask}
         onToggleCompare={props.onToggleCompare}
         onRunTask={props.onRunTask}
-        onChangeStatus={props.onChangeStatus}
         onDeleteTask={props.onDeleteTask}
+        runningTaskId={props.runningTaskId}
       />
     </div>
   );

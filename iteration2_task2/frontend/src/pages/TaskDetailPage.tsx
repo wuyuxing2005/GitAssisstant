@@ -1,4 +1,5 @@
 import type { EvaluationResult, EvaluationTask } from "../types/task";
+import { TraceViewer } from "../components/TraceViewer";
 
 interface TaskDetailPageProps {
   task?: EvaluationTask;
@@ -78,6 +79,14 @@ export function TaskDetailPage({ task, result }: TaskDetailPageProps) {
               </div>
             </article>
           </div>
+          {task && (
+            <div className="detail-grid">
+              <article className="detail-card" style={{ gridColumn: "1 / -1" }}>
+                <h3>Execution Traces</h3>
+                <TraceViewer taskId={task.id} />
+              </article>
+            </div>
+          )}
         </>
       )}
     </section>

@@ -9,18 +9,17 @@ import {
   fetchEvaluationMetadata,
   fetchTaskResult,
   fetchTasks,
-  runTask,
-  updateTaskStatus
+  runTask
 } from "./services/api";
 import { DashboardPage } from "./pages/DashboardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
+import { DatasetsPage } from "./pages/DatasetsPage";
 import type {
   ComparisonResponse,
   EvaluationMetadata,
   EvaluationResult,
   EvaluationTask,
-  EvaluationTaskCreatePayload,
-  TaskStatus
+  EvaluationTaskCreatePayload
 } from "./types/task";
 
 export default function App() {
@@ -31,6 +30,9 @@ export default function App() {
   const [resultMap, setResultMap] = useState<Record<string, EvaluationResult>>({});
   const [comparison, setComparison] = useState<ComparisonResponse>();
   const [error, setError] = useState<string>();
+  const [datasetKey, setDatasetKey] = useState(0);
+  const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
 
   async function loadTasks() {
     const nextTasks = await fetchTasks();
@@ -43,6 +45,14 @@ export default function App() {
       setError(err instanceof Error ? err.message : "Failed to load")
     );
   }, []);
+
+  useEffect(() => {
+    if (datasetKey > 0) {
+      fetchEvaluationMetadata().then(setMetadata).catch((err) =>
+        setError(err instanceof Error ? err.message : "Failed to refresh metadata")
+      );
+    }
+  }, [datasetKey]);
 
   useEffect(() => {
     if (!selectedTaskId) {
@@ -69,19 +79,57 @@ export default function App() {
     const created = await createTask(payload);
     setTasks((current) => [created, ...current]);
     setSelectedTaskId(created.id);
+    setDatasetKey((key) => key + 1);
   }
 
   async function handleRunTask(taskId: string) {
-    const result = await runTask(taskId);
-    setResultMap((current) => ({ ...current, [taskId]: result }));
-    await loadTasks();
-    setSelectedTaskId(taskId);
+    setRunningTaskId(taskId);
+    setRunError(null);
+    try {
+      const result = await runTask(taskId);
+      setResultMap((current) => ({ ...current, [taskId]: result }));
+      await loadTasks();
+      setSelectedTaskId(taskId);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to run task";
+      setRunError(errorMsg);
+      console.error("Run task error:", err);
+    } finally {
+      setRunningTaskId(null);
+    }
   }
 
-  async function handleChangeStatus(taskId: string, status: TaskStatus) {
-    const updated = await updateTaskStatus(taskId, status);
-    setTasks((current) => current.map((task) => (task.id === taskId ? updated : task)));
-  }
+  // 定时轮询运行中的任务状态 - 只在有任务运行时才轮询
+  useEffect(() => {
+    const hasRunningTask = tasks.some((t) => t.status === "running");
+
+    // 如果没有正在运行的任务，不进行轮询
+    if (!hasRunningTask && !runningTaskId) {
+      return;
+    }
+
+    const pollInterval = setInterval(async () => {
+      const currentTasks = await fetchTasks();
+
+      // 如果有任务状态变化，更新列表
+      const tasksChanged = tasks.length !== currentTasks.length ||
+        tasks.some((t, i) => t.status !== currentTasks[i]?.status);
+
+      if (tasksChanged) {
+        setTasks(currentTasks);
+      }
+
+      // 如果之前有手动触发的运行任务，检查是否已完成
+      if (runningTaskId) {
+        const targetTask = currentTasks.find((t) => t.id === runningTaskId);
+        if (targetTask && targetTask.status !== "running") {
+          setRunningTaskId(null);
+        }
+      }
+    }, 2000); // 每 2 秒轮询一次
+
+    return () => clearInterval(pollInterval);
+  }, [tasks, runningTaskId]);
 
   async function handleDeleteTask(taskId: string) {
     await deleteTask(taskId);
@@ -112,6 +160,7 @@ export default function App() {
           <a href="#builder">Task Builder</a>
           <a href="#detail">Single Analysis</a>
           <a href="#compare">Comparison</a>
+          <a href="#datasets">Datasets</a>
         </nav>
       </aside>
       <main className="content">
@@ -141,13 +190,14 @@ export default function App() {
             onSelectTask={setSelectedTaskId}
             onToggleCompare={handleToggleCompare}
             onRunTask={(taskId) => void handleRunTask(taskId)}
-            onChangeStatus={(taskId, status) => void handleChangeStatus(taskId, status)}
             onDeleteTask={(taskId) => void handleDeleteTask(taskId)}
+            runningTaskId={runningTaskId}
+            runError={runError}
           />
         </section>
 
         <section id="builder">
-          <TaskForm metadata={metadata} tasks={tasks} onSubmit={handleCreateTask} />
+          <TaskForm metadata={metadata} tasks={tasks} onSubmit={handleCreateTask} datasetRefreshKey={datasetKey} />
         </section>
 
         <section id="detail">
@@ -156,6 +206,10 @@ export default function App() {
 
         <section id="compare">
           <ComparisonPanel comparison={comparison} />
+        </section>
+
+        <section id="datasets">
+          <DatasetsPage key={datasetKey} onDatasetUpdated={() => setDatasetKey((key) => key + 1)} />
         </section>
       </main>
     </div>

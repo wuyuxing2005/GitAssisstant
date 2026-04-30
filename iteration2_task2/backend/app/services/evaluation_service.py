@@ -111,13 +111,14 @@ class EvaluationService:
         try:
             result = self._build_result(db, task_id)
             task.status = "completed"
+            task_repository.save(db, task)
+            return result_repository.upsert(db, result)
         except Exception as e:
             task.status = "failed"
             task_repository.save(db, task)
+            # 记录详细错误日志
+            print(f"Task {task_id} failed: {str(e)}")
             raise e
-
-        task_repository.save(db, task)
-        return result_repository.upsert(db, result)
 
     def _build_result(self, db: Session, task_id: str) -> EvaluationResult:
         """构建评测结果"""
@@ -178,53 +179,63 @@ class EvaluationService:
 
         ragas_rows = ragas_service.evaluate_task(task)
         logs.append(f"Ragas evaluation completed with {len(ragas_rows)} samples")
+        logs.append(f"Ragas columns available: {list(ragas_rows[0].keys()) if ragas_rows else 'none'}")
 
-        # 检查是否有有效数据
-        valid_columns_found = False
-        metric_columns = {
-            "faithfulness": "faithfulness",
-            "answer_correctness": "answer_correctness"
-            if "answer_correctness" in ragas_rows[0]
-            else "factual_correctness",
-            "semantic_similarity": "semantic_similarity",
-        }
+        # 1. 提取 answer_correctness / factual_correctness
+        # Ragas 可能返回不同格式的列名：factual_correctness, factual_correctness(mode=f1), answer_correctness 等
+        answer_correctness_col = None
+        possible_columns = ["answer_correctness", "factual_correctness"]
 
-        for metric_key, column_name in metric_columns.items():
-            if column_name in ragas_rows[0]:
-                values = [
-                    row.get(column_name)
-                    for row in ragas_rows
-                    if row.get(column_name) is not None
-                    and not math.isnan(row.get(column_name))
-                ]
-                if values:
-                    valid_columns_found = True
-                    avg_value = sum(values) / len(values)
-                    definition = BUILTIN_METRIC_LIBRARY.get(metric_key, {})
-                    metrics.append(
-                        MetricScore(
-                            key=metric_key,
-                            label=definition.get("label", metric_key.replace("_", " ").title()),
-                            value=round(avg_value, 4),
-                            unit="score",
-                            category=definition.get("category", "quality"),
-                            method=definition.get("method", "judge"),
-                            description=definition.get(
-                                "description", f"Ragas {metric_key} metric"
-                            ),
-                        )
+        # 首先精确匹配
+        for col in possible_columns:
+            if col in ragas_rows[0]:
+                answer_correctness_col = col
+                break
+
+        # 如果没有精确匹配，查找包含 factual_correctness 的列（如 factual_correctness(mode=f1)）
+        if not answer_correctness_col:
+            for col in ragas_rows[0].keys():
+                if "factual_correctness" in col or "answer_correctness" in col:
+                    answer_correctness_col = col
+                    break
+
+        if answer_correctness_col:
+            values = [
+                row.get(answer_correctness_col)
+                for row in ragas_rows
+                if row.get(answer_correctness_col) is not None
+                and not math.isnan(row.get(answer_correctness_col))
+            ]
+            if values:
+                avg_value = sum(values) / len(values)
+                metrics.append(
+                    MetricScore(
+                        key="answer_correctness",
+                        label="Answer Correctness",
+                        value=round(avg_value, 4),
+                        unit="score",
+                        category="quality",
+                        method="judge",
+                        description="Ragas answer correctness metric",
                     )
-                    logs.append(f"Metric '{metric_key}' computed: {avg_value:.4f}")
-                else:
-                    logs.append(f"Warning: No valid values for metric '{metric_key}' (all NaN or null)")
+                )
+                logs.append(f"Metric 'answer_correctness' computed: {avg_value:.4f} (from column: {answer_correctness_col})")
+            else:
+                logs.append(f"Warning: No valid values for answer_correctness")
 
-        # 从 Ragas 结果中提取性能指标
-        if "latency" in ragas_rows[0]:
+        # 2. 提取 latency（查找所有可能的列名格式）
+        latency_col = None
+        for col in ragas_rows[0].keys():
+            if "latency" in col.lower():
+                latency_col = col
+                break
+
+        if latency_col:
             latencies = [
-                r["latency"] for r in ragas_rows
-                if "latency" in r
-                and r["latency"] is not None
-                and not math.isnan(r["latency"])
+                r[latency_col] for r in ragas_rows
+                if latency_col in r
+                and r[latency_col] is not None
+                and not math.isnan(r[latency_col])
             ]
             if latencies:
                 avg_latency = sum(latencies) / len(latencies)
@@ -239,9 +250,11 @@ class EvaluationService:
                         description="Average end-to-end latency from Ragas.",
                     )
                 )
-                logs.append(f"Average latency: {avg_latency:.2f}s")
+                logs.append(f"Average latency: {avg_latency:.2f}s (from column: {latency_col})")
             else:
                 logs.append("Warning: No valid latency data from Ragas")
+        else:
+            logs.append("Info: latency column not found in Ragas results (this is normal for static datasets)")
 
         return metrics, logs
 

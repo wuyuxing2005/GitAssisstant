@@ -1,4 +1,4 @@
-import type { EvaluationTask, TaskStatus } from "../types/task";
+import type { EvaluationTask } from "../types/task";
 
 interface TaskTableProps {
   tasks: EvaluationTask[];
@@ -7,7 +7,6 @@ interface TaskTableProps {
   onSelectTask: (taskId: string) => void;
   onToggleCompare: (taskId: string) => void;
   onRunTask: (taskId: string) => void;
-  onChangeStatus: (taskId: string, status: TaskStatus) => void;
   onDeleteTask: (taskId: string) => void;
 }
 
@@ -19,7 +18,16 @@ const statusTextMap: Record<EvaluationTask["status"], string> = {
   failed: "Failed"
 };
 
-const nextStatusOptions: TaskStatus[] = ["draft", "scheduled", "running", "completed", "failed"];
+interface TaskTableProps {
+  tasks: EvaluationTask[];
+  selectedTaskId?: string;
+  selectedCompareIds: string[];
+  onSelectTask: (taskId: string) => void;
+  onToggleCompare: (taskId: string) => void;
+  onRunTask: (taskId: string) => void;
+  onDeleteTask: (taskId: string) => void;
+  runningTaskId?: string | null;
+}
 
 export function TaskTable({
   tasks,
@@ -28,8 +36,8 @@ export function TaskTable({
   onSelectTask,
   onToggleCompare,
   onRunTask,
-  onChangeStatus,
-  onDeleteTask
+  onDeleteTask,
+  runningTaskId
 }: TaskTableProps) {
   return (
     <section className="card">
@@ -83,22 +91,24 @@ export function TaskTable({
                 <td>{new Date(task.updated_at).toLocaleString()}</td>
                 <td>
                   <div className="inline-actions" onClick={(event) => event.stopPropagation()}>
-                    <button className="secondary-button" onClick={() => onRunTask(task.id)}>
-                      Run
-                    </button>
-                    <select
-                      value={task.status}
-                      onChange={(event) =>
-                        onChangeStatus(task.id, event.target.value as TaskStatus)
-                      }
+                    <button
+                      className="secondary-button"
+                      onClick={() => onRunTask(task.id)}
+                      disabled={runningTaskId === task.id || task.status === "running"}
                     >
-                      {nextStatusOptions.map((status) => (
-                        <option key={status} value={status}>
-                          {statusTextMap[status]}
-                        </option>
-                      ))}
-                    </select>
-                    <button className="ghost-button danger" onClick={() => onDeleteTask(task.id)}>
+                      {runningTaskId === task.id ? (
+                        <span className="loading-spinner">Running...</span>
+                      ) : task.status === "running" ? (
+                        "Running..."
+                      ) : (
+                        "Run"
+                      )}
+                    </button>
+                    <button
+                      className="ghost-button danger"
+                      onClick={() => onDeleteTask(task.id)}
+                      disabled={runningTaskId === task.id}
+                    >
                       Delete
                     </button>
                   </div>
