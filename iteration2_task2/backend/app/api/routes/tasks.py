@@ -88,8 +88,17 @@ def run_task(
         # 同步模式：直接执行
         try:
             return evaluation_service.run(db, task_id)
+        except UnicodeDecodeError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to decode evaluation dataset. Ensure the dataset file is saved as UTF-8.",
+            ) from exc
         except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            if str(exc) == "Task not found":
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/{task_id}/results", response_model=EvaluationResult)

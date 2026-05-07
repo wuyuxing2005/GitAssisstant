@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,19 @@ class RagasService:
 
         llm = LangchainLLMWrapper(self._create_llm())
         embeddings = LangchainEmbeddingsWrapper(self._create_embeddings())
-        dataset = EvaluationDataset.from_jsonl(str(dataset_path))
+        try:
+            with dataset_path.open("r", encoding="utf-8") as jsonlfile:
+                dataset_rows = [json.loads(line) for line in jsonlfile if line.strip()]
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                f"Failed to read Ragas dataset as UTF-8: {dataset_path}"
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Invalid JSONL content in Ragas dataset: {dataset_path}"
+            ) from exc
+
+        dataset = EvaluationDataset.from_list(dataset_rows)
 
         metric_map = {
             "faithfulness": Faithfulness(llm=llm),
