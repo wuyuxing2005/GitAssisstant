@@ -18,6 +18,9 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
+    env_file:
+      - path: .env
+        required: false
     environment:
       AGENT_EVAL_DATABASE_URL: postgresql+psycopg://agent_eval:agent_eval@postgres:5432/agent_eval
       AGENT_EVAL_RAGAS_ENABLED: "false"

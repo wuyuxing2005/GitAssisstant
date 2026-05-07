@@ -11,6 +11,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
     ports:
       - "8000:8000"
     environment:
@@ -26,6 +29,9 @@ services:
       context: .
       dockerfile: Dockerfile
     command: celery -A app.workers.celery_app worker --loglevel=info
+    env_file:
+      - path: .env
+        required: false
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0

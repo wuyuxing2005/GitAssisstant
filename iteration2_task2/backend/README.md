@@ -36,7 +36,15 @@
 - `AGENT_EVAL_RAGAS_ENABLED`: `true` to enable real Ragas execution
 - `AGENT_EVAL_RAGAS_DATASET_DIR`: JSONL dataset directory
 - `AGENT_EVAL_RAGAS_LLM_MODEL`: evaluator LLM model name
+- `AGENT_EVAL_RAGAS_LLM_API_KEY`: evaluator LLM API key
+- `AGENT_EVAL_RAGAS_LLM_BASE_URL`: OpenAI-compatible LLM base URL
 - `AGENT_EVAL_RAGAS_EMBEDDING_MODEL`: evaluator embedding model name
+- `AGENT_EVAL_RAGAS_EMBEDDING_API_KEY`: evaluator embedding API key
+- `AGENT_EVAL_RAGAS_EMBEDDING_BASE_URL`: OpenAI-compatible embedding base URL
+
+For compatibility with common OpenAI-style `.env` files, the backend also accepts
+`OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `MODEL_NAME` as fallbacks for Ragas LLM
+configuration.
 
 ## Ragas Dataset Convention
 
