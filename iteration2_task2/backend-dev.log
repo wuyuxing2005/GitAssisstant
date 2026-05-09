@@ -1,7 +1,0 @@
-INFO:     127.0.0.1:5281 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:5289 - "GET /api/metadata/evaluation-options HTTP/1.1" 200 OK
-INFO:     127.0.0.1:5291 - "GET /api/metadata/evaluation-options HTTP/1.1" 200 OK
-INFO:     127.0.0.1:5290 - "GET /api/datasets/ HTTP/1.1" 200 OK
-INFO:     127.0.0.1:5296 - "POST /api/tasks/ HTTP/1.1" 200 OK
-INFO:     127.0.0.1:5296 - "POST /api/tasks/eval-23d85961/run HTTP/1.1" 200 OK
-INFO:     127.0.0.1:5296 - "DELETE /api/tasks/eval-23d85961 HTTP/1.1" 200 OK

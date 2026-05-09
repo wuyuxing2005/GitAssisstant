@@ -1,0 +1,14 @@
+
+> agent-eval-frontend@0.1.0 dev
+> vite --host 127.0.0.1 --port 5173
+
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m385[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m19:11:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/ComparisonPanel.tsx[22m
+[2m19:11:51[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m19:12:39[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/styles.css[22m
+[2m19:13:01[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/ComparisonPanel.tsx[22m
+[2m19:13:01[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m19:24:29[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/TaskForm.tsx[22m
