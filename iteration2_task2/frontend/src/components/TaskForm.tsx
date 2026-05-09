@@ -295,7 +295,7 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
           </div>
           <div className="custom-metric-list">
             {customMetrics.map((metric, index) => (
-              <div key={`${metric.key}-${index}`} className="custom-metric-card">
+              <div key={index} className="custom-metric-card">
                 <button
                   type="button"
                   className="remove-metric-btn"
