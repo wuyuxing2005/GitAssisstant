@@ -8,6 +8,7 @@ import type {
   TaskStatus
 } from "../types/task";
 import { PromptEditor } from "./PromptEditor";
+import { labelDimension, labelMethod, labelStatus } from "../utils/labels";
 
 interface TaskFormProps {
   metadata: EvaluationMetadata;
@@ -29,14 +30,27 @@ function buildCustomMetric(): MetricDefinition {
 
 export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskFormProps) {
   const defaultStrategy = metadata.strategy_templates[0];
+  const metricDimensionByKey = Object.fromEntries(
+    metadata.builtin_metrics.map((metric) => [metric.key, metric.dimension])
+  );
+  const dimensionsForMetrics = (metricKeys: string[]) =>
+    Array.from(
+      new Set(
+        metricKeys
+          .map((key) => metricDimensionByKey[key])
+          .filter(Boolean)
+      )
+    ) as EvaluationTaskCreatePayload["config"]["dimensions"];
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<TaskStatus>("draft");
-  const [agentVersion, setAgentVersion] = useState(metadata.agent_versions[0] ?? "");
   const [dataset, setDataset] = useState(metadata.datasets[0] ?? "");
   const [modes, setModes] = useState<string[]>(["result"]);
   const [methods, setMethods] = useState<string[]>(["explicit"]);
-  const [dimensions, setDimensions] = useState<string[]>(["quality"]);
+  const [dimensions, setDimensions] = useState<string[]>(
+    dimensionsForMetrics(defaultStrategy?.metric_keys ?? []) ?? ["quality"]
+  );
   const [builtinMetrics, setBuiltinMetrics] = useState<string[]>(defaultStrategy?.metric_keys ?? []);
   const [strategyKey, setStrategyKey] = useState(defaultStrategy?.key ?? "");
   const [customMetrics, setCustomMetrics] = useState<MetricDefinition[]>([]);
@@ -46,6 +60,7 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
     if (defaultStrategy && !strategyKey) {
       setStrategyKey(defaultStrategy.key);
       setBuiltinMetrics(defaultStrategy.metric_keys);
+      setDimensions(dimensionsForMetrics(defaultStrategy.metric_keys));
     }
   }, [defaultStrategy, strategyKey]);
 
@@ -58,6 +73,32 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
 
   function toggleValue(values: string[], key: string) {
     return values.includes(key) ? values.filter((item) => item !== key) : [...values, key];
+  }
+
+  function toggleMetric(metric: MetricDefinition) {
+    setBuiltinMetrics((current) => {
+      const next = current.includes(metric.key)
+        ? current.filter((key) => key !== metric.key)
+        : [...current, metric.key];
+      setDimensions(dimensionsForMetrics(next));
+      return next;
+    });
+  }
+
+  function toggleDimension(dimensionKey: string) {
+    const dimensionMetrics = metadata.builtin_metrics
+      .filter((metric) => metric.dimension === dimensionKey)
+      .map((metric) => metric.key);
+
+    setDimensions((current) => {
+      const isActive = current.includes(dimensionKey);
+      setBuiltinMetrics((selected) =>
+        isActive
+          ? selected.filter((key) => !dimensionMetrics.includes(key))
+          : Array.from(new Set([...selected, ...dimensionMetrics]))
+      );
+      return isActive ? current.filter((key) => key !== dimensionKey) : [...current, dimensionKey];
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -73,7 +114,6 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
         description,
         status,
         config: {
-          agent_version: agentVersion,
           dataset,
           evaluation_modes: modes as EvaluationTaskCreatePayload["config"]["evaluation_modes"],
           evaluation_methods: methods as EvaluationTaskCreatePayload["config"]["evaluation_methods"],
@@ -84,7 +124,7 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
         }
       });
 
-      setName(`Task ${tasks.length + 1}`);
+      setName(`评测任务 ${tasks.length + 1}`);
       setDescription("");
       setStatus("draft");
       setCustomMetrics([]);
@@ -97,32 +137,22 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
     <section className="card">
       <div className="section-header">
         <div>
-          <h2>Create Task</h2>
-          <p>Configure evaluation mode, methods, built-in metrics, and custom metric extensions.</p>
+          <h2>创建评测任务</h2>
+          <p>配置评测模式、评测方法、内置指标和自定义指标扩展。</p>
         </div>
       </div>
       <form className="task-form" onSubmit={handleSubmit}>
         <label>
-          Task Name
+          任务名称
           <input value={name} onChange={(event) => setName(event.target.value)} required />
         </label>
         <label>
-          Description
+          任务说明
           <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} />
         </label>
         <div className="form-row">
           <label>
-            Agent Version
-            <select value={agentVersion} onChange={(event) => setAgentVersion(event.target.value)}>
-              {metadata.agent_versions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Dataset
+            数据集
             <select value={dataset} onChange={(event) => setDataset(event.target.value)}>
               {metadata.datasets.map((item) => (
                 <option key={item} value={item}>
@@ -132,11 +162,11 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
             </select>
           </label>
           <label>
-            Initial Status
+            初始状态
             <select value={status} onChange={(event) => setStatus(event.target.value as TaskStatus)}>
               {["draft", "scheduled", "running", "completed", "failed"].map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {labelStatus(item)}
                 </option>
               ))}
             </select>
@@ -145,7 +175,7 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
 
         <div className="chip-panel">
           <div>
-            <h3>Modes</h3>
+            <h3>评测模式</h3>
             <div className="chip-list">
               {metadata.modes.map((item) => (
                 <button
@@ -161,7 +191,7 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
             </div>
           </div>
           <div>
-            <h3>Methods</h3>
+            <h3>评测方法</h3>
             <div className="chip-list">
               {metadata.methods.map((item) => (
                 <button
@@ -176,26 +206,10 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
               ))}
             </div>
           </div>
-          <div>
-            <h3>Dimensions</h3>
-            <div className="chip-list">
-              {metadata.dimensions.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={`chip ${dimensions.includes(item.key) ? "active" : ""}`}
-                  onClick={() => setDimensions(toggleValue(dimensions, item.key))}
-                  title={item.label}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <label>
-          Strategy Template
+          组合评估策略
           <select
             value={strategyKey}
             onChange={(event) => {
@@ -204,6 +218,7 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
               setStrategyKey(nextKey);
               if (nextStrategy) {
                 setBuiltinMetrics(nextStrategy.metric_keys);
+                setDimensions(dimensionsForMetrics(nextStrategy.metric_keys));
               }
             }}
           >
@@ -216,20 +231,49 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
         </label>
 
         <div className="metric-picker">
-          <h3>Built-in Metrics</h3>
-          <div className="metric-list">
-            {metadata.builtin_metrics.map((metric) => {
-              const isSelected = builtinMetrics.includes(metric.key);
+          <div>
+            <h3>内置指标</h3>
+            <p>先选择评测维度，再勾选该维度下的具体指标。</p>
+          </div>
+          <div className="dimension-metric-grid">
+            {metadata.dimensions.map((dimension) => {
+              const dimensionMetrics = metadata.builtin_metrics.filter(
+                (metric) => metric.dimension === dimension.key
+              );
+              const isDimensionSelected = dimensions.includes(dimension.key);
+
               return (
-                <button
-                  key={metric.key}
-                  type="button"
-                  className={`metric-card-btn ${isSelected ? "selected" : ""}`}
-                  onClick={() => setBuiltinMetrics(toggleValue(builtinMetrics, metric.key))}
+                <section
+                  key={dimension.key}
+                  className={`dimension-metric-group ${isDimensionSelected ? "selected" : ""}`}
                 >
-                  <span className="metric-card-label">{metric.label}</span>
-                  <small className="metric-card-meta">{metric.dimension} / {metric.method}</small>
-                </button>
+                  <button
+                    type="button"
+                    className={`dimension-toggle ${isDimensionSelected ? "active" : ""}`}
+                    onClick={() => toggleDimension(dimension.key)}
+                  >
+                    <span>{labelDimension(dimension.key)}</span>
+                    <small>{dimensionMetrics.length} 个指标</small>
+                  </button>
+
+                  <div className="metric-list grouped">
+                    {dimensionMetrics.map((metric) => {
+                      const isSelected = builtinMetrics.includes(metric.key);
+                      return (
+                        <button
+                          key={metric.key}
+                          type="button"
+                          className={`metric-card-btn ${isSelected ? "selected" : ""}`}
+                          onClick={() => toggleMetric(metric)}
+                        >
+                          <span className="metric-card-label">{metric.label}</span>
+                          <small className="metric-card-meta">{labelMethod(metric.method)}</small>
+                          <small className="metric-card-description">{metric.description}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
               );
             })}
           </div>
@@ -238,15 +282,15 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
         <div className="metric-picker">
           <div className="section-header compact">
             <div>
-              <h3>Custom Metrics</h3>
-              <p>Support extension metrics and composite strategies.</p>
+              <h3>自定义指标</h3>
+              <p>支持按业务需求扩展指标，并纳入组合策略。</p>
             </div>
             <button
               type="button"
               className="secondary-button"
               onClick={() => setCustomMetrics([...customMetrics, buildCustomMetric()])}
             >
-              Add Metric
+              添加指标
             </button>
           </div>
           <div className="custom-metric-list">
@@ -259,13 +303,13 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
                     const next = customMetrics.filter((_, i) => i !== index);
                     setCustomMetrics(next);
                   }}
-                  title="Remove this metric"
+                  title="移除该指标"
                 >
                   ×
                 </button>
                 <div className="custom-metric-fields">
                   <input
-                    placeholder="metric_key"
+                    placeholder="指标 key，例如 policy_compliance"
                     value={metric.key}
                     onChange={(event) => {
                       const next = [...customMetrics];
@@ -274,7 +318,7 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
                     }}
                   />
                   <input
-                    placeholder="Metric label"
+                    placeholder="指标名称"
                     value={metric.label}
                     onChange={(event) => {
                       const next = [...customMetrics];
@@ -311,7 +355,7 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
                     ))}
                   </select>
                   <textarea
-                    placeholder="Description"
+                    placeholder="指标说明"
                     value={metric.description}
                     onChange={(event) => {
                       const next = [...customMetrics];
@@ -339,7 +383,7 @@ export function TaskForm({ metadata, tasks, onSubmit, datasetRefreshKey }: TaskF
         </div>
 
         <button className="primary-button" type="submit" disabled={submitting}>
-          {submitting ? "Saving..." : "Create Evaluation Task"}
+          {submitting ? "保存中..." : "创建评测任务"}
         </button>
       </form>
     </section>

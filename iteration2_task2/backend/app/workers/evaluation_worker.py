@@ -57,16 +57,16 @@ def run_evaluation_task(self, task_id: str) -> dict:
         # 更新任务状态为运行中
         task = task_repository.get(db, task_id)
         if task is None:
-            logger.error(f"Task {task_id} not found")
-            return {"status": "failed", "error": "Task not found"}
+            logger.error(f"任务 {task_id} 不存在")
+            return {"status": "failed", "error": "任务不存在"}
 
         task_repository.save(db, task)
-        logger.info(f"Starting evaluation task {task_id}")
+        logger.info(f"开始执行评测任务 {task_id}")
 
         # 执行评测
         result = evaluation_service.run(db, task_id)
 
-        logger.info(f"Completed evaluation task {task_id}")
+        logger.info(f"评测任务 {task_id} 执行完成")
 
         return {
             "status": "completed",
@@ -77,7 +77,7 @@ def run_evaluation_task(self, task_id: str) -> dict:
         }
 
     except Exception as exc:
-        logger.error(f"Evaluation task {task_id} failed: {exc}")
+        logger.error(f"评测任务 {task_id} 执行失败：{exc}")
 
         # 更新任务状态为失败
         try:
@@ -86,11 +86,11 @@ def run_evaluation_task(self, task_id: str) -> dict:
                 task.status = "failed"
                 task_repository.save(db, task)
         except Exception as e:
-            logger.error(f"Failed to update task status: {e}")
+            logger.error(f"更新任务状态失败：{e}")
 
         # 重试
         if self.request.retries < self.max_retries:
-            logger.info(f"Retrying task {task_id}, attempt {self.request.retries + 1}")
+            logger.info(f"重试任务 {task_id}，第 {self.request.retries + 1} 次")
             raise self.retry(exc=exc)
         else:
             return {"status": "failed", "error": str(exc)}

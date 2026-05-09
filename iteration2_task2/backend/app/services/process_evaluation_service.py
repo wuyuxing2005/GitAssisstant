@@ -1,7 +1,7 @@
 """
 过程导向评测服务
 
-基于 Agent Trace 分析工具调用准确性、推理质量等过程指标。
+基于 Agent 执行链路分析工具调用准确性、推理质量等过程指标。
 """
 
 from typing import Any
@@ -60,7 +60,7 @@ class ProcessEvaluationService:
         if not tool_calls:
             # 没有工具调用，如果有参考调用则得 0 分，否则得 1 分
             if reference_tool_calls and len(reference_tool_calls) > 0:
-                issues.append("Expected tool calls but none were made")
+                issues.append("期望发生工具调用，但实际没有调用工具")
                 return 0.0
             return 1.0
 
@@ -79,10 +79,10 @@ class ProcessEvaluationService:
                         matched += 1
                         break
                     else:
-                        issues.append(f"Tool {actual.name} called with incorrect arguments")
+                        issues.append(f"工具 {actual.name} 的调用参数不正确")
                     break
             else:
-                issues.append(f"Expected tool call {ref.get('name')} not found")
+                issues.append(f"未找到期望的工具调用 {ref.get('name')}")
 
         return matched / len(reference_tool_calls) if reference_tool_calls else 1.0
 
@@ -119,7 +119,7 @@ class ProcessEvaluationService:
                 score -= 0.1
             else:
                 score -= 0.3
-                issues.append(f"High error rate: {len(error_events)} errors in trace")
+                issues.append(f"错误率过高：执行链路中出现 {len(error_events)} 个错误")
 
         # 检查不必要的重复
         tool_calls = [
@@ -129,7 +129,7 @@ class ProcessEvaluationService:
             unique_calls = len(set(tool_calls))
             if unique_calls < len(tool_calls) * 0.5:
                 score -= 0.2
-                issues.append("Possible redundant tool calls detected")
+                issues.append("检测到可能冗余的工具调用")
 
         return max(0.0, score)
 
@@ -147,15 +147,15 @@ class ProcessEvaluationService:
         # 检查是否有用户输入和最终响应
         if not trace.user_input:
             score -= 0.3
-            issues.append("Missing user input")
+            issues.append("缺少用户输入")
         if not trace.final_response:
             score -= 0.3
-            issues.append("Missing final response")
+            issues.append("缺少最终回答")
 
         # 检查事件序列合理性
         if not trace.events:
             score -= 0.4
-            issues.append("No intermediate events in trace")
+            issues.append("执行链路中没有中间事件")
 
         return max(0.0, score)
 

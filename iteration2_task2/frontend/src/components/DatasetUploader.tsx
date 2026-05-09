@@ -13,7 +13,7 @@ export function DatasetUploader({ onUploadComplete, onError }: DatasetUploaderPr
 
   const handleUpload = useCallback(async (file: File) => {
     if (!file.name.endsWith('.jsonl')) {
-      const errorMsg = "Only JSONL files are supported";
+      const errorMsg = "仅支持 JSONL 文件";
       setError(errorMsg);
       onError?.(errorMsg);
       return;
@@ -27,7 +27,7 @@ export function DatasetUploader({ onUploadComplete, onError }: DatasetUploaderPr
       setUploading(false);
       onUploadComplete?.(result);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Upload failed";
+      const errorMsg = err instanceof Error ? err.message : "上传失败";
       setError(errorMsg);
       setUploading(false);
       onError?.(errorMsg);
@@ -72,14 +72,14 @@ export function DatasetUploader({ onUploadComplete, onError }: DatasetUploaderPr
         {uploading ? (
           <div className="upload-progress">
             <div className="spinner"></div>
-            <span>Uploading dataset...</span>
+            <span>数据集上传中...</span>
           </div>
         ) : (
           <>
             <div className="upload-icon">📁</div>
             <div className="upload-text">
-              <strong>Drop your JSONL file here</strong>
-              <span>or click to browse</span>
+              <strong>将 JSONL 文件拖到这里</strong>
+              <span>或点击选择文件</span>
             </div>
             <input
               type="file"
@@ -100,9 +100,9 @@ export function DatasetUploader({ onUploadComplete, onError }: DatasetUploaderPr
       )}
 
       <div className="upload-hints">
-        <p>Accepted format: JSONL</p>
-        <p>Required field: <code>user_input</code></p>
-        <p>Optional fields: <code>response</code>, <code>reference</code>, <code>retrieved_contexts</code></p>
+        <p>支持格式：JSONL</p>
+        <p>必填字段：<code>user_input</code></p>
+        <p>常用字段：<code>response</code>、<code>reference</code>、<code>retrieved_contexts</code></p>
       </div>
     </div>
   );

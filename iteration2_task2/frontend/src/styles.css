@@ -491,7 +491,10 @@ textarea {
 .summary-grid,
 .detail-grid,
 .score-grid,
-.comparison-grid {
+.comparison-grid,
+.form-row,
+.chip-panel,
+.dimension-metric-grid {
   display: grid;
   gap: 16px;
 }
@@ -648,6 +651,56 @@ select {
   gap: 10px;
 }
 
+.dimension-metric-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+}
+
+.dimension-metric-group {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(18, 32, 51, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.dimension-metric-group.selected {
+  border-color: rgba(202, 91, 39, 0.38);
+  background: rgba(255, 247, 242, 0.9);
+}
+
+.dimension-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(18, 32, 51, 0.1);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #122033;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.dimension-toggle.active {
+  border-color: #ca5b27;
+  color: #ca5b27;
+  background: rgba(202, 91, 39, 0.08);
+}
+
+.dimension-toggle small {
+  color: #5d6b82;
+  font-weight: 600;
+}
+
+.metric-list.grouped {
+  grid-template-columns: 1fr;
+}
+
 .metric-card-btn {
   border: 2px solid rgba(18, 32, 51, 0.08);
   border-radius: 16px;
@@ -681,6 +734,12 @@ select {
 .metric-card-btn .metric-card-meta {
   color: #5d6b82;
   font-size: 13px;
+}
+
+.metric-card-btn .metric-card-description {
+  color: #5d6b82;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .metric-option,
@@ -992,6 +1051,89 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.comparison-page {
+  display: grid;
+  gap: 20px;
+}
+
+.comparison-selection-summary {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(202, 91, 39, 0.1);
+  color: #ca5b27;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.compare-task-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.compare-task-option {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid rgba(18, 32, 51, 0.1);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #122033;
+  text-align: left;
+  cursor: pointer;
+}
+
+.compare-task-option:hover:not(:disabled),
+.compare-task-option.selected {
+  border-color: #ca5b27;
+  background: rgba(255, 247, 242, 0.9);
+}
+
+.compare-task-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.compare-task-check {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(18, 32, 51, 0.2);
+  border-radius: 50%;
+  color: #ca5b27;
+  font-weight: 800;
+}
+
+.compare-task-option.selected .compare-task-check {
+  border-color: #ca5b27;
+  background: rgba(202, 91, 39, 0.12);
+}
+
+.compare-task-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.compare-task-main strong,
+.compare-task-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-task-main small {
+  color: #5d6b82;
+}
+
+.status-badge.compact {
+  justify-self: end;
+}
+
 .scorecard-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1015,9 +1157,11 @@ select {
   .summary-grid,
   .form-row,
   .chip-panel,
+  .dimension-metric-grid,
   .score-grid,
   .detail-grid,
   .comparison-grid,
+  .compare-task-list,
   .scorecard-row {
     grid-template-columns: 1fr;
   }

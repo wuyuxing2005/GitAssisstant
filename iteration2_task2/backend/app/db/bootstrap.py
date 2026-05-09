@@ -22,25 +22,24 @@ def seed_db() -> None:
             return
 
         task_config = EvaluationConfig(
-            agent_version="v1.3.0",
             dataset="customer-support-v2",
             evaluation_modes=["result"],
             evaluation_methods=["explicit", "judge"],
             dimensions=["quality", "safety", "performance"],
-            builtin_metrics=["answer_correctness", "latency", "safety"],
+            builtin_metrics=["answer_correctness", "safety", "latency", "token_usage"],
             custom_metrics=[
                 CustomMetricDefinition(
                     key="dialog_empathy",
-                    label="Dialog Empathy",
-                    description="Judge whether the tone fits a support scenario.",
+                    label="对话同理心",
+                    description="评估回答语气是否符合客服支持场景。",
                     dimension="quality",
                     method="judge",
                 )
             ],
             strategy=EvaluationStrategy(
                 key="balanced-default",
-                label="Balanced Default",
-                description="Blend quality, safety, and performance with equal attention.",
+                label="均衡默认策略",
+                description="均衡覆盖效果、安全和性能。",
                 metric_keys=["answer_correctness", "latency", "safety", "dialog_empathy"],
                 weights={
                     "answer_correctness": 0.35,
@@ -53,8 +52,8 @@ def seed_db() -> None:
 
         task = TaskORM(
             id="eval-001",
-            name="Customer Support Agent Baseline",
-            description="Evaluate answer quality, latency, and safety for the customer support workflow.",
+            name="客服 Agent 基线评测",
+            description="评估客服流程中的回答质量、延迟和安全性。",
             status="completed",
             config=task_config.model_dump(mode="json"),
             created_at=datetime.utcnow(),
@@ -62,21 +61,21 @@ def seed_db() -> None:
         )
         result = EvaluationResult(
             task_id="eval-001",
-            task_name="Customer Support Agent Baseline",
-            summary="Balanced result/process review completed. Quality and safety are stable, but latency still has optimization room.",
+            task_name="客服 Agent 基线评测",
+            summary="均衡评测已完成，效果和安全表现稳定，延迟仍有优化空间。",
             status="completed",
             scorecard={"quality": 0.84, "safety": 0.93, "performance": 1.72},
             metrics=[
                 MetricScore(
                     key="answer_correctness",
-                    label="Answer Correctness",
+                    label="答案正确性",
                     value=0.86,
                     category="quality",
                     method="judge",
                 ),
                 MetricScore(
                     key="latency",
-                    label="Latency",
+                    label="延迟得分",
                     value=1.72,
                     unit="s",
                     category="performance",
@@ -84,7 +83,7 @@ def seed_db() -> None:
                 ),
                 MetricScore(
                     key="safety",
-                    label="Safety",
+                    label="安全性",
                     value=0.93,
                     category="safety",
                     method="judge",
@@ -94,19 +93,19 @@ def seed_db() -> None:
                 EvaluationTimelineEvent(
                     stage="dataset-load",
                     status="completed",
-                    message="Loaded 120 samples from customer-support-v2.",
+                    message="已从 customer-support-v2 加载 120 条样本。",
                 ),
                 EvaluationTimelineEvent(
                     stage="ragas-run",
                     status="completed",
-                    message="Executed Ragas metrics for result evaluation.",
+                    message="已执行面向结果的 Ragas 指标。",
                 ),
             ],
             charts=["score-radar", "latency-trend", "dimension-breakdown"],
             logs_preview=[
-                "Ragas evaluator initialized.",
-                "Trace collector disabled for result-only rows.",
-                "Completed 120/120 samples.",
+                "Ragas 评估器已初始化。",
+                "仅结果数据未启用执行链路采集。",
+                "已完成 120/120 条样本。",
             ],
         )
 

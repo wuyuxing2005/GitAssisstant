@@ -31,7 +31,6 @@ export interface EvaluationStrategy {
 }
 
 export interface EvaluationConfig {
-  agent_version: string;
   dataset: string;
   evaluation_modes: EvaluationMode[];
   evaluation_methods: EvaluationMethod[];
@@ -83,7 +82,6 @@ export interface EvaluationResult {
 export interface ComparisonItem {
   task_id: string;
   task_name: string;
-  agent_version: string;
   dataset: string;
   status: TaskStatus;
   scorecard: Record<string, number>;
@@ -102,7 +100,6 @@ export interface EvaluationMetadata {
   builtin_metrics: MetricDefinition[];
   strategy_templates: EvaluationStrategy[];
   datasets: string[];
-  agent_versions: string[];
 }
 
 export interface EvaluationTaskCreatePayload {

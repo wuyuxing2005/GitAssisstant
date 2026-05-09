@@ -10,6 +10,7 @@ import {
 } from "recharts";
 
 import type { MetricScore } from "../../types/task";
+import { labelMetric } from "../../utils/labels";
 
 interface BarData {
   name: string;
@@ -30,8 +31,8 @@ interface MetricBarChartProps {
 export function MetricBarChart({
   metrics,
   compareTo,
-  taskName = "Current",
-  compareTaskName = "Compare",
+  taskName = "当前任务",
+  compareTaskName = "对比任务",
   maxHeight = 400
 }: MetricBarChartProps) {
   // 构建对比数据的映射
@@ -44,7 +45,7 @@ export function MetricBarChart({
 
   // 构建图表数据
   const chartData: BarData[] = metrics.map((metric) => ({
-    name: metric.label,
+    name: labelMetric(metric.key, metric.label),
     key: metric.key,
     current: metric.value,
     compare: compareMap.has(metric.key) ? compareMap.get(metric.key)! : null,
@@ -88,7 +89,7 @@ export function MetricBarChart({
               borderRadius: "8px",
               boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)"
             }}
-            formatter={(value) => value == null ? "N/A" : Number(value).toFixed(2)}
+            formatter={(value) => value == null ? "无数据" : Number(value).toFixed(2)}
           />
           <Bar
             dataKey="current"

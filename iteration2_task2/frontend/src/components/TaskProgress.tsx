@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { labelStatus } from "../utils/labels";
 
 interface TaskProgressProps {
   taskId: string;
@@ -23,7 +24,7 @@ export function TaskProgress({ taskId, onComplete, onError }: TaskProgressProps)
       try {
         const response = await fetch(`http://localhost:8000/api/tasks/${taskId}/progress`);
         if (!response.ok) {
-          throw new Error(`Failed to fetch progress: ${response.status}`);
+          throw new Error(`获取任务进度失败：${response.status}`);
         }
         const data = await response.json();
         setProgress(data);
@@ -33,12 +34,12 @@ export function TaskProgress({ taskId, onComplete, onError }: TaskProgressProps)
           onComplete?.();
         } else if (data.status === "failed") {
           setLoading(false);
-          onError?.("Task failed");
+          onError?.("任务执行失败");
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
+        setError(err instanceof Error ? err.message : "未知错误");
         setLoading(false);
-        onError?.(err instanceof Error ? err.message : "Unknown error");
+        onError?.(err instanceof Error ? err.message : "未知错误");
       }
     };
 
@@ -55,7 +56,7 @@ export function TaskProgress({ taskId, onComplete, onError }: TaskProgressProps)
     return (
       <div className="task-progress loading">
         <div className="progress-spinner"></div>
-        <span>Loading task status...</span>
+        <span>任务状态加载中...</span>
       </div>
     );
   }
@@ -103,13 +104,13 @@ export function TaskProgress({ taskId, onComplete, onError }: TaskProgressProps)
     <div className={`task-progress ${getStatusClass(progress.status)}`}>
       <div className="progress-header">
         <span className="status-icon">{getStatusIcon(progress.status)}</span>
-        <span className="status-text">{progress.status}</span>
+        <span className="status-text">{labelStatus(progress.status)}</span>
       </div>
       <div className="progress-body">
         {progress.isProcessing ? (
           <div className="processing-indicator">
             <div className="spinner"></div>
-            <span>Processing...</span>
+            <span>处理中...</span>
           </div>
         ) : (
           <span>{progress.message}</span>

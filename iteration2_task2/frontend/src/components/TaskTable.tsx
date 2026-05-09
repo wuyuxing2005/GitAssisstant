@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { FileText, Clock, PlayCircle, CheckCircle, XCircle, Settings, Trash2, Play } from "lucide-react";
 import type { EvaluationTask } from "../types/task";
+import { labelDimension, labelMode } from "../utils/labels";
 
 const statusTextMap: Record<EvaluationTask["status"], string> = {
-  draft: "Draft",
-  scheduled: "Scheduled",
-  running: "Running",
-  completed: "Completed",
-  failed: "Failed",
+  draft: "草稿",
+  scheduled: "已排队",
+  running: "运行中",
+  completed: "已完成",
+  failed: "失败",
 };
 
 const statusConfig: Record<EvaluationTask["status"], { color: string; bg: string; icon: JSX.Element }> = {
@@ -43,23 +44,23 @@ export function TaskTable({
     <section className="card">
       <div className="section-header">
         <div>
-          <h2>Evaluation Tasks</h2>
-          <p>Create, schedule, run, compare, and maintain task state in one place.</p>
+          <h2>评测任务</h2>
+          <p>集中管理评测任务的创建、运行、对比和状态维护。</p>
         </div>
       </div>
       <div className="table-wrap">
         <table className="task-table">
           <thead>
             <tr>
-              <th style={{ width: "50px" }}>Compare</th>
-              <th>Task</th>
-              <th>Agent</th>
-              <th>Dataset</th>
-              <th>Modes</th>
-              <th>Strategy</th>
-              <th>Status</th>
-              <th>Updated</th>
-              <th style={{ width: "180px" }}>Actions</th>
+              <th style={{ width: "50px" }}>对比</th>
+              <th>任务</th>
+              <th>数据集</th>
+              <th>模式</th>
+              <th>维度</th>
+              <th>策略</th>
+              <th>状态</th>
+              <th>更新时间</th>
+              <th style={{ width: "180px" }}>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -85,7 +86,7 @@ export function TaskTable({
                     <div className="task-name-cell">
                       <strong>{task.name}</strong>
                       {task.config.custom_metrics.length > 0 && (
-                        <span className="custom-metric-badge" title={`${task.config.custom_metrics.length} custom metrics`}>
+                        <span className="custom-metric-badge" title={`${task.config.custom_metrics.length} 个自定义指标`}>
                           <Settings size={14} style={{ display: "inline", marginRight: "4px" }} />
                           {task.config.custom_metrics.length}
                         </span>
@@ -94,15 +95,19 @@ export function TaskTable({
                     <p className="task-description">{task.description || "—"}</p>
                   </td>
                   <td>
-                    <span className="agent-version">{task.config.agent_version}</span>
-                  </td>
-                  <td>
                     <span className="dataset-name">{task.config.dataset}</span>
                   </td>
                   <td>
                     <div className="mode-tags">
                       {task.config.evaluation_modes.map((mode) => (
-                        <span key={mode} className="mode-tag">{mode}</span>
+                        <span key={mode} className="mode-tag">{labelMode(mode)}</span>
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="mode-tags">
+                      {task.config.dimensions.map((dimension) => (
+                        <span key={dimension} className={`category-badge ${dimension}`}>{labelDimension(dimension)}</span>
                       ))}
                     </div>
                   </td>
@@ -132,14 +137,14 @@ export function TaskTable({
                         className={runningTaskId === task.id || task.status === "running" ? "action-btn run-btn running" : "action-btn run-btn"}
                         onClick={() => onRunTask(task.id)}
                         disabled={runningTaskId === task.id || task.status === "running"}
-                        title="Run this task"
+                        title="运行该任务"
                       >
                         {runningTaskId === task.id || task.status === "running" ? (
                           <span className="spinner">⟳</span>
                         ) : (
                           <>
                             <Play size={14} />
-                            Run
+                            运行
                           </>
                         )}
                       </button>
@@ -147,10 +152,10 @@ export function TaskTable({
                         className="action-btn delete-btn"
                         onClick={() => onDeleteTask(task.id)}
                         disabled={runningTaskId === task.id}
-                        title="Delete this task"
+                        title="删除该任务"
                       >
                         <Trash2 size={14} />
-                        Delete
+                        删除
                       </button>
                     </div>
                   </td>
@@ -161,8 +166,8 @@ export function TaskTable({
         </table>
         {tasks.length === 0 && (
           <div className="empty-state">
-            <p>No tasks created yet.</p>
-            <p className="empty-state-hint">Create your first evaluation task to get started.</p>
+            <p>暂无评测任务。</p>
+            <p className="empty-state-hint">创建第一个评测任务后即可开始。</p>
           </div>
         )}
       </div>

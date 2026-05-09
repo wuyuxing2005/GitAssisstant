@@ -10,6 +10,7 @@ import {
 } from "recharts";
 
 import type { EvaluationDimension, MetricScore } from "../../types/task";
+import { labelDimension } from "../../utils/labels";
 
 interface DimensionData {
   dimension: string;
@@ -27,8 +28,8 @@ interface DimensionRadarChartProps {
 export function DimensionRadarChart({
   metrics,
   compareTo,
-  taskName = "Current",
-  compareTaskName = "Compare"
+  taskName = "当前任务",
+  compareTaskName = "对比任务"
 }: DimensionRadarChartProps) {
   // 按维度聚合分数
   const aggregateByDimension = (metricScores: MetricScore[]): Record<string, number> => {
@@ -56,7 +57,7 @@ export function DimensionRadarChart({
   // 构建图表数据 - 使用固定的键名而不是 taskName
   const dimensions: EvaluationDimension[] = ["quality", "safety", "performance"];
   const data: DimensionData[] = dimensions.map((dim) => ({
-    dimension: dim.charAt(0).toUpperCase() + dim.slice(1),
+    dimension: labelDimension(dim),
     current: currentDimensions[dim] ?? 0,
     ...(compareDimensions && { compare: compareDimensions[dim] ?? 0 })
   }));

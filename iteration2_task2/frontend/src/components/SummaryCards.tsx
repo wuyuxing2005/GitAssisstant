@@ -10,32 +10,32 @@ interface SummaryCardsProps {
 const cardItems = [
   {
     key: "total",
-    label: "Total Tasks",
-    hint: "All evaluation tasks",
+    label: "任务总数",
+    hint: "全部评测任务",
     icon: Clipboard,
     gradient: "linear-gradient(135deg, rgba(249, 115, 22, 0.1), rgba(202, 91, 39, 0.05))",
     color: "#ca5b27"
   },
   {
     key: "running",
-    label: "Running",
-    hint: "Currently executing",
+    label: "运行中",
+    hint: "正在执行的任务",
     icon: Play,
     gradient: "linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.05))",
     color: "#2563eb"
   },
   {
     key: "completed",
-    label: "Completed",
-    hint: "Finished runs",
+    label: "已完成",
+    hint: "已完成的评测",
     icon: CheckCircle,
     gradient: "linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(22, 163, 74, 0.05))",
     color: "#16a34a"
   },
   {
     key: "customMetrics",
-    label: "Custom Metrics",
-    hint: "Configured extensions",
+    label: "自定义指标",
+    hint: "已配置的扩展指标",
     icon: Settings,
     gradient: "linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(147, 51, 234, 0.05))",
     color: "#9333ea"

@@ -1,7 +1,7 @@
 """
-Trace 数据管理 API
+执行链路数据管理 API
 
-支持 Agent Trace 数据上传、查询和删除。
+支持 Agent 执行链路数据上传、查询和删除。
 """
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -22,7 +22,7 @@ def upload_trace(
     db: Session = Depends(get_db)
 ) -> dict[str, str]:
     """
-    上传单条 Agent Trace 数据
+    上传单条 Agent 执行链路数据
 
     请求体格式：
     {
@@ -40,7 +40,7 @@ def upload_trace(
         trace = AgentTrace(**trace_data)
         trace_loader.save_trace(trace)
         return {
-            "message": "Trace uploaded successfully",
+            "message": "执行链路上传成功",
             "trace_id": trace.trace_id,
             "task_id": trace.task_id,
             "sample_id": trace.sample_id
@@ -48,7 +48,7 @@ def upload_trace(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save trace: {str(e)}") from e
+        raise HTTPException(status_code=500, detail=f"保存执行链路失败：{str(e)}") from e
 
 
 @router.post("/upload/batch")
@@ -57,9 +57,9 @@ def upload_traces_batch(
     db: Session = Depends(get_db)
 ) -> dict:
     """
-    批量上传 Agent Trace 数据
+    批量上传 Agent 执行链路数据
 
-    请求体格式：trace 数组
+    请求体格式：执行链路数组
     """
     success_count = 0
     failed_count = 0
@@ -75,7 +75,7 @@ def upload_traces_batch(
             errors.append({"index": i, "error": str(e)})
 
     return {
-        "message": f"Batch upload completed: {success_count} succeeded, {failed_count} failed",
+        "message": f"批量上传完成：成功 {success_count} 条，失败 {failed_count} 条",
         "success_count": success_count,
         "failed_count": failed_count,
         "errors": errors if errors else None
@@ -89,7 +89,7 @@ async def upload_trace_file(
     db: Session = Depends(get_db)
 ) -> dict:
     """
-    从文件上传 Trace 数据
+    从文件上传执行链路数据
 
     支持 JSONL 或 JSON 格式
     """
@@ -106,7 +106,7 @@ async def upload_trace_file(
             data = json.loads(content.decode('utf-8'))
             traces = data if isinstance(data, list) else [data]
 
-        # 如果指定了 task_id，更新所有 trace 的 task_id
+        # 如果指定了 task_id，更新所有执行链路的 task_id
         if task_id:
             for trace in traces:
                 trace["task_id"] = task_id
@@ -123,16 +123,16 @@ async def upload_trace_file(
                 errors.append({"index": i, "error": str(e)})
 
         return {
-            "message": f"File upload completed: {success_count} traces saved",
+            "message": f"文件上传完成：已保存 {success_count} 条执行链路",
             "total_count": len(traces),
             "success_count": success_count,
             "errors": errors if errors else None
         }
 
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}") from e
+        raise HTTPException(status_code=400, detail=f"JSON 格式无效：{str(e)}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}") from e
+        raise HTTPException(status_code=500, detail=f"处理文件失败：{str(e)}") from e
 
 
 @router.get("/{task_id}")
@@ -141,7 +141,7 @@ def get_traces_by_task(
     db: Session = Depends(get_db)
 ) -> list[dict]:
     """
-    获取指定任务的所有 Trace 数据
+    获取指定任务的所有执行链路数据
     """
     traces = trace_loader.get_traces_by_task(task_id)
     if traces is None:
@@ -156,11 +156,11 @@ def get_trace(
     db: Session = Depends(get_db)
 ) -> dict:
     """
-    获取单条 Trace 数据
+    获取单条执行链路数据
     """
     trace = trace_loader.get_trace(task_id, sample_id)
     if trace is None:
-        raise HTTPException(status_code=404, detail="Trace not found")
+        raise HTTPException(status_code=404, detail="执行链路不存在")
     return trace.model_dump()
 
 
@@ -170,10 +170,10 @@ def delete_traces(
     db: Session = Depends(get_db)
 ) -> dict[str, str]:
     """
-    删除指定任务的所有 Trace 数据
+    删除指定任务的所有执行链路数据
     """
     trace_loader.delete_traces(task_id)
-    return {"message": f"Traces for task {task_id} deleted"}
+    return {"message": f"任务 {task_id} 的执行链路已删除"}
 
 
 @router.delete("/{task_id}/{sample_id}")
@@ -183,7 +183,7 @@ def delete_trace(
     db: Session = Depends(get_db)
 ) -> dict[str, str]:
     """
-    删除单条 Trace 数据
+    删除单条执行链路数据
     """
     trace_loader.delete_trace(task_id, sample_id)
-    return {"message": f"Trace {sample_id} for task {task_id} deleted"}
+    return {"message": f"任务 {task_id} 的执行链路 {sample_id} 已删除"}

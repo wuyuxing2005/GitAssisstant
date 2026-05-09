@@ -42,11 +42,11 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: "layout-dashboard" },
-  { id: "builder", label: "Task Builder", icon: "plus-square" },
-  { id: "detail", label: "Analysis", icon: "search" },
-  { id: "compare", label: "Comparison", icon: "scale" },
-  { id: "datasets", label: "Datasets", icon: "files" },
+  { id: "dashboard", label: "任务看板", icon: "layout-dashboard" },
+  { id: "builder", label: "创建任务", icon: "plus-square" },
+  { id: "detail", label: "结果分析", icon: "search" },
+  { id: "compare", label: "对比分析", icon: "scale" },
+  { id: "datasets", label: "数据集", icon: "files" },
 ];
 
 export default function App() {
@@ -86,7 +86,7 @@ export default function App() {
 
   useEffect(() => {
     Promise.all([loadTasks(), fetchEvaluationMetadata().then(setMetadata)]).catch((err) => {
-      const errorMsg = err instanceof Error ? err.message : "Failed to load";
+      const errorMsg = err instanceof Error ? err.message : "加载平台数据失败";
       setError(errorMsg);
       addToast(errorMsg, "error");
     });
@@ -95,7 +95,7 @@ export default function App() {
   useEffect(() => {
     if (datasetKey > 0) {
       fetchEvaluationMetadata().then(setMetadata).catch((err) => {
-        const errorMsg = err instanceof Error ? err.message : "Failed to refresh metadata";
+        const errorMsg = err instanceof Error ? err.message : "刷新元数据失败";
         addToast(errorMsg, "error");
       });
     }
@@ -116,7 +116,7 @@ export default function App() {
   }, [selectedTaskId]);
 
   useEffect(() => {
-    if (selectedCompareIds.length === 0) {
+    if (selectedCompareIds.length !== 2) {
       setComparison(undefined);
       return;
     }
@@ -124,7 +124,7 @@ export default function App() {
     fetchComparison(selectedCompareIds)
       .then(setComparison)
       .catch((err) => {
-        const errorMsg = err instanceof Error ? err.message : "Failed to compare";
+        const errorMsg = err instanceof Error ? err.message : "对比分析失败";
         setError(errorMsg);
         addToast(errorMsg, "error");
       });
@@ -136,10 +136,10 @@ export default function App() {
       setTasks((current) => [created, ...current]);
       setSelectedTaskId(created.id);
       setDatasetKey((key) => key + 1);
-      addToast("Task created successfully", "success");
+      addToast("评测任务创建成功", "success");
       setActivePage("dashboard");
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to create task";
+      const errorMsg = err instanceof Error ? err.message : "创建任务失败";
       addToast(errorMsg, "error");
     }
   }
@@ -152,9 +152,9 @@ export default function App() {
       setResultMap((current) => ({ ...current, [taskId]: result }));
       await loadTasks();
       setSelectedTaskId(taskId);
-      addToast("Task completed successfully", "success");
+      addToast("评测任务执行完成", "success");
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to run task";
+      const errorMsg = err instanceof Error ? err.message : "运行任务失败";
       setRunError(errorMsg);
       addToast(errorMsg, "error");
       console.error("Run task error:", err);
@@ -185,7 +185,7 @@ export default function App() {
           (t, i) => tasks[i]?.status === "running" && t.status === "completed"
         );
         if (completedTask) {
-          addToast(`Task "${completedTask.name}" completed`, "success");
+          addToast(`任务“${completedTask.name}”已完成`, "success");
         }
       }
 
@@ -206,17 +206,29 @@ export default function App() {
       setTasks((current) => current.filter((task) => task.id !== taskId));
       setSelectedCompareIds((current) => current.filter((id) => id !== taskId));
       setSelectedTaskId((current) => (current === taskId ? undefined : current));
-      addToast("Task deleted successfully", "success");
+      addToast("评测任务已删除", "success");
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to delete task";
+      const errorMsg = err instanceof Error ? err.message : "删除任务失败";
       addToast(errorMsg, "error");
     }
   }
 
   function handleToggleCompare(taskId: string) {
-    setSelectedCompareIds((current) =>
-      current.includes(taskId) ? current.filter((id) => id !== taskId) : [...current, taskId]
-    );
+    setSelectedCompareIds((current) => {
+      if (current.includes(taskId)) {
+        return current.filter((id) => id !== taskId);
+      }
+      const targetTask = tasks.find((task) => task.id === taskId);
+      if (targetTask && targetTask.status !== "completed") {
+        addToast("只有已完成任务可以参与对比", "info");
+        return current;
+      }
+      if (current.length >= 2) {
+        addToast("最多只能选择两个任务进行对比", "info");
+        return current;
+      }
+      return [...current, taskId];
+    });
   }
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
@@ -227,7 +239,7 @@ export default function App() {
       <div className="loading-screen">
         <div className="loading-spinner-large">
           <div className="spinner"></div>
-          <p>Loading platform...</p>
+          <p>平台加载中...</p>
         </div>
       </div>
     );
@@ -257,7 +269,14 @@ export default function App() {
       case "detail":
         return <TaskDetailPage task={selectedTask} result={selectedResult} />;
       case "compare":
-        return <ComparisonPanel comparison={comparison} />;
+        return (
+          <ComparisonPanel
+            tasks={tasks}
+            selectedTaskIds={selectedCompareIds}
+            comparison={comparison}
+            onToggleTask={handleToggleCompare}
+          />
+        );
       case "datasets":
         return <DatasetsPage key={datasetKey} onDatasetUpdated={() => setDatasetKey((key) => key + 1)} />;
       default:
@@ -302,7 +321,7 @@ export default function App() {
           <button
             className="collapse-btn"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
           >
             {sidebarCollapsed ? "→" : "←"}
           </button>
@@ -334,8 +353,8 @@ export default function App() {
         <div className="sidebar-footer">
           {!sidebarCollapsed && (
             <div className="sidebar-info">
-              <p>Version 2.0</p>
-              <p className="sidebar-info-muted">Phase 3 Complete</p>
+              <p>版本 2.0</p>
+              <p className="sidebar-info-muted">评测能力增强版</p>
             </div>
           )}
         </div>
@@ -345,12 +364,12 @@ export default function App() {
       <main className="content">
         <header className="content-header">
           <div className="content-title">
-            <h1>{NAV_ITEMS.find((item) => item.id === activePage)?.label || "Dashboard"}</h1>
+            <h1>{NAV_ITEMS.find((item) => item.id === activePage)?.label || "任务看板"}</h1>
           </div>
           <div className="content-actions">
             <div className="status-indicator">
               <span className="status-dot"></span>
-              <span>System Online</span>
+              <span>系统在线</span>
             </div>
           </div>
         </header>

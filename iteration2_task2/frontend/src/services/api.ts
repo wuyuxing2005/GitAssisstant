@@ -28,10 +28,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // 尝试解析错误详情
     try {
       const errorData = await response.json();
-      const errorMsg = errorData.detail || errorData.message || `API request failed: ${response.status}`;
+      const errorMsg = errorData.detail || errorData.message || `接口请求失败：${response.status}`;
       throw new Error(errorMsg);
     } catch {
-      throw new Error(`API request failed: ${response.status}`);
+      throw new Error(`接口请求失败：${response.status}`);
     }
   }
 
@@ -157,7 +157,7 @@ export function exportReport(taskId: string, format: "json" | "md" = "json"): Pr
   }).then(async (response) => {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || errorData.message || `Export failed: ${response.status}`);
+      throw new Error(errorData.detail || errorData.message || `导出失败：${response.status}`);
     }
     return response.blob();
   });

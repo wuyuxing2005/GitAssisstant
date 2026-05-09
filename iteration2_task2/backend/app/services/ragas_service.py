@@ -42,7 +42,9 @@ class RagasService:
             )
         return embeddings
 
-    def evaluate_task(self, task: EvaluationTaskResponse) -> list[dict[str, Any]]:
+    def evaluate_task(
+        self, task: EvaluationTaskResponse, metric_keys: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Real Ragas integration entrypoint.
 
@@ -62,7 +64,7 @@ class RagasService:
         """
         dataset_path = Path(settings.ragas_dataset_dir) / f"{task.config.dataset}.jsonl"
         if not dataset_path.exists():
-            raise FileNotFoundError(f"Ragas dataset not found: {dataset_path}")
+            raise FileNotFoundError(f"Ragas 数据集不存在：{dataset_path}")
 
         try:
             from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -80,7 +82,7 @@ class RagasService:
             )
         except ImportError as exc:
             raise RuntimeError(
-                "Ragas dependencies are missing. Install backend extras for ragas execution."
+                "缺少 Ragas 依赖，请安装后端 Ragas 扩展后再执行。"
             ) from exc
 
         llm = LangchainLLMWrapper(self._create_llm())
@@ -90,11 +92,11 @@ class RagasService:
                 dataset_rows = [json.loads(line) for line in jsonlfile if line.strip()]
         except UnicodeDecodeError as exc:
             raise RuntimeError(
-                f"Failed to read Ragas dataset as UTF-8: {dataset_path}"
+                f"无法按 UTF-8 读取 Ragas 数据集：{dataset_path}"
             ) from exc
         except json.JSONDecodeError as exc:
             raise RuntimeError(
-                f"Invalid JSONL content in Ragas dataset: {dataset_path}"
+                f"Ragas 数据集 JSONL 内容无效：{dataset_path}"
             ) from exc
 
         dataset = EvaluationDataset.from_list(dataset_rows)
@@ -106,7 +108,8 @@ class RagasService:
             "tool_accuracy": ToolCallAccuracy(),
             "task_success_rate": AgentGoalAccuracy(llm=llm),
         }
-        metrics = [metric_map[key] for key in task.config.builtin_metrics if key in metric_map]
+        selected_metric_keys = metric_keys if metric_keys is not None else task.config.builtin_metrics
+        metrics = [metric_map[key] for key in selected_metric_keys if key in metric_map]
         if not metrics:
             metrics = [Faithfulness(llm=llm), FactualCorrectness(llm=llm)]
 

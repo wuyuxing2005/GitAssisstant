@@ -11,6 +11,17 @@ from typing import Any, Literal
 
 from app.schemas.task import EvaluationResult, EvaluationTaskResponse
 
+DIMENSION_LABELS = {
+    "quality": "效果",
+    "safety": "安全",
+    "performance": "性能",
+}
+
+METHOD_LABELS = {
+    "explicit": "显式指标",
+    "judge": "LLM 评审",
+}
+
 
 class ReportService:
     """评测报告生成服务"""
@@ -75,7 +86,6 @@ class ReportService:
                 "completed_at": datetime.now().isoformat(),
             },
             "evaluation_config": {
-                "agent_version": task.config.agent_version,
                 "dataset": task.config.dataset,
                 "evaluation_modes": task.config.evaluation_modes,
                 "evaluation_methods": task.config.evaluation_methods,
@@ -176,7 +186,7 @@ class ReportService:
         lines.append("| 维度 | 得分 |")
         lines.append("|------|------|")
         for dim, score in result.scorecard.items():
-            lines.append(f"| {dim} | {score:.2f} |")
+            lines.append(f"| {DIMENSION_LABELS.get(dim, dim)} | {score:.2f} |")
         lines.append("")
 
         # 维度分析
@@ -185,7 +195,7 @@ class ReportService:
             lines.append("## 维度分析")
             lines.append("")
             for dim, stats in dimension_analysis.items():
-                lines.append(f"### {dim.capitalize()}")
+                lines.append(f"### {DIMENSION_LABELS.get(dim, dim)}")
                 lines.append(f"- 平均分：{stats['average']:.2f}")
                 lines.append(f"- 最低分：{stats['min']:.2f}")
                 lines.append(f"- 最高分：{stats['max']:.2f}")
@@ -200,7 +210,8 @@ class ReportService:
         for metric in result.metrics:
             lines.append(
                 f"| {metric.key} | {metric.label} | {metric.value:.2f} | "
-                f"{metric.unit} | {metric.category} | {metric.method} |"
+                f"{metric.unit} | {DIMENSION_LABELS.get(metric.category, metric.category)} | "
+                f"{METHOD_LABELS.get(metric.method, metric.method)} |"
             )
         lines.append("")
 
@@ -219,11 +230,11 @@ class ReportService:
         # 配置信息
         lines.append("## 评测配置")
         lines.append("")
-        lines.append(f"- **Agent 版本**: {task.config.agent_version}")
         lines.append(f"- **数据集**: {task.config.dataset}")
-        lines.append(f"- **评估模式**: {' / '.join(task.config.evaluation_modes)}")
-        lines.append(f"- **评估方法**: {' / '.join(task.config.evaluation_methods)}")
-        lines.append(f"- **评估维度**: {' / '.join(task.config.dimensions)}")
+        mode_labels = {"result": "面向结果", "process": "面向过程"}
+        lines.append(f"- **评估模式**: {' / '.join(mode_labels.get(m, m) for m in task.config.evaluation_modes)}")
+        lines.append(f"- **评估方法**: {' / '.join(METHOD_LABELS.get(m, m) for m in task.config.evaluation_methods)}")
+        lines.append(f"- **评估维度**: {' / '.join(DIMENSION_LABELS.get(d, d) for d in task.config.dimensions)}")
         lines.append(f"- **内置指标**: {', '.join(task.config.builtin_metrics)}")
         if task.config.custom_metrics:
             custom_labels = [m.label for m in task.config.custom_metrics]

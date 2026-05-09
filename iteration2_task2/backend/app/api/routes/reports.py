@@ -32,12 +32,12 @@ async def export_report(
     # 查询任务
     db_task = db.query(DbTask).filter(DbTask.id == task_id).first()
     if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
 
     # 获取评测结果
     db_result = db.query(DbResult).filter(DbResult.task_id == task_id).first()
     if not db_result or not db_result.payload:
-        raise HTTPException(status_code=400, detail="Task result not available yet")
+        raise HTTPException(status_code=400, detail="任务结果尚未生成")
 
     # 转换为 schema 对象
     task = EvaluationTaskResponse(
@@ -85,10 +85,10 @@ async def export_report(
             # 这里返回一个提示
             raise HTTPException(
                 status_code=501,
-                detail="PDF export is not yet implemented. Please use JSON or Markdown format.",
+                detail="PDF 导出暂未实现，请使用 JSON 或 Markdown 格式。",
             )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to export report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"导出报告失败：{str(e)}")
 
 
 @router.get("/reports/{task_id}/preview")
@@ -102,7 +102,7 @@ async def preview_report(
     """
     db_task = db.query(DbTask).filter(DbTask.id == task_id).first()
     if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
 
     task = EvaluationTaskResponse(
         id=db_task.id,
@@ -117,7 +117,7 @@ async def preview_report(
     # 从数据库获取结果
     db_result = db.query(DbResult).filter(DbResult.task_id == task_id).first()
     if not db_result or not db_result.payload:
-        raise HTTPException(status_code=400, detail="Task result not available yet")
+        raise HTTPException(status_code=400, detail="任务结果尚未生成")
 
     payload = db_result.payload
     result = EvaluationResult(

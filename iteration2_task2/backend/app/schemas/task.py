@@ -16,7 +16,7 @@ class CustomMetricDefinition(BaseModel):
     dimension: EvaluationDimension = Field(..., description="Metric dimension")
     method: EvaluationMethod = Field(..., description="Metric scoring method")
     enabled: bool = Field(default=True, description="Whether the metric is enabled")
-    judge_prompt: dict[str, str] | None = Field(default=None, description="Judge 方法的自定义提示词配置")
+    judge_prompt: dict | None = Field(default=None, description="Judge 方法的自定义提示词配置")
 
 
 class EvaluationStrategy(BaseModel):
@@ -28,7 +28,6 @@ class EvaluationStrategy(BaseModel):
 
 
 class EvaluationConfig(BaseModel):
-    agent_version: str = Field(..., description="Target Agent version")
     dataset: str = Field(..., description="Dataset identifier")
     evaluation_modes: list[EvaluationMode] = Field(default_factory=list)
     evaluation_methods: list[EvaluationMethod] = Field(default_factory=list)
@@ -94,7 +93,6 @@ class EvaluationResult(BaseModel):
 class ComparisonItem(BaseModel):
     task_id: str
     task_name: str
-    agent_version: str
     dataset: str
     status: TaskStatus
     scorecard: dict[str, float]
@@ -113,4 +111,3 @@ class EvaluationMetadataResponse(BaseModel):
     builtin_metrics: list[CustomMetricDefinition]
     strategy_templates: list[EvaluationStrategy]
     datasets: list[str]
-    agent_versions: list[str]

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AgentTrace } from "../types/trace";
+import { labelTraceEvent } from "../utils/labels";
 
 interface TraceViewerProps {
   taskId: string;
@@ -22,12 +23,12 @@ export function TraceViewer({ taskId, traces: initialTraces }: TraceViewerProps)
           setTraces([]);
           return;
         }
-        throw new Error(`Failed to load traces: ${response.status}`);
+        throw new Error(`加载执行链路失败：${response.status}`);
       }
       const data = await response.json();
       setTraces(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      setError(err instanceof Error ? err.message : "未知错误");
     } finally {
       setLoading(false);
     }
@@ -42,14 +43,14 @@ export function TraceViewer({ taskId, traces: initialTraces }: TraceViewerProps)
   };
 
   if (loading) {
-    return <div className="trace-viewer loading">Loading traces...</div>;
+    return <div className="trace-viewer loading">执行链路加载中...</div>;
   }
 
   if (error) {
     return (
       <div className="trace-viewer error">
         <p>{error}</p>
-        <button onClick={loadTraces}>Retry</button>
+        <button onClick={loadTraces}>重试</button>
       </div>
     );
   }
@@ -57,8 +58,8 @@ export function TraceViewer({ taskId, traces: initialTraces }: TraceViewerProps)
   if (!traces || traces.length === 0) {
     return (
       <div className="trace-viewer empty">
-        <p>No trace data available for this task.</p>
-        <button onClick={loadTraces}>Load Traces</button>
+        <p>当前任务暂无执行链路数据。</p>
+        <button onClick={loadTraces}>加载执行链路</button>
       </div>
     );
   }
@@ -66,9 +67,9 @@ export function TraceViewer({ taskId, traces: initialTraces }: TraceViewerProps)
   return (
     <div className="trace-viewer">
       <div className="trace-header">
-        <h3>Execution Traces ({traces.length})</h3>
+        <h3>执行链路（{traces.length}）</h3>
         <button onClick={loadTraces} className="btn-secondary">
-          Refresh
+          刷新
         </button>
       </div>
 
@@ -81,15 +82,15 @@ export function TraceViewer({ taskId, traces: initialTraces }: TraceViewerProps)
           >
             <div className="trace-item-header">
               <span className="trace-sample-id">{trace.sample_id}</span>
-              <span className="trace-events-count">{trace.events.length} events</span>
+              <span className="trace-events-count">{trace.events.length} 个事件</span>
             </div>
             <div className="trace-item-body">
               <span className="trace-input">{trace.user_input}</span>
               <span className="trace-response">{trace.final_response}</span>
             </div>
             <div className="trace-item-meta">
-              <span>Latency: {(trace.total_latency_ms / 1000).toFixed(2)}s</span>
-              <span>Tokens: {trace.token_usage.total}</span>
+              <span>延迟：{(trace.total_latency_ms / 1000).toFixed(2)}s</span>
+              <span>Token：{trace.token_usage.total}</span>
             </div>
           </div>
         ))}
@@ -150,7 +151,7 @@ function TraceDetail({ trace, onClose }: TraceDetailProps) {
     <div className="trace-detail-overlay" onClick={onClose}>
       <div className="trace-detail" onClick={(e) => e.stopPropagation()}>
         <div className="trace-detail-header">
-          <h4>Trace Details: {trace.sample_id}</h4>
+          <h4>执行链路详情：{trace.sample_id}</h4>
           <button onClick={onClose} className="btn-close">
             ×
           </button>
@@ -159,35 +160,35 @@ function TraceDetail({ trace, onClose }: TraceDetailProps) {
         <div className="trace-detail-body">
           <div className="trace-summary">
             <div className="trace-field">
-              <strong>User Input:</strong>
+              <strong>用户输入：</strong>
               <p>{trace.user_input}</p>
             </div>
             <div className="trace-field">
-              <strong>Final Response:</strong>
+              <strong>最终回答：</strong>
               <p>{trace.final_response}</p>
             </div>
             <div className="trace-stats">
               <div className="stat-item">
-                <span>Total Latency:</span>
+                <span>总延迟：</span>
                 <strong>{(trace.total_latency_ms / 1000).toFixed(2)}s</strong>
               </div>
               <div className="stat-item">
-                <span>Prompt Tokens:</span>
+                <span>提示词 Token：</span>
                 <strong>{trace.token_usage.prompt}</strong>
               </div>
               <div className="stat-item">
-                <span>Completion Tokens:</span>
+                <span>生成 Token：</span>
                 <strong>{trace.token_usage.completion}</strong>
               </div>
               <div className="stat-item">
-                <span>Total Tokens:</span>
+                <span>总 Token：</span>
                 <strong>{trace.token_usage.total}</strong>
               </div>
             </div>
           </div>
 
           <div className="trace-events">
-            <h5>Event Timeline ({trace.events.length} events)</h5>
+            <h5>事件时间线（{trace.events.length} 个事件）</h5>
             <div className="event-list">
               {trace.events.map((event, index) => (
                 <div
@@ -204,7 +205,7 @@ function TraceDetail({ trace, onClose }: TraceDetailProps) {
                     >
                       {getEventTypeIcon(event.event_type)}
                     </span>
-                    <span className="event-type">{event.event_type}</span>
+                    <span className="event-type">{labelTraceEvent(event.event_type)}</span>
                     <span className="event-index">#{index + 1}</span>
                     <span className="event-time">
                       {new Date(event.timestamp).toLocaleTimeString()}
@@ -216,20 +217,20 @@ function TraceDetail({ trace, onClose }: TraceDetailProps) {
                     <div className="event-details">
                       {event.message && (
                         <div className="event-field">
-                          <strong>Message:</strong>
+                          <strong>消息：</strong>
                           <p>{event.message}</p>
                         </div>
                       )}
 
                       {event.tool_call && (
                         <div className="event-field">
-                          <strong>Tool Call:</strong>
+                          <strong>工具调用：</strong>
                           <div className="tool-call-detail">
                             <div className="tool-name">
-                              <strong>Name:</strong> {event.tool_call.name}
+                              <strong>名称：</strong> {event.tool_call.name}
                             </div>
                             <div className="tool-status">
-                              <strong>Status:</strong>{" "}
+                              <strong>状态：</strong>{" "}
                               <span
                                 className={`status-badge ${event.tool_call.status}`}
                               >
@@ -237,13 +238,13 @@ function TraceDetail({ trace, onClose }: TraceDetailProps) {
                               </span>
                             </div>
                             <div className="tool-latency">
-                              <strong>Latency:</strong>{" "}
+                              <strong>耗时：</strong>{" "}
                               {event.tool_call.latency_ms}ms
                             </div>
                             {event.tool_call.arguments &&
                               Object.keys(event.tool_call.arguments).length > 0 && (
                                 <div className="tool-arguments">
-                                  <strong>Arguments:</strong>
+                                  <strong>参数：</strong>
                                   <pre>
                                     {JSON.stringify(
                                       event.tool_call.arguments,
@@ -255,7 +256,7 @@ function TraceDetail({ trace, onClose }: TraceDetailProps) {
                               )}
                             {event.tool_call.result !== undefined && (
                               <div className="tool-result">
-                                <strong>Result:</strong>
+                                <strong>结果：</strong>
                                 <pre>
                                   {typeof event.tool_call.result === "string"
                                     ? event.tool_call.result
@@ -273,7 +274,7 @@ function TraceDetail({ trace, onClose }: TraceDetailProps) {
 
                       {event.metadata && Object.keys(event.metadata).length > 0 && (
                         <div className="event-field">
-                          <strong>Metadata:</strong>
+                          <strong>元数据：</strong>
                           <pre>
                             {JSON.stringify(event.metadata, null, 2)}
                           </pre>

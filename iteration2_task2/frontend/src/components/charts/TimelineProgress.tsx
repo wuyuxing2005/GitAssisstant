@@ -10,6 +10,7 @@ import {
 } from "recharts";
 
 import type { EvaluationTimelineEvent } from "../../types/task";
+import { labelTimelineStage, labelTimelineStatus } from "../../utils/labels";
 
 interface TimelineData {
   index: number;
@@ -26,7 +27,7 @@ export function TimelineProgress({ timeline }: TimelineProgressProps) {
   // 将时间线事件转换为图表数据
   const data: TimelineData[] = timeline.map((event, index) => ({
     index,
-    stage: event.stage,
+    stage: labelTimelineStage(event.stage),
     status: event.status,
     duration: index > 0 ? index * 100 : 0 // 模拟持续时间
   }));
@@ -55,8 +56,8 @@ export function TimelineProgress({ timeline }: TimelineProgressProps) {
               </span>
             </div>
             <div className="step-info">
-              <span className="step-stage">{event.stage}</span>
-              <span className="step-status">{event.status}</span>
+              <span className="step-stage">{labelTimelineStage(event.stage)}</span>
+              <span className="step-status">{labelTimelineStatus(event.status)}</span>
               {event.message && <span className="step-message">{event.message}</span>}
             </div>
             {index < timeline.length - 1 && (

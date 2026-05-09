@@ -30,7 +30,7 @@ export function DatasetsPage({ onDatasetUpdated }: DatasetsPageProps) {
       const data = await fetchDatasets();
       setDatasets(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load datasets");
+      setError(err instanceof Error ? err.message : "加载数据集失败");
     } finally {
       setLoading(false);
     }
@@ -47,7 +47,7 @@ export function DatasetsPage({ onDatasetUpdated }: DatasetsPageProps) {
   };
 
   const handleDelete = async (name: string) => {
-    if (!confirm(`Are you sure you want to delete dataset "${name}"?`)) {
+    if (!confirm(`确定删除数据集“${name}”吗？`)) {
       return;
     }
 
@@ -56,7 +56,7 @@ export function DatasetsPage({ onDatasetUpdated }: DatasetsPageProps) {
       loadDatasets();
       onDatasetUpdated?.();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete dataset");
+      alert(err instanceof Error ? err.message : "删除数据集失败");
     }
   };
 
@@ -64,9 +64,9 @@ export function DatasetsPage({ onDatasetUpdated }: DatasetsPageProps) {
     return (
       <section className="card">
         <div className="section-header">
-          <h2>Datasets</h2>
+          <h2>数据集</h2>
         </div>
-        <div className="loading-state">Loading datasets...</div>
+        <div className="loading-state">数据集加载中...</div>
       </section>
     );
   }
@@ -75,14 +75,14 @@ export function DatasetsPage({ onDatasetUpdated }: DatasetsPageProps) {
     <section className="card">
       <div className="section-header">
         <div>
-          <h2>Datasets</h2>
-          <p>Manage your evaluation datasets</p>
+          <h2>数据集</h2>
+          <p>管理评测任务使用的 JSONL 数据集。</p>
         </div>
         <button
           className="primary-button"
           onClick={() => setShowUploader(!showUploader)}
         >
-          {showUploader ? "Cancel" : "Upload Dataset"}
+          {showUploader ? "取消" : "上传数据集"}
         </button>
       </div>
 
@@ -103,19 +103,19 @@ export function DatasetsPage({ onDatasetUpdated }: DatasetsPageProps) {
 
       {datasets.length === 0 ? (
         <div className="empty-state">
-          <p>No datasets found.</p>
-          <p>Upload a JSONL file to get started.</p>
+          <p>暂无数据集。</p>
+          <p>上传 JSONL 文件后即可创建评测任务。</p>
         </div>
       ) : (
         <div className="table-wrap">
           <table className="task-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Records</th>
-                <th>Size</th>
-                <th>Modified</th>
-                <th>Actions</th>
+                <th>名称</th>
+                <th>记录数</th>
+                <th>大小</th>
+                <th>修改时间</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -135,13 +135,13 @@ export function DatasetsPage({ onDatasetUpdated }: DatasetsPageProps) {
                         className="ghost-button"
                         onClick={() => setSelectedDataset(dataset)}
                       >
-                        View
+                        查看
                       </button>
                       <button
                         className="ghost-button danger"
                         onClick={() => handleDelete(dataset.name)}
                       >
-                        Delete
+                        删除
                       </button>
                     </div>
                   </td>
@@ -178,7 +178,7 @@ function DatasetDetail({ dataset, onClose }: DatasetDetailProps) {
         const data = await response.json();
         setPreview(data.preview || []);
       } catch (err) {
-        console.error("Failed to load preview:", err);
+        console.error("加载预览失败:", err);
       } finally {
         setLoading(false);
       }
@@ -191,35 +191,35 @@ function DatasetDetail({ dataset, onClose }: DatasetDetailProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h3>Dataset: {dataset.name}</h3>
+          <h3>数据集：{dataset.name}</h3>
           <button className="btn-close-circle" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
           <div className="dataset-stats">
             <div className="stat-item">
-              <span>Records</span>
+              <span>记录数</span>
               <strong>{dataset.line_count.toLocaleString()}</strong>
             </div>
             <div className="stat-item">
-              <span>Size</span>
+              <span>大小</span>
               <strong>{formatSize(dataset.size_bytes)}</strong>
             </div>
             <div className="stat-item">
-              <span>Created</span>
+              <span>创建时间</span>
               <strong>{formatDate(dataset.created_at)}</strong>
             </div>
             <div className="stat-item">
-              <span>Modified</span>
+              <span>修改时间</span>
               <strong>{formatDate(dataset.modified_at)}</strong>
             </div>
           </div>
 
-          <h4>Preview (first 10 records)</h4>
+          <h4>预览（前 10 条）</h4>
 
           {loading ? (
-            <div>Loading preview...</div>
+            <div>预览加载中...</div>
           ) : preview.length === 0 ? (
-            <div className="empty-state">No preview available</div>
+            <div className="empty-state">暂无可预览内容</div>
           ) : (
             <div className="preview-table">
               <table className="task-table">

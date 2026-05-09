@@ -67,7 +67,7 @@ class TraceLoader:
                             trace = AgentTrace(**trace_data)
                             self._traces_cache[task_id][trace.sample_id] = trace
                     except (json.JSONDecodeError, Exception) as e:
-                        print(f"Warning: Failed to load trace file {trace_file}: {e}")
+                        print(f"警告：加载执行链路文件失败 {trace_file}: {e}")
 
     def save_trace(self, trace: AgentTrace) -> None:
         """
@@ -93,7 +93,7 @@ class TraceLoader:
             with open(trace_file, 'w', encoding='utf-8') as f:
                 json.dump(trace.model_dump(), f, indent=2, default=str)
         except Exception as e:
-            raise IOError(f"Failed to save trace to {trace_file}: {e}")
+            raise IOError(f"保存执行链路到 {trace_file} 失败：{e}")
 
     def get_trace(self, task_id: str, sample_id: str) -> Optional[AgentTrace]:
         """

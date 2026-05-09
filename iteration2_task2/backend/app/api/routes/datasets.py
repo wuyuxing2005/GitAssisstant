@@ -43,16 +43,16 @@ def validate_jsonl_file(file_path: Path) -> tuple[bool, list[str]]:
                 try:
                     data = json.loads(line)
                     if not isinstance(data, dict):
-                        errors.append(f"Line {line_num}: Expected JSON object, got {type(data).__name__}")
+                            errors.append(f"第 {line_num} 行：应为 JSON 对象，实际为 {type(data).__name__}")
                     else:
                         # 检查必要字段
                         if "user_input" not in data:
-                            errors.append(f"Line {line_num}: Missing required field 'user_input'")
+                            errors.append(f"第 {line_num} 行：缺少必填字段 user_input")
                         valid_lines += 1
                 except json.JSONDecodeError as e:
-                    errors.append(f"Line {line_num}: Invalid JSON - {str(e)}")
+                    errors.append(f"第 {line_num} 行：JSON 格式无效 - {str(e)}")
     except Exception as e:
-        errors.append(f"Failed to read file: {str(e)}")
+        errors.append(f"读取文件失败：{str(e)}")
 
     return len(errors) == 0, errors
 
@@ -69,14 +69,14 @@ async def upload_dataset(
     支持 JSONL 格式，可选验证。
     """
     if not file.filename.endswith('.jsonl'):
-        raise HTTPException(status_code=400, detail="Only JSONL files are supported")
+        raise HTTPException(status_code=400, detail="仅支持 JSONL 文件")
 
     dataset_dir = get_dataset_dir()
     dataset_name = file.filename[:-6]  # 移除 .jsonl 后缀
 
     # 检查数据集名称是否合法
     if not dataset_name:
-        raise HTTPException(status_code=400, detail="Invalid dataset name")
+        raise HTTPException(status_code=400, detail="数据集名称无效")
 
     # 保存文件
     file_path = dataset_dir / f"{dataset_name}.jsonl"
@@ -97,7 +97,7 @@ async def upload_dataset(
                 raise HTTPException(
                     status_code=400,
                     detail={
-                        "message": "Dataset validation failed",
+                        "message": "数据集校验失败",
                         "errors": errors[:10]  # 最多返回 10 个错误
                     }
                 )
@@ -113,7 +113,7 @@ async def upload_dataset(
         line_count = sum(1 for line in open(file_path, 'r', encoding='utf-8') if line.strip())
 
         return {
-            "message": "Dataset uploaded successfully",
+            "message": "数据集上传成功",
             "dataset_name": dataset_name,
             "file_path": str(file_path),
             "line_count": line_count
@@ -122,7 +122,7 @@ async def upload_dataset(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save dataset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"保存数据集失败：{str(e)}")
 
 
 @router.get("/")
@@ -173,7 +173,7 @@ def get_dataset_info(
     file_path = dataset_dir / f"{dataset_name}.jsonl"
 
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=404, detail="数据集不存在")
 
     try:
         # 读取前 N 行作为预览
@@ -198,7 +198,7 @@ def get_dataset_info(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read dataset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"读取数据集失败：{str(e)}")
 
 
 @router.delete("/{dataset_name}")
@@ -213,12 +213,12 @@ def delete_dataset(
     file_path = dataset_dir / f"{dataset_name}.jsonl"
 
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=404, detail="数据集不存在")
 
     try:
         file_path.unlink()
         return {
-            "message": f"Dataset '{dataset_name}' deleted successfully"
+            "message": f"数据集“{dataset_name}”已删除"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete dataset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除数据集失败：{str(e)}")

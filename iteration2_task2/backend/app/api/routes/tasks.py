@@ -33,7 +33,7 @@ def create_task(
 def get_task(task_id: str, db: Session = Depends(get_db)) -> EvaluationTaskResponse:
     task = task_service.get_task(db, task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
     return task
 
 
@@ -43,7 +43,7 @@ def update_task(
 ) -> EvaluationTaskResponse:
     task = task_service.update_task(db, task_id, payload)
     if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
     return task
 
 
@@ -51,8 +51,8 @@ def update_task(
 def delete_task(task_id: str, db: Session = Depends(get_db)) -> dict[str, str]:
     deleted = task_service.delete_task(db, task_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {"message": "Task deleted"}
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return {"message": "任务已删除"}
 
 
 @router.post("/{task_id}/run", response_model=EvaluationResult)
@@ -70,7 +70,7 @@ def run_task(
     """
     task = task_service.get_task(db, task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
 
     if async_mode:
         # 异步模式：提交到 Celery 队列
@@ -82,7 +82,7 @@ def run_task(
             "status": "submitted",
             "task_id": task_id,
             "job_id": job.id,
-            "message": "Task submitted to queue"
+            "message": "任务已提交到队列"
         }
     else:
         # 同步模式：直接执行
@@ -91,11 +91,11 @@ def run_task(
         except UnicodeDecodeError as exc:
             raise HTTPException(
                 status_code=500,
-                detail="Failed to decode evaluation dataset. Ensure the dataset file is saved as UTF-8.",
+                detail="评测数据集解码失败，请确认数据集文件保存为 UTF-8 编码。",
             ) from exc
         except ValueError as exc:
-            if str(exc) == "Task not found":
-                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            if str(exc) in {"Task not found", "任务不存在"}:
+                raise HTTPException(status_code=404, detail="任务不存在") from exc
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -105,7 +105,7 @@ def run_task(
 def get_task_result(task_id: str, db: Session = Depends(get_db)) -> EvaluationResult:
     result = evaluation_service.get_result(db, task_id)
     if result is None:
-        raise HTTPException(status_code=404, detail="Result not found")
+        raise HTTPException(status_code=404, detail="结果不存在")
     return result
 
 
@@ -118,7 +118,7 @@ def get_task_progress(task_id: str, db: Session = Depends(get_db)) -> dict:
     """
     task = task_service.get_task(db, task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
 
     # 尝试从 Celery 获取进度（如果可用）
     try:
@@ -138,12 +138,22 @@ def get_task_progress(task_id: str, db: Session = Depends(get_db)) -> dict:
             "task_id": task_id,
             "status": task.status,
             "is_processing": is_processing,
-            "message": f"Task {task.status}"
+            "message": f"任务状态：{_status_label(task.status)}"
         }
     except Exception:
         # Celery 不可用时返回基本状态
         return {
             "task_id": task_id,
             "status": task.status,
-            "message": f"Task {task.status}"
+            "message": f"任务状态：{_status_label(task.status)}"
         }
+
+
+def _status_label(status: str) -> str:
+    return {
+        "draft": "草稿",
+        "scheduled": "已排队",
+        "running": "运行中",
+        "completed": "已完成",
+        "failed": "失败",
+    }.get(status, status)
