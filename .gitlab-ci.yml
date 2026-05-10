@@ -1,0 +1,40 @@
+stages:
+  - ci
+
+# ============================================
+# 后端 CI — Python 语法编译检查
+# ============================================
+backend-ci:
+  stage: ci
+  image: python:3.11
+  script:
+    - cd iteration2_task2
+    - chmod +x ci/backend_ci.sh && ./ci/backend_ci.sh
+  cache:
+    key: pip-cache
+    paths:
+      - ~/.cache/pip
+  rules:
+    - changes:
+        - iteration2_task2/backend/**/*
+        - iteration2_task2/ci/backend_ci.sh
+        - .gitlab-ci.yml
+
+# ============================================
+# 前端 CI — TypeScript 类型检查 + Vite 构建
+# ============================================
+frontend-ci:
+  stage: ci
+  image: node:20
+  script:
+    - cd iteration2_task2
+    - chmod +x ci/frontend_ci.sh && ./ci/frontend_ci.sh
+  cache:
+    key: npm-cache
+    paths:
+      - ~/.npm
+  rules:
+    - changes:
+        - iteration2_task2/frontend/**/*
+        - iteration2_task2/ci/frontend_ci.sh
+        - .gitlab-ci.yml
