@@ -1,10 +1,6 @@
 stages:
   - ci
-  - build
   - deploy
-
-variables:
-  REGISTRY: reg.nju.edu.cn/2026seiii/2026seiii-045-1145
 
 # ============================================
 # 后端 CI — Python 语法编译检查
@@ -41,35 +37,8 @@ frontend-ci:
         - .gitlab-ci.yml
 
 # ============================================
-# 构建 Docker 镜像并推送到 NJU GitLab Registry
-# 使用 kaniko（无需 Docker daemon，无需特权模式）
-# ============================================
-build-images:
-  stage: build
-  image: gcr.io/kaniko-project/executor:debug
-  before_script:
-    - mkdir -p /kaniko/.docker
-    - |
-      cat > /kaniko/.docker/config.json << EOF
-      {
-        "auths": {
-          "reg.nju.edu.cn": {
-            "username": "$REGISTRY_USER",
-            "password": "$REGISTRY_PASSWORD"
-          }
-        }
-      }
-      EOF
-  script:
-    - cd iteration2_task2
-    - /kaniko/executor --context=./backend --destination="$REGISTRY/backend:$CI_COMMIT_SHORT_SHA" --destination="$REGISTRY/backend:latest"
-    - /kaniko/executor --context=./frontend --destination="$REGISTRY/frontend:$CI_COMMIT_SHORT_SHA" --destination="$REGISTRY/frontend:latest"
-  rules:
-    - changes:
-        - iteration2_task2/**/*
-
-# ============================================
 # CD — 部署到阿里云服务器（手动触发）
+# 在服务器上拉代码 → 打镜像 → 启动
 # ============================================
 deploy:
   stage: deploy

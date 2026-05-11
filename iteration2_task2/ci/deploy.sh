@@ -3,17 +3,23 @@ set -euo pipefail
 
 # ============================================
 # 部署脚本 — 在阿里云服务器上执行
-# 从 NJU GitLab Registry 拉取镜像并启动
 # ============================================
 
-COMPOSE_DIR="/opt/agent-eval/iteration2_task2/deploy"
+PROJECT_DIR="/opt/agent-eval"
 
-cd "$COMPOSE_DIR"
+echo "=== 拉取最新代码 ==="
+cd "$PROJECT_DIR"
+git fetch origin master
+git reset --hard origin/master
 
-echo "=== 拉取最新镜像 ==="
-docker compose -f docker-compose.yml pull
+echo "=== 构建后端镜像 ==="
+docker build -t agent-eval-backend:latest "$PROJECT_DIR/iteration2_task2/backend"
+
+echo "=== 构建前端镜像 ==="
+docker build -t agent-eval-frontend:latest "$PROJECT_DIR/iteration2_task2/frontend"
 
 echo "=== 启动服务 ==="
+cd "$PROJECT_DIR/iteration2_task2/deploy"
 docker compose -f docker-compose.yml up -d
 
 echo "=== 清理旧镜像 ==="
