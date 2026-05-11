@@ -1,5 +1,16 @@
 stages:
   - ci
+  - deploy
+
+variables:
+  PROJECT_DIR: "iteration2_task2"
+  PUBLIC_REPO_URL: "https://git.nju.edu.cn/2026seiii/2026seiii-045-1145.git"
+  DEPLOY_ENV: "staging"
+  DEPLOY_ROOT: "/opt/agent-eval"
+  DEPLOY_PORT: "22"
+  PIP_INDEX_URL: "https://pypi.tuna.tsinghua.edu.cn/simple"
+  PIP_TRUSTED_HOST: "pypi.tuna.tsinghua.edu.cn"
+  NPM_CONFIG_REGISTRY: "https://registry.npmmirror.com"
 
 # ============================================
 # 后端 CI — Python 语法编译检查
@@ -8,7 +19,7 @@ backend-ci:
   stage: ci
   image: python:3.11
   script:
-    - cd iteration2_task2
+    - cd "$PROJECT_DIR"
     - chmod +x ci/backend_ci.sh && ./ci/backend_ci.sh
   cache:
     key: pip-cache
@@ -27,7 +38,7 @@ frontend-ci:
   stage: ci
   image: node:20
   script:
-    - cd iteration2_task2
+    - cd "$PROJECT_DIR"
     - chmod +x ci/frontend_ci.sh && ./ci/frontend_ci.sh
   cache:
     key: npm-cache
@@ -37,4 +48,24 @@ frontend-ci:
     - changes:
         - iteration2_task2/frontend/**/*
         - iteration2_task2/ci/frontend_ci.sh
+        - .gitlab-ci.yml
+
+# ============================================
+# CD — GitLab Runner 通过 SSH 触发远端 Docker Compose 部署
+# ============================================
+deploy-staging:
+  stage: deploy
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache openssh-client sshpass
+  script:
+    - cd "$PROJECT_DIR"
+    - chmod +x ci/deploy_remote.sh
+    - GIT_REPO_URL="$PUBLIC_REPO_URL" GIT_BRANCH="$CI_COMMIT_REF_NAME" IMAGE_TAG="$CI_COMMIT_SHORT_SHA" ./ci/deploy_remote.sh
+  environment:
+    name: staging
+  when: manual
+  rules:
+    - changes:
+        - iteration2_task2/**/*
         - .gitlab-ci.yml

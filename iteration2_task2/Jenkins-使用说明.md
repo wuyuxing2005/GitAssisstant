@@ -1,5 +1,7 @@
 # Jenkins CI/CD 使用说明
 
+> 当前迭代二任务二的 CD 已改为 GitLab Runner 方案。本文仅保留 Jenkins 方案的历史参考；实际部署请查看 `GitLab-Runner-CD-使用说明.md` 和仓库根目录 `.gitlab-ci.yml`。
+
 ## 1. 已实现内容
 
 - `iteration2_eval/Jenkinsfile`：声明式流水线

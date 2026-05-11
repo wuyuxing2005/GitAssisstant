@@ -1,40 +1,100 @@
 services:
   postgres:
     image: postgres:16
-    container_name: agent-eval-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: agent_eval
       POSTGRES_USER: agent_eval
       POSTGRES_PASSWORD: agent_eval
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_eval -d agent_eval"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   backend:
-    image: ${BACKEND_IMAGE}:${IMAGE_TAG}
-    container_name: agent-eval-backend
+    image: ${BACKEND_IMAGE}
     restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - path: .env
         required: false
     environment:
       AGENT_EVAL_DATABASE_URL: postgresql+psycopg://agent_eval:agent_eval@postgres:5432/agent_eval
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
       AGENT_EVAL_RAGAS_ENABLED: "false"
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - backend_data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app worker --loglevel=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AGENT_EVAL_DATABASE_URL: postgresql+psycopg://agent_eval:agent_eval@postgres:5432/agent_eval
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      AGENT_EVAL_RAGAS_ENABLED: "false"
+    volumes:
+      - backend_data:/app/data
 
   frontend:
-    image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
-    container_name: agent-eval-frontend
+    image: ${FRONTEND_IMAGE}
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
 volumes:
   postgres_data:
+  redis_data:
+  backend_data:

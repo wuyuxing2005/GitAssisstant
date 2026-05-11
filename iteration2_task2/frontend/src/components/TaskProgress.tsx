@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { labelStatus } from "../utils/labels";
+import { API_BASE } from "../services/api";
 
 interface TaskProgressProps {
   taskId: string;
@@ -22,7 +23,7 @@ export function TaskProgress({ taskId, onComplete, onError }: TaskProgressProps)
   useEffect(() => {
     const fetchProgress = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/tasks/${taskId}/progress`);
+        const response = await fetch(`${API_BASE}/tasks/${taskId}/progress`);
         if (!response.ok) {
           throw new Error(`获取任务进度失败：${response.status}`);
         }

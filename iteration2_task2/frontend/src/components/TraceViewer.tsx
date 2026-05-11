@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AgentTrace } from "../types/trace";
 import { labelTraceEvent } from "../utils/labels";
+import { fetchTraces } from "../services/api";
 
 interface TraceViewerProps {
   taskId: string;
@@ -17,15 +18,7 @@ export function TraceViewer({ taskId, traces: initialTraces }: TraceViewerProps)
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`http://localhost:8000/api/traces/${taskId}`);
-      if (!response.ok) {
-        if (response.status === 404) {
-          setTraces([]);
-          return;
-        }
-        throw new Error(`加载执行链路失败：${response.status}`);
-      }
-      const data = await response.json();
+      const data = await fetchTraces(taskId);
       setTraces(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "未知错误");
