@@ -1,5 +1,10 @@
 stages:
   - ci
+  - build
+  - deploy
+
+variables:
+  REGISTRY: reg.nju.edu.cn/2026seiii/2026seiii-045-1145
 
 # ============================================
 # 后端 CI — Python 语法编译检查
@@ -38,3 +43,52 @@ frontend-ci:
         - iteration2_task2/frontend/**/*
         - iteration2_task2/ci/frontend_ci.sh
         - .gitlab-ci.yml
+
+# ============================================
+# 构建 Docker 镜像并推送到 NJU GitLab Registry
+# ============================================
+build-images:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - echo "$REGISTRY_PASSWORD" | docker login reg.nju.edu.cn -u "$REGISTRY_USER" --password-stdin
+  script:
+    - cd iteration2_task2
+    - |
+      docker build \
+        -t "$REGISTRY/backend:$CI_COMMIT_SHORT_SHA" \
+        -t "$REGISTRY/backend:latest" \
+        ./backend
+    - |
+      docker build \
+        -t "$REGISTRY/frontend:$CI_COMMIT_SHORT_SHA" \
+        -t "$REGISTRY/frontend:latest" \
+        ./frontend
+    - docker push "$REGISTRY/backend:$CI_COMMIT_SHORT_SHA"
+    - docker push "$REGISTRY/backend:latest"
+    - docker push "$REGISTRY/frontend:$CI_COMMIT_SHORT_SHA"
+    - docker push "$REGISTRY/frontend:latest"
+  rules:
+    - changes:
+        - iteration2_task2/**/*
+
+# ============================================
+# CD — 部署到阿里云服务器（手动触发）
+# ============================================
+deploy:
+  stage: deploy
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache openssh-client sshpass
+    - mkdir -p ~/.ssh
+    - ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+  script:
+    - sshpass -p "$SSH_PASSWORD" ssh "$SSH_USER@$SSH_HOST" "bash -s" < iteration2_task2/ci/deploy.sh
+  when: manual
+  rules:
+    - changes:
+        - iteration2_task2/**/*
