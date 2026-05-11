@@ -42,32 +42,28 @@ frontend-ci:
 
 # ============================================
 # 构建 Docker 镜像并推送到 NJU GitLab Registry
+# 使用 kaniko（无需 Docker daemon，无需特权模式）
 # ============================================
 build-images:
   stage: build
-  image: docker:27
-  services:
-    - docker:27-dind
-  variables:
-    DOCKER_TLS_CERTDIR: ""
+  image: gcr.io/kaniko-project/executor:debug
   before_script:
-    - echo "$REGISTRY_PASSWORD" | docker login reg.nju.edu.cn -u "$REGISTRY_USER" --password-stdin
+    - mkdir -p /kaniko/.docker
+    - |
+      cat > /kaniko/.docker/config.json << EOF
+      {
+        "auths": {
+          "reg.nju.edu.cn": {
+            "username": "$REGISTRY_USER",
+            "password": "$REGISTRY_PASSWORD"
+          }
+        }
+      }
+      EOF
   script:
     - cd iteration2_task2
-    - |
-      docker build \
-        -t "$REGISTRY/backend:$CI_COMMIT_SHORT_SHA" \
-        -t "$REGISTRY/backend:latest" \
-        ./backend
-    - |
-      docker build \
-        -t "$REGISTRY/frontend:$CI_COMMIT_SHORT_SHA" \
-        -t "$REGISTRY/frontend:latest" \
-        ./frontend
-    - docker push "$REGISTRY/backend:$CI_COMMIT_SHORT_SHA"
-    - docker push "$REGISTRY/backend:latest"
-    - docker push "$REGISTRY/frontend:$CI_COMMIT_SHORT_SHA"
-    - docker push "$REGISTRY/frontend:latest"
+    - /kaniko/executor --context=./backend --destination="$REGISTRY/backend:$CI_COMMIT_SHORT_SHA" --destination="$REGISTRY/backend:latest"
+    - /kaniko/executor --context=./frontend --destination="$REGISTRY/frontend:$CI_COMMIT_SHORT_SHA" --destination="$REGISTRY/frontend:latest"
   rules:
     - changes:
         - iteration2_task2/**/*
