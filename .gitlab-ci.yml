@@ -48,7 +48,7 @@ deploy:
     - mkdir -p ~/.ssh
     - ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
   script:
-    - sshpass -p "$SSH_PASSWORD" ssh "$SSH_USER@$SSH_HOST" "bash -s" < iteration2_task2/ci/deploy.sh
+    - sshpass -p "$SSH_PASSWORD" ssh "$SSH_USER@$SSH_HOST" "GIT_BRANCH='$CI_COMMIT_BRANCH' bash -s" < iteration2_task2/ci/deploy.sh
   when: manual
   rules:
     - changes:

@@ -7,10 +7,12 @@ set -euo pipefail
 
 PROJECT_DIR="/opt/agent-eval"
 
-echo "=== 拉取最新代码 ==="
+BRANCH="${GIT_BRANCH:-master}"
+
+echo "=== 拉取最新代码（分支：$BRANCH） ==="
 cd "$PROJECT_DIR"
-git fetch origin master
-git reset --hard origin/master
+git fetch origin "$BRANCH"
+git reset --hard "origin/$BRANCH"
 
 echo "=== 构建后端镜像 ==="
 docker build -t agent-eval-backend:latest "$PROJECT_DIR/iteration2_task2/backend"
