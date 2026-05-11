@@ -15,10 +15,6 @@ backend-ci:
   script:
     - cd iteration2_task2
     - chmod +x ci/backend_ci.sh && ./ci/backend_ci.sh
-  cache:
-    key: pip-cache
-    paths:
-      - ~/.cache/pip
   rules:
     - changes:
         - iteration2_task2/backend/**/*
