@@ -29,7 +29,12 @@ services:
       retries: 10
 
   backend:
+<<<<<<< HEAD
     image: ${BACKEND_IMAGE}
+=======
+    image: agent-eval-backend:latest
+    container_name: agent-eval-backend
+>>>>>>> 3238cfc15c7913ff0dd17908b8d7c5ea6b30367d
     restart: unless-stopped
     depends_on:
       postgres:
@@ -81,7 +86,12 @@ services:
       - backend_data:/app/data
 
   frontend:
+<<<<<<< HEAD
     image: ${FRONTEND_IMAGE}
+=======
+    image: agent-eval-frontend:latest
+    container_name: agent-eval-frontend
+>>>>>>> 3238cfc15c7913ff0dd17908b8d7c5ea6b30367d
     restart: unless-stopped
     depends_on:
       backend:
