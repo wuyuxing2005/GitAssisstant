@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
-import uuid
 
 from app.db.database import get_db
 from app.schemas.task import (
@@ -9,6 +8,7 @@ from app.schemas.task import (
     EvaluationTaskCreate,
     EvaluationTaskResponse,
     EvaluationTaskUpdate,
+    TaskRunResponse,
 )
 from app.services.evaluation_service import evaluation_service
 from app.services.task_service import task_service
@@ -55,7 +55,7 @@ def delete_task(task_id: str, db: Session = Depends(get_db)) -> dict[str, str]:
     return {"message": "任务已删除"}
 
 
-@router.post("/{task_id}/run", response_model=EvaluationResult)
+@router.post("/{task_id}/run", response_model=EvaluationResult | TaskRunResponse)
 def run_task(
     task_id: str,
     db: Session = Depends(get_db),
@@ -74,8 +74,7 @@ def run_task(
 
     if async_mode:
         # 异步模式：提交到 Celery 队列
-        task.status = "running"
-        task_service.update_task(db, task_id, task)
+        task_service.update_task(db, task_id, EvaluationTaskUpdate(status="scheduled"))
 
         job = run_evaluation_task.delay(task_id)
         return {

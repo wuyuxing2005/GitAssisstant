@@ -90,6 +90,13 @@ class EvaluationResult(BaseModel):
     logs_preview: list[str]
 
 
+class TaskRunResponse(BaseModel):
+    status: str
+    task_id: str
+    job_id: str
+    message: str
+
+
 class ComparisonItem(BaseModel):
     task_id: str
     task_name: str

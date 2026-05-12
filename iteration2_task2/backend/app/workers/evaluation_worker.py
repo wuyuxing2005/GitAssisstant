@@ -60,6 +60,7 @@ def run_evaluation_task(self, task_id: str) -> dict:
             logger.error(f"任务 {task_id} 不存在")
             return {"status": "failed", "error": "任务不存在"}
 
+        task.status = "running"
         task_repository.save(db, task)
         logger.info(f"开始执行评测任务 {task_id}")
 
