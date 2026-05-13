@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchDatasets, deleteDataset, type DatasetInfo } from "../services/api";
+import { fetchDatasetDetail, fetchDatasets, deleteDataset, type DatasetInfo } from "../services/api";
 import { DatasetUploader } from "../components/DatasetUploader";
 
 interface DatasetsPageProps {
@@ -174,8 +174,7 @@ function DatasetDetail({ dataset, onClose }: DatasetDetailProps) {
   useEffect(() => {
     const loadPreview = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/datasets/${dataset.name}?limit=10`);
-        const data = await response.json();
+        const data = await fetchDatasetDetail(dataset.name, 10);
         setPreview(data.preview || []);
       } catch (err) {
         console.error("加载预览失败:", err);
