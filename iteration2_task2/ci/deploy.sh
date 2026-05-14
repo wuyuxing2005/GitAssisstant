@@ -24,7 +24,15 @@ echo "=== 启动服务 ==="
 cd "$PROJECT_DIR/iteration2_task2/deploy"
 docker compose -f docker-compose.yml up -d
 
-echo "=== 清理旧镜像 ==="
+echo "=== 清理旧镜像（保留最近3个版本） ==="
+for repo in agent-eval-backend agent-eval-frontend; do
+    docker images "$repo" --format '{{.ID}} {{.CreatedAt}}' \
+        | sort -uk1,1 \
+        | sort -rk2 \
+        | tail -n +4 \
+        | awk '{print $1}' \
+        | xargs -r docker rmi -f 2>/dev/null || true
+done
 docker image prune -f
 
 echo "=== 部署完成 ==="
