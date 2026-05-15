@@ -1,0 +1,279 @@
+import os
+import re
+import subprocess
+import uuid
+import json
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from langchain_core.messages import HumanMessage
+
+from .orchestrator import AgentOrchestrator
+
+
+@dataclass
+class Session:
+    session_id: str
+    thread_id: str
+    repo_path: str
+    issue_ref: Optional[str] = None
+    issue_description: Optional[str] = None
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+
+class SessionManager:
+    def __init__(self, orchestrator, workspace_root: str | Path | None = None):
+        self.orchestrator: AgentOrchestrator = orchestrator
+        self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
+        self.repos_root = (self.workspace_root / "repos").resolve()
+        self.repos_root.mkdir(parents=True, exist_ok=True)
+        # session_id -> Session
+        self.sessions: Dict[str, Session] = {}
+        self.current_session_id: Optional[str] = None
+
+    def _is_git_url(self, repo_ref: str) -> bool:
+        return repo_ref.startswith(("http://", "https://", "git@")) or repo_ref.endswith(".git")
+
+    def _sanitize_repo_name(self, repo_ref: str) -> str:
+        name = repo_ref.rstrip("/").split("/")[-1]
+        if name.endswith(".git"):
+            name = name[:-4]
+        name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")
+        return name or "repo"
+
+    def _parse_github_repo(self, remote_url: str) -> tuple[str, str] | None:
+        patterns = [
+            r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?/?$",
+            r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/?",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, remote_url)
+            if match:
+                return match.group("owner"), match.group("repo").removesuffix(".git")
+        return None
+
+    def _current_github_repo(self) -> tuple[str, str]:
+        if not self.current_repo:
+            raise ValueError("请先使用 /repo 指定仓库")
+
+        result = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            cwd=self.current_repo,
+        )
+        remote_url = result.stdout.strip()
+        if result.returncode != 0 or not remote_url:
+            raise ValueError("当前仓库没有 remote.origin.url，无法根据 issue 编号定位 GitHub 仓库")
+
+        repo_info = self._parse_github_repo(remote_url)
+        if repo_info is None:
+            raise ValueError(f"当前 remote 不是可识别的 GitHub 仓库: {remote_url}")
+        return repo_info
+
+    def _parse_issue_ref(self, issue_ref: str) -> tuple[str, str, int] | None:
+        issue_ref = issue_ref.strip()
+        url_match = re.search(
+            r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/issues/(?P<number>\d+)",
+            issue_ref,
+        )
+        if url_match:
+            return url_match.group("owner"), url_match.group("repo"), int(url_match.group("number"))
+
+        number_match = re.fullmatch(r"#?(?P<number>\d+)", issue_ref)
+        if number_match:
+            owner, repo = self._current_github_repo()
+            return owner, repo, int(number_match.group("number"))
+
+        return None
+
+    def _fetch_github_issue(self, owner: str, repo: str, issue_number: int) -> str:
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}"
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "gitIssueAssitant",
+        }
+        token = os.getenv("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        request = Request(api_url, headers=headers)
+        try:
+            with urlopen(request, timeout=20) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise ValueError(f"GitHub Issue 获取失败: HTTP {exc.code} {detail}") from exc
+        except URLError as exc:
+            raise ValueError(f"GitHub Issue 获取失败: {exc.reason}") from exc
+
+        title = payload.get("title") or ""
+        body = payload.get("body") or ""
+        html_url = payload.get("html_url") or api_url
+        return (
+            f"GitHub Issue: {owner}/{repo}#{issue_number}\n"
+            f"URL: {html_url}\n"
+            f"Title: {title}\n\n"
+            f"Body:\n{body}"
+        ).strip()
+
+    def resolve_issue_description(self, issue_ref: str) -> str:
+        issue_info = self._parse_issue_ref(issue_ref)
+        if issue_info is None:
+            return issue_ref
+        owner, repo, issue_number = issue_info
+        return self._fetch_github_issue(owner, repo, issue_number)
+
+    def _resolve_repo_path(self, repo_ref: str, target_dir: str | None = None) -> Path:
+        if self._is_git_url(repo_ref):
+            repo_name = target_dir or self._sanitize_repo_name(repo_ref)
+            destination = (self.repos_root / repo_name).resolve()
+            if not destination.exists():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                result = subprocess.run(
+                    ["git", "clone", repo_ref, str(destination)],
+                    capture_output=True,
+                    text=True,
+                    cwd=str(self.repos_root),
+                )
+                if result.returncode != 0:
+                    error = result.stderr.strip() or result.stdout.strip() or "git clone 失败"
+                    raise ValueError(error)
+            return destination
+
+        candidate = Path(repo_ref)
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+        else:
+            repos_candidate = (self.repos_root / candidate).resolve()
+            workspace_candidate = (self.workspace_root / candidate).resolve()
+            resolved = repos_candidate if repos_candidate.exists() else workspace_candidate
+        if not resolved.exists():
+            raise ValueError(f"仓库不存在: {resolved}")
+        if not resolved.is_dir():
+            raise ValueError(f"仓库路径不是目录: {resolved}")
+        return resolved
+
+    @property
+    def current_repo(self) -> Optional[str]:
+        session = self._current_session()
+        return session.repo_path if session else None
+
+    def _current_session(self) -> Optional[Session]:
+        if not self.current_session_id:
+            return None
+        return self.sessions.get(self.current_session_id)
+
+    def _find_sessions_by(self, repo_path: str, issue_ref: Optional[str] = None) -> list[Session]:
+        """查找具有相同 repo + issue 组合的已有会话"""
+        results = []
+        for s in self.sessions.values():
+            if s.repo_path == repo_path:
+                if issue_ref is None or s.issue_ref == issue_ref:
+                    results.append(s)
+        return results
+
+    def create_session(self, repo_ref: str, issue_ref: Optional[str] = None,
+                       target_dir: str | None = None, force: bool = False) -> tuple[Session, Optional[list[Session]]]:
+        """创建新会话。返回 (新会话, 重复会话列表或None)。
+
+        如果存在相同 repo+issue 的会话且 force=False，返回重复列表供调用方提示用户。
+        force=True 时跳过检查直接创建。
+        """
+        repo_path = str(self._resolve_repo_path(repo_ref, target_dir))
+
+        duplicates: Optional[list[Session]] = None
+        if issue_ref and not force:
+            existing = self._find_sessions_by(repo_path, issue_ref)
+            if existing:
+                duplicates = existing
+
+        session_id = uuid.uuid4().hex[:12]
+        thread_id = f"thread_{session_id}"
+        session = Session(
+            session_id=session_id,
+            thread_id=thread_id,
+            repo_path=repo_path,
+            issue_ref=issue_ref,
+        )
+        self.sessions[session_id] = session
+        self._switch_to(session)
+        return session, duplicates
+
+    def switch_session(self, session_id: str) -> Session:
+        """切换到已有会话"""
+        if session_id not in self.sessions:
+            raise ValueError(f"会话不存在: {session_id}")
+        session = self.sessions[session_id]
+        self._switch_to(session)
+        return session
+
+    def list_sessions(self, repo_path: Optional[str] = None) -> list[Session]:
+        """列出所有会话，可按仓库过滤"""
+        if repo_path:
+            return [s for s in self.sessions.values() if s.repo_path == repo_path]
+        return list(self.sessions.values())
+
+    def _switch_to(self, session: Session):
+        self.current_session_id = session.session_id
+        os.environ["GIT_ISSUE_ASSISTANT_REPO_ROOT"] = session.repo_path
+        os.chdir(session.repo_path)
+
+    def set_issue(self, issue_desc: str):
+        """为当前会话注入初始 Issue 并初始化状态"""
+        session = self._current_session()
+        if not session:
+            raise ValueError("当前没有激活的会话，请先创建会话")
+
+        resolved_desc = self.resolve_issue_description(issue_desc)
+        session.issue_ref = issue_desc
+        session.issue_description = resolved_desc
+
+        config = {"configurable": {"thread_id": session.thread_id}}
+
+        initial_state = {
+            "repo_path": session.repo_path,
+            "issue_description": resolved_desc,
+            "status": "INIT",
+            "iteration_count": 0,
+            "max_iterations": 15,
+            "goals": [],
+            "current_goal_index": 0,
+            "plan_version": 0,
+            "replan_trigger": "",
+            "last_thought": {},
+            "plan": [],
+            "reflexion_notes": "",
+            "messages": [
+                HumanMessage(
+                    content=(
+                        f"当前仓库路径：{session.repo_path}\n"
+                        f"需要解决的问题：{resolved_desc}\n"
+                        "当前仓库已经在本地可用，除非明确缺失，否则不要再次克隆仓库。\n"
+                        "请先理解仓库、定位相关代码、必要时运行测试或命令，"
+                        "然后修改代码并验证结果。请尽量给出可验证的修复结论。"
+                    )
+                )
+            ],
+            "trajectory": [],
+        }
+
+        self.orchestrator.graph.update_state(config, initial_state)
+
+    def get_current_thread_id(self) -> str:
+        """获取当前会话的 thread_id"""
+        session = self._current_session()
+        if not session:
+            raise ValueError("当前没有激活的会话")
+        return session.thread_id
+
+    def get_current_state(self) -> dict:
+        """获取当前会话的实时状态数据"""
+        thread_id = self.get_current_thread_id()
+        config = {"configurable": {"thread_id": thread_id}}
+        state_snapshot = self.orchestrator.graph.get_state(config)
+        return state_snapshot.values if state_snapshot else {}
