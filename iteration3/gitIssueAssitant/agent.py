@@ -47,18 +47,20 @@ class Agent:
         replan_reason: str = "",
     ) -> str:
         base = (
-            "你是代码修复 Agent 的规划器。请将问题分解为 2-5 个高层目标，"
-            "每个目标包含 1-4 个具体子步骤。\n\n"
+            "你是代码修复 Agent 的规划器。根据 Issue 生成修复计划。\n\n"
             "输出严格 JSON 格式（不要输出其他内容）：\n"
             "```json\n"
             "[\n"
-            '  {"description": "目标描述", "sub_steps": ["子步骤1", "子步骤2"]}\n'
+            '  {"description": "目标1描述"},\n'
+            '  {"description": "目标2描述"},\n'
+            '  {"description": "目标3描述"}\n'
             "]\n"
             "```\n\n"
-            "规则：\n"
-            "- 子步骤必须是可执行的动作（读文件、搜索代码、修改文件、运行测试）\n"
-            "- 如果 Issue 中点名了文件或函数，优先检查它们\n"
-            "- 目标之间应有逻辑递进关系（理解 → 定位 → 修复 → 验证）\n"
+            "约束：\n"
+            "- 2-6 个目标\n"
+            "- 每个目标应是一个清晰的阶段性成果（如：定位问题根因、修复核心逻辑、验证修复正确性）\n"
+            "- 目标按逻辑递进：理解问题 → 定位代码 → 实施修复 → 验证结果\n"
+            "- Issue 中提到的文件或函数应在目标描述中体现\n"
         )
 
         if existing_goals and replan_reason:
@@ -98,80 +100,19 @@ class Agent:
         try:
             goals = json.loads(content)
         except json.JSONDecodeError:
-            return [{"description": "执行 Issue 修复", "sub_steps": ["分析问题", "修改代码", "验证结果"]}]#fall back
+            return [{"description": "执行 Issue 修复", "status": "pending"}]
 
         if not isinstance(goals, list):
-            return [{"description": "执行 Issue 修复", "sub_steps": ["分析问题", "修改代码", "验证结果"]}]
+            return [{"description": "执行 Issue 修复", "status": "pending"}]
 
         normalized = []
         for g in goals:
             if isinstance(g, dict) and "description" in g:
                 normalized.append({
                     "description": g["description"],
-                    "sub_steps": g.get("sub_steps", []),
                     "status": "pending",
-                    "current_sub_step_index": 0,
                 })
-        return normalized or [{"description": "执行 Issue 修复", "sub_steps": ["分析问题", "修改代码", "验证结果"], "status": "pending", "current_sub_step_index": 0}]
-
-    # ========== 结构化 CoT ==========
-
-    def _build_cot_prompt(
-        self,
-        current_goal: str,
-        current_sub_step: str,
-        reflexion_notes: str,
-        trajectory_summary: str,
-    ) -> str:
-        return (
-            "在执行下一步之前，请输出你的结构化思考。\n"
-            "严格按以下 JSON 格式输出（不要输出其他内容）：\n"
-            "```json\n"
-            "{\n"
-            '  "hypothesis": "当前对问题根因的假设",\n'
-            '  "expected_result": "执行下一步后预期看到什么结果",\n'
-            '  "tool_rationale": "选择下一个工具/动作的理由"\n'
-            "}\n"
-            "```\n\n"
-            f"当前目标：{current_goal}\n"
-            f"当前子步骤：{current_sub_step}\n"
-            f"最近反思：{reflexion_notes or '暂无'}\n"
-            f"最近执行摘要：{trajectory_summary or '暂无'}"
-        )
-
-    async def generate_cot_thought(
-        self,
-        current_goal: str,
-        current_sub_step: str,
-        reflexion_notes: str = "",
-        trajectory_summary: str = "",
-    ) -> dict[str, str]:
-        prompt = self._build_cot_prompt(
-            current_goal, current_sub_step, reflexion_notes, trajectory_summary
-        )
-        response = await self.llm.ainvoke(prompt)
-        return self._parse_cot_json(response.content)
-
-    def _parse_cot_json(self, content: str) -> dict[str, str]:
-        content = content.strip()
-        json_match = re.search(r"```json\s*(.*?)\s*```", content, re.DOTALL)
-        if json_match:
-            content = json_match.group(1)
-        else:
-            brace_match = re.search(r"\{.*\}", content, re.DOTALL)
-            if brace_match:
-                content = brace_match.group(0)
-
-        try:
-            thought = json.loads(content)
-        except json.JSONDecodeError:
-            return {"hypothesis": "无法解析", "expected_result": "继续推进", "tool_rationale": "尝试下一步"}
-
-        return {
-            "hypothesis": thought.get("hypothesis", ""),
-            "expected_result": thought.get("expected_result", ""),
-            "tool_rationale": thought.get("tool_rationale", ""),
-        }
+        return normalized or [{"description": "执行 Issue 修复", "status": "pending"}]
 
     # ========== ReAct ==========
 
@@ -183,58 +124,35 @@ class Agent:
         plan: list[str] | None,
         reflexion_notes: str,
         current_goal: str = "",
-        current_sub_step: str = "",
-        last_thought: dict[str, str] | None = None,
     ) -> str:
         latest_plan = "\n".join(plan or []) or "暂无计划"
         reflection = reflexion_notes or "暂无"
         goal_context = ""
         if current_goal:
-            goal_context = f"\n当前目标：{current_goal}\n当前子步骤：{current_sub_step}\n"
-
-        thought_context = ""
-        if last_thought and last_thought.get("hypothesis"):
-            thought_context = (
-                f"\n你的思考：\n"
-                f"  假设：{last_thought.get('hypothesis', '')}\n"
-                f"  预期结果：{last_thought.get('expected_result', '')}\n"
-                f"  工具选择理由：{last_thought.get('tool_rationale', '')}\n"
-            )
+            goal_context = f"\n当前目标：{current_goal}\n"
 
         return (
-            "你是一个负责真实修复仓库问题的代码 Agent。\n\n"
-            "你的首要目标不是讨论方案，而是基于仓库证据推进修复。\n\n"
-            "工作规则：\n"
-            "1. 仓库已经在本地可用，默认不要再次调用 git_clone_repo。\n"
-            "2. 在声称任何代码结论前，先使用工具读取或搜索仓库；不要凭空猜测。\n"
-            "3. 如果 Issue 明确提到文件名、函数名、报错或测试名，优先直接检查这些对象。\n"
-            "4. 当你上一轮没有使用工具且没有得到验证证据时，这一轮不要重复计划，必须推进下一步调查或修改。\n"
-            "5. 如果你已经完成实际修改，下一条回复应明确总结修改结果，并包含 TASK_SUCCESS。\n"
-            "6. 只有在确认无法继续推进时才输出 TASK_FAILED；不要因为一次搜索失败就放弃。\n"
-            "7. 优先做高信息增益动作：read_file、search_code、list_files、run_pytest、replace_in_file、patch_file。\n"
-            "8. 如果某个工具结果与你的假设冲突，信任工具结果并调整策略。\n"
-            "9. 完成当前子步骤后，在回复中包含 SUB_STEP_DONE 标记。\n\n"
-            "输出规则：\n"
-            "- 若需要更多证据，优先调用工具，不要只输出泛泛建议。\n"
-            "- 若暂时不调用工具，必须给出一个具体且可执行的下一步，不能重复计划。\n"
-            "- 不要把未验证的猜测表述成事实。\n\n"
-            f"当前仓库根目录：{repo_path}\n"
-            f"当前任务：\n{issue_description}\n\n"
-            f"当前计划：\n{latest_plan}\n\n"
+            "你是代码修复 Agent，负责通过工具调用推进仓库问题的修复。\n\n"
+            "核心原则：\n"
+            "- 行动优先：每轮必须调用工具或输出终止标记，禁止空谈方案\n"
+            "- 证据驱动：所有结论必须基于工具返回的实际内容，不要猜测\n"
+            "- 信任工具：工具结果与假设冲突时，调整假设而非忽略结果\n\n"
+            "行为规范：\n"
+            "1. 仓库已在本地，不要调用 git_clone_repo\n"
+            "2. 优先检查 Issue 中明确提到的文件、函数、报错信息\n"
+            "3. 优先使用高信息增益工具：read_file、search_code、list_files、run_pytest\n"
+            "4. 修改代码后立即验证（读取修改后的文件或运行测试）\n"
+            "5. 调用工具前用一句话说明假设和预期\n\n"
+            "终止标记：\n"
+            "- 修复完成且已验证 → 输出 TASK_SUCCESS\n"
+            "- 确认无法继续推进 → 输出 TASK_FAILED\n"
+            "- 当前目标完成 → 输出 GOAL_DONE\n\n"
+            f"仓库路径：{repo_path}\n"
+            f"任务描述：\n{issue_description}\n\n"
+            f"执行计划：\n{latest_plan}\n\n"
             f"最近反思：\n{reflection}"
             f"{goal_context}"
-            f"{thought_context}"
         )
-
-    async def generate_plan(self, issue_description: str) -> str:
-        """兼容旧接口：生成文本计划"""
-        goals = await self.generate_hierarchical_plan(issue_description)
-        lines = []
-        for i, g in enumerate(goals, 1):
-            lines.append(f"{i}. {g['description']}")
-            for j, s in enumerate(g.get("sub_steps", []), 1):
-                lines.append(f"   {i}.{j} {s}")
-        return "\n".join(lines)
 
     async def run_react(
         self,
@@ -244,8 +162,6 @@ class Agent:
         plan: list | None = None,
         reflexion_notes: str = "",
         current_goal: str = "",
-        current_sub_step: str = "",
-        last_thought: dict[str, str] | None = None,
     ):
         sys_prompt = SystemMessage(
             content=self._build_react_system_prompt(
@@ -254,32 +170,75 @@ class Agent:
                 plan=plan,
                 reflexion_notes=reflexion_notes,
                 current_goal=current_goal,
-                current_sub_step=current_sub_step,
-                last_thought=last_thought,
             )
         )
         return await self.llm_with_tools.ainvoke([sys_prompt] + messages)
 
-    async def reflect_on_failure(self, trajectory: list, current_goal: str = "", current_sub_step: str = "") -> str:
-        history_text = "\n".join(str(item) for item in trajectory[-10:])
+    async def reflect_on_failure(self, trajectory: list, current_goal: str = "") -> str:
+        recent = trajectory[-6:]
+        history_lines = []
+        for item in recent:
+            item_type = item.get("type", "unknown")
+            content = str(item.get("content", ""))[:200]
+            tool_calls = item.get("tool_calls", [])
+            if tool_calls:
+                tools_desc = ", ".join(c.get("name", "?") for c in tool_calls[:3])
+                history_lines.append(f"[{item_type}] 调用工具: {tools_desc}")
+            elif content:
+                history_lines.append(f"[{item_type}] {content}")
+
+        history_text = "\n".join(history_lines)
         goal_context = ""
         if current_goal:
-            goal_context = f"\n当前目标：{current_goal}\n当前子步骤：{current_sub_step}\n"
+            goal_context = f"当前目标：{current_goal}\n"
 
         prompt = (
-            "你是代码修复流程的反思器。\n"
-            "下面是最近的执行轨迹。请分析为什么没有有效推进，并给出更好的下一步。\n\n"
-            f"{history_text}\n"
-            f"{goal_context}\n"
-            "请严格按下面格式输出，保持简洁：\n"
-            "失败原因: ...\n"
-            "缺失证据: ...\n"
-            "是否需要重规划: 是/否\n"
-            "下一步工具: ...\n"
-            "下一步目的: ..."
+            "分析以下执行轨迹，诊断为什么没有有效推进，并给出具体的下一步动作。\n\n"
+            f"{goal_context}"
+            f"最近轨迹：\n{history_text}\n\n"
+            "输出格式（每项一行，保持简洁）：\n"
+            "卡住原因: ...\n"
+            "缺失信息: ...\n"
+            "是否偏离目标: 是/否\n"
+            "下一步动作: [具体工具名] + [具体参数描述]"
         )
-        response = await self.llm_with_tools.ainvoke(prompt)
+        response = await self.llm.ainvoke(prompt)
         return response.content
+
+    async def verify_issue_resolved(self, issue_description: str, diff_output: str) -> dict[str, str]:
+        prompt = (
+            "判断以下代码修改是否正确解决了 Issue 中描述的问题。\n\n"
+            "判断标准：\n"
+            "- 修改是否针对了 Issue 的根本原因（而非表面症状）\n"
+            "- 修改是否完整（没有遗漏的文件或逻辑分支）\n"
+            "- 修改是否可能引入新问题\n\n"
+            f"Issue:\n{issue_description}\n\n"
+            f"Git Diff:\n{diff_output[:3000]}\n\n"
+            "严格按 JSON 格式输出：\n"
+            "```json\n"
+            '{"resolved": true/false, "reason": "一句话判断理由"}\n'
+            "```"
+        )
+        response = await self.llm.ainvoke(prompt)
+        return self._parse_verify_json(response.content)
+
+    def _parse_verify_json(self, content: str) -> dict[str, str]:
+        content = content.strip()
+        json_match = re.search(r"```json\s*(.*?)\s*```", content, re.DOTALL)
+        if json_match:
+            content = json_match.group(1)
+        else:
+            brace_match = re.search(r"\{.*\}", content, re.DOTALL)
+            if brace_match:
+                content = brace_match.group(0)
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError:
+            return {"resolved": False, "reason": "无法解析验证结果"}
+        return {
+            "resolved": bool(result.get("resolved", False)),
+            "reason": result.get("reason", ""),
+        }
 
     async def chat(self, user_input):
         return await self.llm.ainvoke(user_input)

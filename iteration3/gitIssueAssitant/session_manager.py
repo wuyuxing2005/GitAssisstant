@@ -245,8 +245,6 @@ class SessionManager:
             "current_goal_index": 0,
             "plan_version": 0,
             "replan_trigger": "",
-            "last_thought": {},
-            "plan": [],
             "reflexion_notes": "",
             "messages": [
                 HumanMessage(

@@ -27,24 +27,19 @@ class AgentOrchestrator:
     def _build_graph(self):
         workflow = StateGraph(AgentState)
         workflow.add_node("h_planner", self._node_h_planner)
-        workflow.add_node("goal_router", self._node_goal_router)
-        workflow.add_node("cot_think", self._node_cot_think)
         workflow.add_node("react", self._node_react)
         workflow.add_node("tools", ToolNode(self.tools))
         workflow.add_node("reflect", self._node_reflect)
-        workflow.add_node("replan_check", self._node_replan_check)
         workflow.add_node("verify", self._node_verify)
         workflow.add_node("finish_success", self._node_finish_success)
         workflow.add_node("finish_failed", self._node_finish_failed)
 
         workflow.set_entry_point("h_planner")
-        workflow.add_conditional_edges("h_planner", self._route_h_planner, {"goal_router": "goal_router"})
         workflow.add_conditional_edges(
-            "goal_router",
-            self._route_goal_router,
-            {"cot_think": "cot_think", "verify": "verify", "h_planner": "h_planner"},
+            "h_planner",
+            self._route_after_planner,
+            {"react": "react", "verify": "verify"},
         )
-        workflow.add_edge("cot_think", "react")
         workflow.add_conditional_edges(
             "react",
             self._route_react,
@@ -52,7 +47,7 @@ class AgentOrchestrator:
                 "tools": "tools",
                 "verify": "verify",
                 "reflect": "reflect",
-                "goal_router": "goal_router",
+                "h_planner": "h_planner",
                 "finish_success": "finish_success",
                 "finish_failed": "finish_failed",
             },
@@ -60,18 +55,13 @@ class AgentOrchestrator:
         workflow.add_edge("tools", "react")
         workflow.add_conditional_edges(
             "reflect",
-            self._route_reflect,
-            {"replan_check": "replan_check"},
-        )
-        workflow.add_conditional_edges(
-            "replan_check",
-            self._route_replan_check,
-            {"h_planner": "h_planner", "cot_think": "cot_think"},
+            self._route_after_reflect,
+            {"h_planner": "h_planner", "react": "react"},
         )
         workflow.add_conditional_edges(
             "verify",
             self._route_verify,
-            {"verified": "finish_success", "retry": "cot_think"},
+            {"verified": "finish_success", "retry": "react"},
         )
         workflow.add_edge("finish_success", END)
         workflow.add_edge("finish_failed", END)
@@ -113,8 +103,13 @@ class AgentOrchestrator:
         return None
 
     def _recent_successful_edit(self, state: AgentState) -> bool:
-        latest_index = self._latest_successful_edit_index(state)
-        return latest_index is not None
+        messages = state.get("messages", [])
+        for message in reversed(messages):
+            if hasattr(message, "tool_calls") and getattr(message, "tool_calls", []):
+                break
+            if self._is_successful_edit_message(message):
+                return True
+        return False
 
     def _consecutive_non_tool_ai_turns(self, state: AgentState) -> int:
         count = 0
@@ -190,22 +185,8 @@ class AgentOrchestrator:
             if goals and verbose:
                 for idx, goal in enumerate(goals, 1):
                     print(f"   目标{idx}: {goal.get('description', '')}")
-                    for sub_idx, sub in enumerate(goal.get("sub_steps", []), 1):
-                        print(f"      {idx}.{sub_idx} {sub}")
             elif goals:
                 print(f"   生成 {len(goals)} 个目标")
-            return
-
-        if node_name == "goal_router":
-            return
-
-        if node_name == "cot_think":
-            thought = payload.get("last_thought", {})
-            print("💭 结构化思考")
-            if verbose:
-                print(f"   假设: {thought.get('hypothesis', '')}")
-                print(f"   预期: {thought.get('expected_result', '')}")
-                print(f"   理由: {thought.get('tool_rationale', '')}")
             return
 
         if node_name == "react":
@@ -250,9 +231,6 @@ class AgentOrchestrator:
                 print(f"   触发重规划: {replan_trigger}")
             return
 
-        if node_name == "replan_check":
-            return
-
         print(f"⚙️ Graph Step: {node_name}")
 
     async def _node_h_planner(self, state: AgentState):
@@ -260,83 +238,61 @@ class AgentOrchestrator:
         replan_trigger = state.get("replan_trigger", "")
         plan_version = state.get("plan_version", 0)
 
-        goals = await self.agent.generate_hierarchical_plan(
-            state["issue_description"],
-            existing_goals=existing_goals if replan_trigger else None,
-            replan_reason=replan_trigger,
+        if not existing_goals or replan_trigger:
+            goals = await self.agent.generate_hierarchical_plan(
+                state["issue_description"],
+                existing_goals=existing_goals if replan_trigger else None,
+                replan_reason=replan_trigger,
+            )
+
+            if replan_trigger and existing_goals:
+                completed = [g for g in existing_goals if g.get("status") == "done"]
+                goals = completed + goals
+
+            next_index = next(
+                (i for i, g in enumerate(goals) if g.get("status") != "done"),
+                len(goals),
+            )
+
+            return {
+                "goals": goals,
+                "current_goal_index": next_index,
+                "plan_version": plan_version + 1,
+                "replan_trigger": "",
+                "trajectory": [{"type": "plan", "content": json.dumps(goals, ensure_ascii=False)}],
+                "status": "PLANNING",
+            }
+
+        next_index = next(
+            (i for i, g in enumerate(existing_goals) if g.get("status") != "done"),
+            len(existing_goals),
         )
 
-        if replan_trigger and existing_goals:
-            completed = [g for g in existing_goals if g.get("status") == "done"]
-            goals = completed + goals
-
         return {
-            "goals": goals,
-            "current_goal_index": 0,
-            "plan_version": plan_version + 1,
+            "goals": existing_goals,
+            "current_goal_index": next_index,
+            "plan_version": plan_version,
             "replan_trigger": "",
-            "trajectory": [{"type": "plan", "content": json.dumps(goals, ensure_ascii=False)}],
             "status": "PLANNING",
-        }
-
-    async def _node_goal_router(self, state: AgentState):
-        return {}
-
-    async def _node_cot_think(self, state: AgentState):
-        goals = state.get("goals", [])
-        current_goal_index = state.get("current_goal_index", 0)
-
-        if current_goal_index >= len(goals):
-            return {}
-
-        current_goal = goals[current_goal_index]
-        sub_steps = current_goal.get("sub_steps", [])
-        sub_step_index = current_goal.get("current_sub_step_index", 0)
-
-        current_sub_step = sub_steps[sub_step_index] if sub_step_index < len(sub_steps) else "完成当前目标"
-
-        trajectory = state.get("trajectory", [])
-        recent_summary = "\n".join(str(t.get("content", ""))[:100] for t in trajectory[-3:])
-
-        thought = await self.agent.generate_cot_thought(
-            current_goal=current_goal.get("description", ""),
-            current_sub_step=current_sub_step,
-            reflexion_notes=state.get("reflexion_notes", ""),
-            trajectory_summary=recent_summary,
-        )
-
-        return {
-            "last_thought": thought,
-            "messages": [
-                HumanMessage(
-                    content=(
-                        f"[结构化思考]\n"
-                        f"假设: {thought.get('hypothesis', '')}\n"
-                        f"预期: {thought.get('expected_result', '')}\n"
-                        f"理由: {thought.get('tool_rationale', '')}"
-                    )
-                )
-            ],
-            "trajectory": [{"type": "cot", "content": json.dumps(thought, ensure_ascii=False)}],
         }
 
     async def _node_react(self, state: AgentState):
         goals = state.get("goals", [])
         current_goal_index = state.get("current_goal_index", 0)
         current_goal = goals[current_goal_index] if current_goal_index < len(goals) else {}
-        sub_steps = current_goal.get("sub_steps", [])
-        sub_step_index = current_goal.get("current_sub_step_index", 0)
-        current_sub_step = sub_steps[sub_step_index] if sub_step_index < len(sub_steps) else ""
+
+        plan_lines = []
+        for i, g in enumerate(goals, 1):
+            status_mark = "✓" if g.get("status") == "done" else "→" if i == current_goal_index + 1 else " "
+            plan_lines.append(f"{status_mark} {i}. {g.get('description', '')}")
 
         response = await self.agent.run_react(
             state["messages"],
             issue_description=state["issue_description"],
             repo_path=state.get("repo_path", ""),
-            plan=state.get("plan", []),
+            plan=plan_lines,
             reflexion_notes=state.get("reflexion_notes", ""),
             current_goal=current_goal.get("description", ""),
-            current_sub_step=current_sub_step,
-            last_thought=state.get("last_thought", {}),
         )
         return {
             "messages": [response],
@@ -353,12 +309,6 @@ class AgentOrchestrator:
 
     async def _node_reflect(self, state: AgentState):
         reflexion = await self.agent.reflect_on_failure(state["trajectory"])
-
-        goals = state.get("goals", [])
-        current_goal_index = state.get("current_goal_index", 0)
-        current_goal = goals[current_goal_index] if current_goal_index < len(goals) else {}
-        sub_steps = current_goal.get("sub_steps", [])
-        sub_step_index = current_goal.get("current_sub_step_index", 0)
 
         replan_trigger = ""
         if "偏离" in reflexion or "deviation" in reflexion.lower():
@@ -381,32 +331,11 @@ class AgentOrchestrator:
             "status": "REFLECTING",
         }
 
-    async def _node_replan_check(self, state: AgentState):
-        return {}
-
     async def _node_finish_success(self, state: AgentState):
         return {"status": "SUCCESS"}
 
     async def _node_finish_failed(self, state: AgentState):
         return {"status": "FAILED"}
-
-    def _extract_missing_file_requirements(self, issue_description: str) -> list[str]:
-        patterns = [
-            r"(?:missing|lack(?:ing)?|without|no)\s+[`\"']?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_+-]+)[`\"']?",
-            r"(?:缺少|没有|找不到|不存在)\s*[`\"']?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_+-]+)[`\"']?",
-        ]
-        matches: list[str] = []
-        for pattern in patterns:
-            matches.extend(re.findall(pattern, issue_description, flags=re.IGNORECASE))
-
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for item in matches:
-            candidate = item.strip().strip("`\"'").replace("\\", "/")
-            if candidate and candidate not in seen:
-                seen.add(candidate)
-                normalized.append(candidate)
-        return normalized
 
     def _repo_contains_file(self, repo_path: str, relative_path: str) -> bool:
         repo_root = Path(repo_path)
@@ -422,49 +351,26 @@ class AgentOrchestrator:
             return any(path.is_file() for path in repo_root.rglob(candidate.name))
         return False
 
-    def _extract_issue_file_references(self, issue_description: str) -> list[str]:
-        matches = re.findall(r"[`\"']?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_+-]+)[`\"']?", issue_description, flags=re.IGNORECASE)
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for item in matches:
-            candidate = item.strip().strip("`\"'").replace("\\", "/")
-            if candidate and candidate not in seen:
-                seen.add(candidate)
-                normalized.append(candidate)
-        return normalized
-
-    def _extract_changed_files(self, repo_path: str) -> list[str]:
-        try:
-            diff_output = _git_diff_impl(repo_path or ".")
-        except Exception:
-            return []
-
-        changed_files: list[str] = []
-        seen: set[str] = set()
-        for line in diff_output.splitlines():
-            if not line.startswith("diff --git "):
-                continue
-            parts = line.split()
-            if len(parts) < 4:
-                continue
-            candidate = parts[2]
-            if candidate.startswith("a/"):
-                candidate = candidate[2:]
-            candidate = candidate.replace("\\", "/")
-            if candidate and candidate not in seen:
-                seen.add(candidate)
-                changed_files.append(candidate)
-        return changed_files
-
     def _has_successful_test_signal(self, state: AgentState) -> bool:
+        test_tool_names = {"run_pytest", "bash_terminal"}
+        test_success_markers = [" passed", "passed in", "ok", "tests passed", "build successful", "success"]
+        test_failure_markers = ["failed", "error", "failure"]
+
         for message in reversed(self._tool_messages(state)):
-            if getattr(message, "name", None) != "run_pytest":
+            tool_name = getattr(message, "name", None)
+            if tool_name not in test_tool_names:
                 continue
             content = (getattr(message, "content", "") or "").lower()
             if content.startswith("error:"):
                 return False
-            success_markers = [" passed", "passed in", "no tests ran", "collected 0 items"]
-            if any(marker in content for marker in success_markers):
+            # bash_terminal 只有在内容看起来像测试输出时才算
+            if tool_name == "bash_terminal":
+                is_test_output = any(kw in content for kw in ["test", "pytest", "jest", "mocha", "unittest", "go test", "cargo test"])
+                if not is_test_output:
+                    continue
+            if any(marker in content for marker in test_failure_markers):
+                return False
+            if any(marker in content for marker in test_success_markers):
                 return True
             return False
         return False
@@ -485,110 +391,99 @@ class AgentOrchestrator:
             return True
         return False
 
-    def _has_semantic_edit_success_signal(self, state: AgentState) -> tuple[bool, str]:
-        if self._latest_successful_edit_index(state) is None:
-            return False, ""
-        if self._has_blocking_failure_after_last_edit(state):
-            return False, ""
-
-        issue_files = self._extract_issue_file_references(state.get("issue_description", ""))
-        if not issue_files:
-            return False, ""
-
-        changed_files = self._extract_changed_files(state.get("repo_path", ""))
-        if not changed_files:
-            return False, ""
-
-        changed_names = {Path(file_path).name for file_path in changed_files}
-        matched_files: list[str] = []
-        for issue_file in issue_files:
-            normalized = issue_file.replace("\\", "/")
-            issue_name = Path(normalized).name
-            if normalized in changed_files or issue_name in changed_names:
-                matched_files.append(normalized)
-
-        if not matched_files:
-            return False, ""
-
-        return True, f"验证通过：已成功修改 issue 提到的文件 {', '.join(matched_files)}。"
-
-    def _has_any_verification_evidence(self, state: AgentState) -> bool:
-        if self._has_successful_test_signal(state):
-            return True
-        semantic_verified, _ = self._has_semantic_edit_success_signal(state)
-        if semantic_verified:
-            return True
-        if self._latest_successful_edit_index(state) is not None and not self._has_blocking_failure_after_last_edit(state):
-            return True
-        return False
-
-    def _issue_requirements_satisfied(self, state: AgentState) -> tuple[bool, str]:
-        issue_description = state.get("issue_description", "")
-        repo_path = state.get("repo_path", "")
-        expected_files = self._extract_missing_file_requirements(issue_description)
-
-        if expected_files:
-            missing = [file_path for file_path in expected_files if not self._repo_contains_file(repo_path, file_path)]
-            if missing:
-                return False, f"验证未通过：仓库中仍缺少 {', '.join(missing)}。"
-            return True, f"验证通过：仓库中已存在 {', '.join(expected_files)}。"
-
+    def _issue_requirements_satisfied(self, state: AgentState) -> tuple[bool | None, str]:
+        
+        # Fast path: 测试通过信号
         if self._has_successful_test_signal(state):
             return True, "验证通过：检测到成功的测试信号。"
 
-        semantic_verified, semantic_note = self._has_semantic_edit_success_signal(state)
-        if semantic_verified:
-            return True, semantic_note
-
-        last_msg = state["messages"][-1]
-        content = getattr(last_msg, "content", "") or ""
-        if "TASK_SUCCESS" in content:
-            if self._has_any_verification_evidence(state):
-                return True, "验证通过：检测到 TASK_SUCCESS，且已有实际修改或测试作为佐证。"
-            return False, "检测到 TASK_SUCCESS，但当前没有实际修改或测试成功的证据，不能判定为完成。"
-
-        return False, "尚未识别到可自动验证的成功条件，请继续验证 issue 要求后再结束。"
+        # 无快速通道命中，标记需要 LLM 验证
+        return None, ""
 
     async def _node_verify(self, state: AgentState):
-        verified, note = self._issue_requirements_satisfied(state)
-        payload = {"trajectory": [{"type": "verification", "content": note}]}
-        if verified:
-            payload["status"] = "SUCCESS"
-            return payload
+        fast_result, fast_note = self._issue_requirements_satisfied(state)
 
-        payload["status"] = "VERIFYING"
-        payload["messages"] = [
-            HumanMessage(
-                content=(
-                    f"{note}\n"
-                    "请继续修改或检查仓库，并优先使用工具获取证据；确认满足 issue 要求后再输出 TASK_SUCCESS。"
+        if fast_result is True:
+            return {
+                "trajectory": [{"type": "verification", "content": fast_note}],
+                "status": "SUCCESS",
+            }
+        if fast_result is False:
+            return {
+                "trajectory": [{"type": "verification", "content": fast_note}],
+                "status": "VERIFYING",
+                "messages": [
+                    HumanMessage(
+                        content=(
+                            f"{fast_note}\n"
+                            "请继续修改或检查仓库，并优先使用工具获取证据；确认满足 issue 要求后再输出 TASK_SUCCESS。"
+                        )
+                    )
+                ],
+            }
+
+        # LLM 验证：需要有实际编辑才值得调用
+        has_edit = self._latest_successful_edit_index(state) is not None
+        if not has_edit:
+            note = "尚未检测到实际代码修改，请先完成修改再验证。"
+            return {
+                "trajectory": [{"type": "verification", "content": note}],
+                "status": "VERIFYING",
+                "messages": [HumanMessage(content=note)],
+            }
+
+        # if self._has_blocking_failure_after_last_edit(state):
+        #     note = "最近编辑后存在阻塞性错误，请先修复错误。"
+        #     return {
+        #         "trajectory": [{"type": "verification", "content": note}],
+        #         "status": "VERIFYING",
+        #         "messages": [HumanMessage(content=note)],
+        #     }
+
+        repo_path = state.get("repo_path", ".")
+        try:
+            diff_output = _git_diff_impl(repo_path)
+        except Exception:
+            diff_output = ""
+
+        if not diff_output.strip():
+            note = "未检测到 git diff，无法验证修改。"
+            return {
+                "trajectory": [{"type": "verification", "content": note}],
+                "status": "VERIFYING",
+                "messages": [HumanMessage(content=note)],
+            }
+
+        verdict = await self.agent.verify_issue_resolved(
+            state.get("issue_description", ""), diff_output
+        )
+
+        if verdict.get("resolved"):
+            note = f"LLM 验证通过：{verdict.get('reason', '')}"
+            return {
+                "trajectory": [{"type": "verification", "content": note}],
+                "status": "SUCCESS",
+            }
+
+        note = f"LLM 验证未通过：{verdict.get('reason', '')}。请继续修改。"
+        return {
+            "trajectory": [{"type": "verification", "content": note}],
+            "status": "VERIFYING",
+            "messages": [
+                HumanMessage(
+                    content=f"{note}\n请根据以上反馈继续修改代码，确认满足 issue 要求后再输出 TASK_SUCCESS。"
                 )
-            )
-        ]
-        return payload
+            ],
+        }
 
-    def _route_h_planner(self, state: AgentState) -> str:
-        return "goal_router"
-
-    def _route_goal_router(self, state: AgentState) -> str:
+    def _route_after_planner(self, state: AgentState) -> str:
         goals = state.get("goals", [])
         current_goal_index = state.get("current_goal_index", 0)
 
         if current_goal_index >= len(goals):
             return "verify"
 
-        current_goal = goals[current_goal_index]
-        sub_steps = current_goal.get("sub_steps", [])
-        sub_step_index = current_goal.get("current_sub_step_index", 0)
-
-        if sub_step_index >= len(sub_steps):
-            if current_goal.get("status") != "done":
-                goals[current_goal_index]["status"] = "done"
-            if current_goal_index + 1 < len(goals):
-                return "h_planner"
-            return "verify"
-
-        return "cot_think"
+        return "react"
 
     def _route_react(self, state: AgentState) -> str:
         last_msg = state["messages"][-1]
@@ -605,21 +500,17 @@ class AgentOrchestrator:
         if "TASK_FAILED" in content:
             return "finish_failed"
 
-        if "SUB_STEP_DONE" in content or self._recent_successful_edit(state):
+        if "GOAL_DONE" in content or self._recent_successful_edit(state):
             goals = state.get("goals", [])
             current_goal_index = state.get("current_goal_index", 0)
             if current_goal_index < len(goals):
-                current_goal = goals[current_goal_index]
-                sub_step_index = current_goal.get("current_sub_step_index", 0)
-                sub_steps = current_goal.get("sub_steps", [])
-                if sub_step_index < len(sub_steps):
-                    goals[current_goal_index]["current_sub_step_index"] = sub_step_index + 1
-            return "goal_router"
+                goals[current_goal_index]["status"] = "done"
+            return "h_planner"
 
         no_progress_turns = self._consecutive_non_tool_ai_turns(state)
         repeated_reply = self._last_two_ai_contents_match(state)
         reflection_count = self._reflection_count(state)
-
+        #stand for unrepairable error
         if no_progress_turns >= 3:
             return "finish_failed"
         if repeated_reply and reflection_count >= 2:
@@ -627,16 +518,13 @@ class AgentOrchestrator:
 
         return "reflect"
 
-    def _route_reflect(self, state: AgentState) -> str:
-        return "replan_check"
-
-    def _route_replan_check(self, state: AgentState) -> str:
+    def _route_after_reflect(self, state: AgentState) -> str:
         replan_trigger = state.get("replan_trigger", "")
         plan_version = state.get("plan_version", 0)
 
         if replan_trigger and plan_version < 3:
             return "h_planner"
-        return "cot_think"
+        return "react"
 
     def _route_verify(self, state: AgentState) -> str:
         if state.get("status") == "SUCCESS":
