@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
-
+from .utils.compressor import ContextCompressor
 from .agent import Agent
 from .agent_state import AgentState
 from .tools.tools import AGENT_TOOLS, _git_diff_impl
@@ -18,10 +18,11 @@ EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
 
 
 class AgentOrchestrator:
-    def __init__(self, agent: Agent, tools: list = AGENT_TOOLS):
+    def __init__(self, agent: Agent, tools: list = AGENT_TOOLS, compressor: ContextCompressor | None = None):
         self.agent = agent
         self.tools = tools
         self.memory = MemorySaver()
+        self.compressor = compressor or ContextCompressor()
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -233,6 +234,16 @@ class AgentOrchestrator:
 
         print(f"⚙️ Graph Step: {node_name}")
 
+    def _accumulate_token_usage(self, state: AgentState) -> dict[str, int]:
+        """从 agent.last_token_usage 累加到 state 中的 token_usage。"""
+        usage = self.agent.last_token_usage
+        cumulative = state.get("token_usage", {})
+        return {
+            "prompt_tokens": cumulative.get("prompt_tokens", 0) + usage.get("prompt_tokens", 0),
+            "completion_tokens": cumulative.get("completion_tokens", 0) + usage.get("completion_tokens", 0),
+            "total_tokens": cumulative.get("total_tokens", 0) + usage.get("total_tokens", 0),
+        }
+
     async def _node_h_planner(self, state: AgentState):
         existing_goals = state.get("goals", [])
         replan_trigger = state.get("replan_trigger", "")
@@ -260,6 +271,7 @@ class AgentOrchestrator:
                 "plan_version": plan_version + 1,
                 "replan_trigger": "",
                 "trajectory": [{"type": "plan", "content": json.dumps(goals, ensure_ascii=False)}],
+                "token_usage": self._accumulate_token_usage(state),
                 "status": "PLANNING",
             }
 
@@ -286,14 +298,24 @@ class AgentOrchestrator:
             status_mark = "✓" if g.get("status") == "done" else "→" if i == current_goal_index + 1 else " "
             plan_lines.append(f"{status_mark} {i}. {g.get('description', '')}")
 
+        raw_messages = state["messages"]
+        compressed_messages = self.compressor.compress(raw_messages)
+
+        compression_stats = {
+            "total_before": len(raw_messages),
+            "total_after": len(compressed_messages),
+            "level2_summaries": 1 if len(compressed_messages) < len(raw_messages) and len(raw_messages) > self.compressor.level0_window + self.compressor.level1_window else 0,
+        }
+
         response = await self.agent.run_react(
-            state["messages"],
+            compressed_messages,
             issue_description=state["issue_description"],
             repo_path=state.get("repo_path", ""),
             plan=plan_lines,
             reflexion_notes=state.get("reflexion_notes", ""),
             current_goal=current_goal.get("description", ""),
         )
+
         return {
             "messages": [response],
             "trajectory": [
@@ -304,6 +326,8 @@ class AgentOrchestrator:
                 }
             ],
             "iteration_count": state["iteration_count"] + 1,
+            "compression_stats": compression_stats,
+            "token_usage": self._accumulate_token_usage(state),
             "status": "RUNNING",
         }
 
@@ -328,6 +352,7 @@ class AgentOrchestrator:
             "reflexion_notes": reflexion,
             "replan_trigger": replan_trigger,
             "trajectory": [{"type": "reflection", "content": reflexion}],
+            "token_usage": self._accumulate_token_usage(state),
             "status": "REFLECTING",
         }
 
@@ -462,12 +487,14 @@ class AgentOrchestrator:
             note = f"LLM 验证通过：{verdict.get('reason', '')}"
             return {
                 "trajectory": [{"type": "verification", "content": note}],
+                "token_usage": self._accumulate_token_usage(state),
                 "status": "SUCCESS",
             }
 
         note = f"LLM 验证未通过：{verdict.get('reason', '')}。请继续修改。"
         return {
             "trajectory": [{"type": "verification", "content": note}],
+            "token_usage": self._accumulate_token_usage(state),
             "status": "VERIFYING",
             "messages": [
                 HumanMessage(

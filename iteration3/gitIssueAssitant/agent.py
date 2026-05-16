@@ -37,6 +37,18 @@ class Agent:
     def __init__(self, llm: ChatOpenAI, tools=AGENT_TOOLS):
         self.llm = llm
         self.llm_with_tools = llm.bind_tools(tools)
+        self.last_token_usage: dict[str, int] = {}
+
+    def _extract_usage(self, response) -> dict[str, int]:
+        """从 LLM 响应中提取 token 用量并缓存到 last_token_usage。"""
+        metadata = getattr(response, "response_metadata", None) or {}
+        usage = metadata.get("token_usage", {})
+        self.last_token_usage = {
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+            "total_tokens": usage.get("total_tokens", 0),
+        }
+        return self.last_token_usage
 
     # ========== 分层规划 ==========
 
@@ -85,6 +97,7 @@ class Agent:
             issue_description, existing_goals, replan_reason
         )
         response = await self.llm.ainvoke(prompt)
+        self._extract_usage(response)
         return self._parse_plan_json(response.content)
 
     def _parse_plan_json(self, content: str) -> list[dict]:
@@ -172,7 +185,9 @@ class Agent:
                 current_goal=current_goal,
             )
         )
-        return await self.llm_with_tools.ainvoke([sys_prompt] + messages)
+        response = await self.llm_with_tools.ainvoke([sys_prompt] + messages)
+        self._extract_usage(response)
+        return response
 
     async def reflect_on_failure(self, trajectory: list, current_goal: str = "") -> str:
         recent = trajectory[-6:]
@@ -203,6 +218,7 @@ class Agent:
             "下一步动作: [具体工具名] + [具体参数描述]"
         )
         response = await self.llm.ainvoke(prompt)
+        self._extract_usage(response)
         return response.content
 
     async def verify_issue_resolved(self, issue_description: str, diff_output: str) -> dict[str, str]:
@@ -220,6 +236,7 @@ class Agent:
             "```"
         )
         response = await self.llm.ainvoke(prompt)
+        self._extract_usage(response)
         return self._parse_verify_json(response.content)
 
     def _parse_verify_json(self, content: str) -> dict[str, str]:

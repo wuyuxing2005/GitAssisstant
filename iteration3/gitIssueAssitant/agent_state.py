@@ -25,3 +25,9 @@ class AgentState(TypedDict):
     # 消息流与轨迹
     messages: Annotated[List[BaseMessage], operator.add]
     trajectory: Annotated[List[Dict[str, Any]], operator.add]
+
+    # 上下文压缩元数据
+    compression_stats: Dict[str, Any]  # {"total_before": int, "total_after": int, "level2_summaries": int}
+
+    # Token 用量累计
+    token_usage: Dict[str, int]  # {"prompt_tokens": int, "completion_tokens": int, "total_tokens": int}
