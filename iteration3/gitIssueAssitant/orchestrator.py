@@ -531,11 +531,20 @@ class AgentOrchestrator:
             return "verified"
         return "retry"
 
+    def inject_message(self, thread_id: str, content: str):
+        """向正在运行的会话注入一条用户消息"""
+        config = {"configurable": {"thread_id": thread_id}}
+        self.graph.update_state(
+            config,
+            {"messages": [HumanMessage(content=f"[用户插入指令] {content}")]},
+        )
+
     async def run_step(self, thread_id: str):
         config = {"configurable": {"thread_id": thread_id}}
         async for event in self.graph.astream(None, config=config, stream_mode="updates"):
             return event
-
+    
+    @DeprecationWarning
     async def run_auto(self, thread_id: str, verbose: bool = False):
         config = {"configurable": {"thread_id": thread_id}}
         async for event in self.graph.astream(None, config=config, stream_mode="updates"):
@@ -547,6 +556,36 @@ class AgentOrchestrator:
         if final_state.get("status") == "FAILED":
             self._print_failure_diagnostics(final_state)
         return final_state
+
+    async def run_auto_interactive(self, thread_id: str, verbose: bool = False):
+        """逐步执行，每步之间 yield 控制权，允许调用方注入用户消息。
+
+        用法：
+            async for step_info in orchestrator.run_auto_interactive(thread_id):
+                # step_info = {"node": node_name, "state": state}
+                # 此处可检查用户输入并调用 inject_message
+                pass
+        """
+        config = {"configurable": {"thread_id": thread_id}}
+
+        while True:
+            state = self.graph.get_state(config)
+            if state.next == ():
+                break
+
+            async for event in self.graph.astream(None, config=config, stream_mode="updates"):
+                node_name = list(event.keys())[0]
+                current_state = self.graph.get_state(config).values
+                self._print_event(node_name, event[node_name], state=current_state, verbose=verbose)
+
+            current_state = self.graph.get_state(config).values
+            status = current_state.get("status", "")
+            if status in ("SUCCESS", "FAILED"):
+                if status == "FAILED":
+                    self._print_failure_diagnostics(current_state)
+                break
+
+            yield {"node": node_name, "state": current_state}
 
     async def raw_chat(self, user_input):
         return (await self.agent.chat(user_input)).content
