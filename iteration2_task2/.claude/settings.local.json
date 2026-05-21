@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "WebFetch(domain:letsdatascience.com)",
-      "WebSearch",
-      "WebFetch(domain:exp.docs.ragas.io)"
-    ]
-  }
-}
