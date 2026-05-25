@@ -5,6 +5,7 @@ pycache/
 .python-version
 env/
 venv/
+.env
 .env/
 ENV/
 .venv/
