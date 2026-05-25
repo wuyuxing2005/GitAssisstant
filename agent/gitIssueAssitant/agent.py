@@ -52,6 +52,78 @@ class Agent:
 
     # ========== 分层规划 ==========
 
+    def _build_skill_and_plan_prompt(
+        self,
+        issue_description: str,
+        skills_catalog: str,
+    ) -> str:
+        return (
+            "你既是 Skill 路由器，又是修复规划器。\n\n"
+            "可用 Skill：\n"
+            f"{skills_catalog}\n\n"
+            "请根据 Issue 选择最匹配的 Skill。如果都不合适或都不能显著优于通用流程，"
+            "选 \"none\"，按通用 bug 修复处理。\n\n"
+            "同时生成 2-6 个修复目标，目标按逻辑递进：理解问题 → 定位代码 → 实施修复 → 验证结果。\n"
+            "Issue 中提到的文件/函数应在目标描述中体现。\n\n"
+            "输出严格 JSON（不要输出其他内容）：\n"
+            "```json\n"
+            "{\n"
+            "  \"skill\": \"skill-name\" 或 \"none\",\n"
+            "  \"goals\": [\n"
+            "    {\"description\": \"目标 1 描述\"},\n"
+            "    {\"description\": \"目标 2 描述\"}\n"
+            "  ]\n"
+            "}\n"
+            "```\n\n"
+            f"Issue:\n{issue_description}"
+        )
+
+    async def select_skill_and_plan(
+        self,
+        issue_description: str,
+        skills_catalog: str,
+    ) -> tuple[str, list[dict]]:
+        """首次规划：同时选 Skill 和生成目标。"""
+        prompt = self._build_skill_and_plan_prompt(issue_description, skills_catalog)
+        response = await self.llm.ainvoke(prompt)
+        self._extract_usage(response)
+        return self._parse_skill_and_plan_json(response.content)
+
+    def _parse_skill_and_plan_json(self, content: str) -> tuple[str, list[dict]]:
+        content = content.strip()
+        json_match = re.search(r"```json\s*(.*?)\s*```", content, re.DOTALL)
+        if json_match:
+            content = json_match.group(1)
+        else:
+            brace_match = re.search(r"\{.*\}", content, re.DOTALL)
+            if brace_match:
+                content = brace_match.group(0)
+
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            return "", [{"description": "执行 Issue 修复", "status": "pending"}]
+
+        if not isinstance(data, dict):
+            return "", [{"description": "执行 Issue 修复", "status": "pending"}]
+
+        skill = str(data.get("skill", "")).strip()
+        if skill.lower() in ("none", "null", ""):
+            skill = ""
+
+        raw_goals = data.get("goals", [])
+        if not isinstance(raw_goals, list):
+            raw_goals = []
+
+        normalized = []
+        for g in raw_goals:
+            if isinstance(g, dict) and "description" in g:
+                normalized.append({"description": g["description"], "status": "pending"})
+        if not normalized:
+            normalized = [{"description": "执行 Issue 修复", "status": "pending"}]
+
+        return skill, normalized
+
     def _build_hierarchical_plan_prompt(
         self,
         issue_description: str,
@@ -137,12 +209,32 @@ class Agent:
         plan: list[str] | None,
         reflexion_notes: str,
         current_goal: str = "",
+        skill_instructions: str = "",
+        skill_priority_tools: list[str] | None = None,
+        skill_allowed_tools: list[str] | None = None,
     ) -> str:
         latest_plan = "\n".join(plan or []) or "暂无计划"
         reflection = reflexion_notes or "暂无"
         goal_context = ""
         if current_goal:
             goal_context = f"\n当前目标：{current_goal}\n"
+
+        skill_section = ""
+        if skill_instructions:
+            skill_section = (
+                "\n\n========== 当前 Skill 专属工作流（必须遵守） ==========\n"
+                f"{skill_instructions}\n"
+                "========== Skill 工作流结束 ==========\n"
+            )
+            if skill_priority_tools:
+                skill_section += (
+                    f"\n本任务优先使用工具：{', '.join(skill_priority_tools)}。\n"
+                )
+            if skill_allowed_tools:
+                skill_section += (
+                    f"本任务允许使用工具：{', '.join(skill_allowed_tools)}。\n"
+                    "调用列表外的工具属于违规，必须避免。\n"
+                )
 
         return (
             "你是代码修复 Agent，负责通过工具调用推进仓库问题的修复。\n\n"
@@ -165,6 +257,7 @@ class Agent:
             f"执行计划：\n{latest_plan}\n\n"
             f"最近反思：\n{reflection}"
             f"{goal_context}"
+            f"{skill_section}"
         )
 
     async def run_react(
@@ -175,6 +268,9 @@ class Agent:
         plan: list | None = None,
         reflexion_notes: str = "",
         current_goal: str = "",
+        skill_instructions: str = "",
+        skill_priority_tools: list[str] | None = None,
+        skill_allowed_tools: list[str] | None = None,
     ):
         sys_prompt = SystemMessage(
             content=self._build_react_system_prompt(
@@ -183,6 +279,9 @@ class Agent:
                 plan=plan,
                 reflexion_notes=reflexion_notes,
                 current_goal=current_goal,
+                skill_instructions=skill_instructions,
+                skill_priority_tools=skill_priority_tools,
+                skill_allowed_tools=skill_allowed_tools,
             )
         )
         response = await self.llm_with_tools.ainvoke([sys_prompt] + messages)

@@ -11,6 +11,7 @@ from langgraph.prebuilt import ToolNode
 from .utils.compressor import ContextCompressor
 from .agent import Agent
 from .agent_state import AgentState
+from .skills import SkillRegistry
 from .tools.tools import AGENT_TOOLS, _git_diff_impl
 
 
@@ -18,11 +19,18 @@ EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
 
 
 class AgentOrchestrator:
-    def __init__(self, agent: Agent, tools: list = AGENT_TOOLS, compressor: ContextCompressor | None = None):
+    def __init__(
+        self,
+        agent: Agent,
+        tools: list = AGENT_TOOLS,
+        compressor: ContextCompressor | None = None,
+        skill_registry: SkillRegistry | None = None,
+    ):
         self.agent = agent
         self.tools = tools
         self.memory = MemorySaver()
         self.compressor = compressor or ContextCompressor()
+        self.skill_registry = skill_registry or SkillRegistry()
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -182,7 +190,10 @@ class AgentOrchestrator:
         if node_name == "h_planner":
             goals = payload.get("goals") or []
             plan_version = payload.get("plan_version", 1)
+            selected_skill = payload.get("selected_skill", "")
             print(f"🧭 分层规划（v{plan_version}）")
+            if selected_skill:
+                print(f"   🎯 选定 Skill: {selected_skill}")
             if goals and verbose:
                 for idx, goal in enumerate(goals, 1):
                     print(f"   目标{idx}: {goal.get('description', '')}")
@@ -248,17 +259,62 @@ class AgentOrchestrator:
         existing_goals = state.get("goals", [])
         replan_trigger = state.get("replan_trigger", "")
         plan_version = state.get("plan_version", 0)
+        selected_skill = state.get("selected_skill", "")
 
-        if not existing_goals or replan_trigger:
+        if not existing_goals:
+            # 首次规划：同时做 Skill 选择 + 目标生成
+            skills_catalog = self.skill_registry.router_catalog()
+            skill_name, goals = await self.agent.select_skill_and_plan(
+                state["issue_description"],
+                skills_catalog,
+            )
+
+            skill = self.skill_registry.get(skill_name) if skill_name else None
+            skill_state = {
+                "selected_skill": skill.name if skill else "",
+                "skill_instructions": skill.body if skill else "",
+                "skill_priority_tools": skill.priority_tools if skill else [],
+                "skill_allowed_tools": skill.allowed_tools if skill else [],
+            }
+
+            next_index = next(
+                (i for i, g in enumerate(goals) if g.get("status") != "done"),
+                len(goals),
+            )
+
+            trajectory_entries = [
+                {"type": "plan", "content": json.dumps(goals, ensure_ascii=False)}
+            ]
+            if skill:
+                trajectory_entries.insert(
+                    0,
+                    {
+                        "type": "skill_select",
+                        "content": f"selected_skill={skill.name}",
+                    },
+                )
+
+            return {
+                **skill_state,
+                "goals": goals,
+                "current_goal_index": next_index,
+                "plan_version": plan_version + 1,
+                "replan_trigger": "",
+                "trajectory": trajectory_entries,
+                "token_usage": self._accumulate_token_usage(state),
+                "status": "PLANNING",
+            }
+
+        if replan_trigger:
+            # 重规划：保留已选 Skill，只重新生成目标
             goals = await self.agent.generate_hierarchical_plan(
                 state["issue_description"],
-                existing_goals=existing_goals if replan_trigger else None,
+                existing_goals=existing_goals,
                 replan_reason=replan_trigger,
             )
 
-            if replan_trigger and existing_goals:
-                completed = [g for g in existing_goals if g.get("status") == "done"]
-                goals = completed + goals
+            completed = [g for g in existing_goals if g.get("status") == "done"]
+            goals = completed + goals
 
             next_index = next(
                 (i for i, g in enumerate(goals) if g.get("status") != "done"),
@@ -314,6 +370,9 @@ class AgentOrchestrator:
             plan=plan_lines,
             reflexion_notes=state.get("reflexion_notes", ""),
             current_goal=current_goal.get("description", ""),
+            skill_instructions=state.get("skill_instructions", ""),
+            skill_priority_tools=state.get("skill_priority_tools", []),
+            skill_allowed_tools=state.get("skill_allowed_tools", []),
         )
 
         return {

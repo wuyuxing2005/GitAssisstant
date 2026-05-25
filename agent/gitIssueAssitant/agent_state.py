@@ -22,6 +22,12 @@ class AgentState(TypedDict):
 
     reflexion_notes: str
 
+    # Skill 选择
+    selected_skill: str  # "" 或 Skill 名称，如 "test-failure-fix"
+    skill_instructions: str  # 选中 Skill 的正文，注入 react system prompt
+    skill_priority_tools: List[str]
+    skill_allowed_tools: List[str]
+
     # 消息流与轨迹
     messages: Annotated[List[BaseMessage], operator.add]
     trajectory: Annotated[List[Dict[str, Any]], operator.add]

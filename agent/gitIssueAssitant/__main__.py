@@ -6,6 +6,7 @@ import sys
 from  .agent import Agent,LLM_factory
 from  .orchestrator import AgentOrchestrator
 from  .session_manager import SessionManager
+from  .skills import SkillRegistry
 from dotenv import load_dotenv
 
 def _permission_mode(args: argparse.Namespace) -> str:
@@ -285,7 +286,11 @@ def main():
     # ===== 初始化核心组件 =====
     model=LLM_factory()
     agent = Agent(model)
-    orchestrator = AgentOrchestrator(agent)
+    skill_registry = SkillRegistry()
+    loaded_skills = skill_registry.load()
+    if loaded_skills:
+        print(f"🎯 已加载 {len(loaded_skills)} 个 Skill: {', '.join(loaded_skills.keys())}")
+    orchestrator = AgentOrchestrator(agent, skill_registry=skill_registry)
     manager = SessionManager(orchestrator, workspace_root=os.getcwd())
 
     cli = CLI(orchestrator, manager)
