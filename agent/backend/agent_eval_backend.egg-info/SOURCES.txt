@@ -1,4 +1,3 @@
-README.md
 pyproject.toml
 agent_eval_backend.egg-info/PKG-INFO
 agent_eval_backend.egg-info/SOURCES.txt

@@ -9,5 +9,3 @@ uvicorn app.main:app --reload --port 8000
 cd frontend
 npm install
 npm.cmd run dev
-
-之后访问http://localhost:5173/
