@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass
@@ -15,6 +16,9 @@ from app.schemas.task import (
     ComparisonItem,
     ComparisonResponse,
     EvaluationResult,
+    GitDiffResponse,
+    GitPushRequest,
+    GitPushResponse,
     MetricScore,
     RuntimeSnapshot,
     TaskRunRequest,
@@ -33,6 +37,7 @@ ENV_FILES = (
 EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
 TEST_TOOL_NAMES = {"run_pytest"}
 TERMINAL_TASK_STATUSES = {"completed", "failed"}
+AGENT_DISABLED_GIT_TOOL_NAMES = {"git_add", "git_commit", "git_push"}
 
 
 @dataclass
@@ -86,16 +91,109 @@ def _load_runtime_env() -> None:
             load_dotenv(env_file, override=False)
 
 
+def _run_git_command(
+    repo_path: str | Path,
+    args: list[str],
+    *,
+    timeout: int = 120,
+    check: bool = True,
+) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=str(repo_path),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+    output = "\n".join(
+        part.strip() for part in (result.stdout, result.stderr) if part.strip()
+    )
+    if check and result.returncode != 0:
+        raise RuntimeError(output or f"git {' '.join(args)} failed")
+    return output
+
+
+def _is_git_repo(repo_path: str | Path) -> bool:
+    try:
+        _run_git_command(repo_path, ["rev-parse", "--show-toplevel"], timeout=10)
+    except Exception:
+        return False
+    return True
+
+
+def _new_file_diff(repo_path: Path, relative_path: str, max_bytes: int = 200_000) -> str:
+    file_path = (repo_path / relative_path).resolve()
+    try:
+        file_path.relative_to(repo_path.resolve())
+    except ValueError:
+        return ""
+    if not file_path.is_file():
+        return ""
+
+    data = file_path.read_bytes()
+    if b"\0" in data:
+        return (
+            f"diff --git a/{relative_path} b/{relative_path}\n"
+            f"new file mode 100644\n"
+            f"Binary files /dev/null and b/{relative_path} differ\n"
+        )
+    if len(data) > max_bytes:
+        return (
+            f"diff --git a/{relative_path} b/{relative_path}\n"
+            f"new file mode 100644\n"
+            f"--- /dev/null\n"
+            f"+++ b/{relative_path}\n"
+            f"@@\n"
+            f"+[new file omitted: {len(data)} bytes]\n"
+        )
+
+    text = data.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    body = "\n".join(f"+{line}" for line in lines)
+    trailing = "\n" if body else ""
+    return (
+        f"diff --git a/{relative_path} b/{relative_path}\n"
+        f"new file mode 100644\n"
+        f"--- /dev/null\n"
+        f"+++ b/{relative_path}\n"
+        f"@@ -0,0 +1,{len(lines)} @@\n"
+        f"{body}{trailing}"
+    )
+
+
+def _build_untracked_diff(repo_path: Path) -> str:
+    output = _run_git_command(
+        repo_path,
+        ["ls-files", "--others", "--exclude-standard"],
+        timeout=30,
+    )
+    parts = [
+        diff
+        for line in output.splitlines()
+        if (diff := _new_file_diff(repo_path, line.strip()))
+    ]
+    return "\n".join(parts)
+
+
 @lru_cache
-def _assistant_components() -> tuple[Any, Any, Any, Any]:
+def _assistant_components() -> tuple[Any, Any, Any, Any, list[Any]]:
     if str(WORKSPACE_ROOT) not in sys.path:
         sys.path.insert(0, str(WORKSPACE_ROOT))
 
     from gitIssueAssitant.agent import Agent, LLM_factory
     from gitIssueAssitant.orchestrator import AgentOrchestrator
     from gitIssueAssitant.session_manager import SessionManager
+    from gitIssueAssitant.tools.tools import AGENT_TOOLS
 
-    return Agent, AgentOrchestrator, SessionManager, LLM_factory
+    web_safe_tools = [
+        tool
+        for tool in AGENT_TOOLS
+        if getattr(tool, "name", "") not in AGENT_DISABLED_GIT_TOOL_NAMES
+    ]
+
+    return Agent, AgentOrchestrator, SessionManager, LLM_factory, web_safe_tools
 
 
 class EvaluationService:
@@ -133,7 +231,7 @@ class EvaluationService:
 
     def _build_runtime_sync(self, task: EvaluationTaskRecord) -> AssistantRuntimeHandle:
         _load_runtime_env()
-        Agent, AgentOrchestrator, SessionManager, LLM_factory = _assistant_components()
+        Agent, AgentOrchestrator, SessionManager, LLM_factory, web_safe_tools = _assistant_components()
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -157,10 +255,13 @@ class EvaluationService:
                 os.environ["MODEL_NAME"] = original_model_name
 
         agent = Agent(llm)
-        orchestrator = AgentOrchestrator(agent)
+        orchestrator = AgentOrchestrator(agent, tools=web_safe_tools)
         manager = SessionManager(orchestrator, workspace_root=WORKSPACE_ROOT)
-        manager.create_or_switch_session(
-            task.config.repo_source, task.config.target_dir)
+        manager.create_session(
+            task.config.repo_source,
+            target_dir=task.config.target_dir,
+            force=True,
+        )
         manager.set_issue(task.config.issue_input)
         thread_id = manager.get_current_thread_id()
         config = {"configurable": {"thread_id": thread_id}}
@@ -538,6 +639,98 @@ class EvaluationService:
         if job is not None and not job.done():
             job.cancel()
         self._runtime_handles.pop(task_id, None)
+
+    def _repo_path_for_task(self, task: EvaluationTaskRecord) -> Path:
+        repo_path = task.repo_path
+        if not repo_path and task.result and task.result.current_state:
+            repo_path = task.result.current_state.repo_path
+        if not repo_path:
+            raise ValueError("Task has no local repository path")
+
+        resolved_repo_path = Path(repo_path).expanduser().resolve()
+        if not resolved_repo_path.exists():
+            raise ValueError(f"Repository path does not exist: {resolved_repo_path}")
+        if not _is_git_repo(resolved_repo_path):
+            raise ValueError(f"Path is not a Git repository: {resolved_repo_path}")
+        return resolved_repo_path
+
+    def get_git_diff(self, task_id: str) -> GitDiffResponse | None:
+        task = task_service.get_task_record(task_id)
+        if task is None:
+            return None
+
+        repo_path = self._repo_path_for_task(task)
+        status = _run_git_command(repo_path, ["status", "--short"], timeout=30)
+        diff_parts = [
+            _run_git_command(repo_path, ["diff", "--no-ext-diff", "--binary"], timeout=60),
+            _run_git_command(
+                repo_path,
+                ["diff", "--no-ext-diff", "--binary", "--cached"],
+                timeout=60,
+            ),
+            _build_untracked_diff(repo_path),
+        ]
+        diff = "\n".join(part for part in diff_parts if part.strip())
+
+        return GitDiffResponse(
+            task_id=task.id,
+            repo_path=str(repo_path),
+            status=status,
+            diff=diff,
+            has_changes=bool(status.strip()),
+        )
+
+    def push_changes(self, task_id: str, request: GitPushRequest) -> GitPushResponse | None:
+        task = task_service.get_task_record(task_id)
+        if task is None:
+            return None
+        if task.status != "completed":
+            raise ValueError("Only completed tasks can be pushed")
+
+        repo_path = self._repo_path_for_task(task)
+        if not request.remote.strip():
+            raise ValueError("Remote name cannot be empty")
+
+        status = _run_git_command(repo_path, ["status", "--short"], timeout=30)
+        if not status.strip():
+            raise ValueError("No local changes to commit and push")
+
+        commit_message = (
+            request.commit_message.strip()
+            if request.commit_message and request.commit_message.strip()
+            else f"fix: {task.name}"
+        )
+        branch = request.branch.strip() if request.branch and request.branch.strip() else ""
+        if not branch:
+            branch = _run_git_command(
+                repo_path,
+                ["rev-parse", "--abbrev-ref", "HEAD"],
+                timeout=10,
+            ).strip()
+        if not branch or branch == "HEAD":
+            raise ValueError("Cannot push from a detached HEAD state")
+
+        outputs = [
+            _run_git_command(repo_path, ["add", "-A"], timeout=60),
+            _run_git_command(repo_path, ["commit", "-m", commit_message], timeout=60),
+        ]
+        commit_hash = _run_git_command(repo_path, ["rev-parse", "--short", "HEAD"], timeout=10).strip()
+        outputs.append(
+            _run_git_command(
+                repo_path,
+                ["push", request.remote.strip(), branch],
+                timeout=180,
+            )
+        )
+
+        task_service.save_task_record(task)
+        return GitPushResponse(
+            task_id=task.id,
+            repo_path=str(repo_path),
+            commit_hash=commit_hash,
+            pushed=True,
+            output="\n".join(output for output in outputs if output.strip()),
+        )
 
     def compare(self, task_ids: list[str]) -> ComparisonResponse:
         tasks = task_service.list_tasks()

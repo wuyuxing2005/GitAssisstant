@@ -3,6 +3,9 @@ import type {
   CreateTaskPayload,
   EvaluationMetadataResponse,
   EvaluationTask,
+  GitDiffResponse,
+  GitPushRequest,
+  GitPushResponse,
   TaskRunRequest
 } from "../types/task";
 
@@ -64,6 +67,20 @@ export async function runTask(taskId: string, payload: TaskRunRequest): Promise<
 
 export async function deleteTask(taskId: string): Promise<void> {
   await request(`/tasks/${taskId}`, { method: "DELETE" });
+}
+
+export async function fetchTaskDiff(taskId: string): Promise<GitDiffResponse> {
+  return request<GitDiffResponse>(`/tasks/${taskId}/diff`);
+}
+
+export async function pushTaskChanges(
+  taskId: string,
+  payload: GitPushRequest
+): Promise<GitPushResponse> {
+  return request<GitPushResponse>(`/tasks/${taskId}/push`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function fetchMetadata(): Promise<EvaluationMetadataResponse> {

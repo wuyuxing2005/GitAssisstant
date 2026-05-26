@@ -76,6 +76,28 @@ export interface EvaluationTask {
   result?: EvaluationResult | null;
 }
 
+export interface GitDiffResponse {
+  task_id: string;
+  repo_path: string;
+  status: string;
+  diff: string;
+  has_changes: boolean;
+}
+
+export interface GitPushRequest {
+  commit_message?: string | null;
+  remote?: string;
+  branch?: string | null;
+}
+
+export interface GitPushResponse {
+  task_id: string;
+  repo_path: string;
+  commit_hash?: string | null;
+  pushed: boolean;
+  output: string;
+}
+
 export interface ComparisonItem {
   task_id: string;
   task_name: string;

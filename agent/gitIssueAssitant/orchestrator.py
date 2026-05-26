@@ -176,7 +176,8 @@ class AgentOrchestrator:
             if tool_calls:
                 print("   最后一次请求的工具调用:")
                 for index, call in enumerate(tool_calls, start=1):
-                    print(f"   [{index}] {self._shorten(self._format_tool_call(call), 1200)}")
+                    print(
+                        f"   [{index}] {self._shorten(self._format_tool_call(call), 1200)}")
 
         tool_messages = self._tool_messages(state)
         if tool_messages:
@@ -184,7 +185,8 @@ class AgentOrchestrator:
             for index, message in enumerate(tool_messages[-3:], start=1):
                 tool_name = getattr(message, "name", None) or f"tool_{index}"
                 content = getattr(message, "content", "") or ""
-                print(f"   [{index}] {tool_name}: {self._shorten(str(content), 1500)}")
+                print(
+                    f"   [{index}] {tool_name}: {self._shorten(str(content), 1500)}")
 
     def _print_event(self, node_name: str, payload: dict, state: dict | None = None, verbose: bool = False):
         if node_name == "h_planner":
@@ -212,12 +214,14 @@ class AgentOrchestrator:
             tool_calls = getattr(ai_msg, "tool_calls", []) or []
             print(f"🤖 Agent 思考完成（第 {payload.get('iteration_count', '?')} 轮）")
             if content:
-                print(f"   回复: {self._shorten(content, 800 if verbose else 220)}")
+                print(
+                    f"   回复: {self._shorten(content, 800 if verbose else 220)}")
             if tool_calls:
                 print(f"   工具调用数: {len(tool_calls)}")
                 if verbose:
                     for idx, call in enumerate(tool_calls, start=1):
-                        print(f"   [{idx}] {self._shorten(self._format_tool_call(call), 1600)}")
+                        print(
+                            f"   [{idx}] {self._shorten(self._format_tool_call(call), 1600)}")
             return
 
         if node_name == "tools":
@@ -225,9 +229,11 @@ class AgentOrchestrator:
             print(f"🛠️ 工具执行完成（{len(messages)} 条结果）")
             if verbose:
                 for idx, message in enumerate(messages, start=1):
-                    name = getattr(message, "name", None) or getattr(message, "tool_call_id", None) or f"tool_{idx}"
+                    name = getattr(message, "name", None) or getattr(
+                        message, "tool_call_id", None) or f"tool_{idx}"
                     content = getattr(message, "content", "")
-                    print(f"   [{idx}] {name}: {self._shorten(str(content), 1200)}")
+                    print(
+                        f"   [{idx}] {name}: {self._shorten(str(content), 1200)}")
             if any(self._is_successful_edit_message(message) for message in messages):
                 repo_path = (state or {}).get("repo_path", ".")
                 self._print_repo_diff(repo_path, verbose=verbose)
@@ -238,7 +244,8 @@ class AgentOrchestrator:
             replan_trigger = payload.get("replan_trigger", "")
             print("🪞 进入反思阶段")
             if reflexion:
-                print(f"   反思: {self._shorten(reflexion, 800 if verbose else 220)}")
+                print(
+                    f"   反思: {self._shorten(reflexion, 800 if verbose else 220)}")
             if replan_trigger:
                 print(f"   触发重规划: {replan_trigger}")
             return
@@ -283,7 +290,8 @@ class AgentOrchestrator:
             )
 
             trajectory_entries = [
-                {"type": "plan", "content": json.dumps(goals, ensure_ascii=False)}
+                {"type": "plan", "content": json.dumps(
+                    goals, ensure_ascii=False)}
             ]
             if skill:
                 trajectory_entries.insert(
@@ -313,7 +321,8 @@ class AgentOrchestrator:
                 replan_reason=replan_trigger,
             )
 
-            completed = [g for g in existing_goals if g.get("status") == "done"]
+            completed = [g for g in existing_goals if g.get(
+                "status") == "done"]
             goals = completed + goals
 
             next_index = next(
@@ -347,11 +356,13 @@ class AgentOrchestrator:
     async def _node_react(self, state: AgentState):
         goals = state.get("goals", [])
         current_goal_index = state.get("current_goal_index", 0)
-        current_goal = goals[current_goal_index] if current_goal_index < len(goals) else {}
+        current_goal = goals[current_goal_index] if current_goal_index < len(goals) else {
+        }
 
         plan_lines = []
         for i, g in enumerate(goals, 1):
-            status_mark = "✓" if g.get("status") == "done" else "→" if i == current_goal_index + 1 else " "
+            status_mark = "✓" if g.get(
+                "status") == "done" else "→" if i == current_goal_index + 1 else " "
             plan_lines.append(f"{status_mark} {i}. {g.get('description', '')}")
 
         raw_messages = state["messages"]
@@ -437,7 +448,8 @@ class AgentOrchestrator:
 
     def _has_successful_test_signal(self, state: AgentState) -> bool:
         test_tool_names = {"run_pytest", "bash_terminal"}
-        test_success_markers = [" passed", "passed in", "ok", "tests passed", "build successful", "success"]
+        test_success_markers = [" passed", "passed in", "ok",
+                                "tests passed", "build successful", "success"]
         test_failure_markers = ["failed", "error", "failure"]
 
         for message in reversed(self._tool_messages(state)):
@@ -449,7 +461,8 @@ class AgentOrchestrator:
                 return False
             # bash_terminal 只有在内容看起来像测试输出时才算
             if tool_name == "bash_terminal":
-                is_test_output = any(kw in content for kw in ["test", "pytest", "jest", "mocha", "unittest", "go test", "cargo test"])
+                is_test_output = any(kw in content for kw in [
+                                     "test", "pytest", "jest", "mocha", "unittest", "go test", "cargo test"])
                 if not is_test_output:
                     continue
             if any(marker in content for marker in test_failure_markers):
@@ -465,7 +478,7 @@ class AgentOrchestrator:
             return False
 
         tool_messages = self._tool_messages(state)
-        for message in tool_messages[latest_edit_index + 1 :]:
+        for message in tool_messages[latest_edit_index + 1:]:
             content = (getattr(message, "content", "") or "").lower()
             if not content.startswith("error:"):
                 continue
@@ -476,7 +489,7 @@ class AgentOrchestrator:
         return False
 
     def _issue_requirements_satisfied(self, state: AgentState) -> tuple[bool | None, str]:
-        
+
         # Fast path: 测试通过信号
         if self._has_successful_test_signal(state):
             return True, "验证通过：检测到成功的测试信号。"
@@ -596,7 +609,7 @@ class AgentOrchestrator:
         no_progress_turns = self._consecutive_non_tool_ai_turns(state)
         repeated_reply = self._last_two_ai_contents_match(state)
         reflection_count = self._reflection_count(state)
-        #stand for unrepairable error
+        # stand for unrepairable error
         if no_progress_turns >= 3:
             return "finish_failed"
         if repeated_reply and reflection_count >= 2:
@@ -629,14 +642,14 @@ class AgentOrchestrator:
         config = {"configurable": {"thread_id": thread_id}}
         async for event in self.graph.astream(None, config=config, stream_mode="updates"):
             return event
-    
-    @DeprecationWarning
+
     async def run_auto(self, thread_id: str, verbose: bool = False):
         config = {"configurable": {"thread_id": thread_id}}
         async for event in self.graph.astream(None, config=config, stream_mode="updates"):
             node_name = list(event.keys())[0]
             state = self.graph.get_state(config).values
-            self._print_event(node_name, event[node_name], state=state, verbose=verbose)
+            self._print_event(
+                node_name, event[node_name], state=state, verbose=verbose)
 
         final_state = self.graph.get_state(config).values
         if final_state.get("status") == "FAILED":
@@ -662,7 +675,8 @@ class AgentOrchestrator:
             async for event in self.graph.astream(None, config=config, stream_mode="updates"):
                 node_name = list(event.keys())[0]
                 current_state = self.graph.get_state(config).values
-                self._print_event(node_name, event[node_name], state=current_state, verbose=verbose)
+                self._print_event(
+                    node_name, event[node_name], state=current_state, verbose=verbose)
 
             current_state = self.graph.get_state(config).values
             status = current_state.get("status", "")

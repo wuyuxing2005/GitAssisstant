@@ -363,6 +363,7 @@ ul {
 .section-header h2,
 .hero h2,
 .detail-grid h3,
+.git-review-panel h3,
 .timeline-panel h3 {
   margin: 0 0 8px;
 }
@@ -631,6 +632,73 @@ ul {
   font-weight: 600;
 }
 
+.success-copy {
+  margin: 0 0 18px;
+  color: #166534;
+  font-weight: 600;
+}
+
+.git-review-panel {
+  margin-top: 22px;
+  display: grid;
+  gap: 14px;
+}
+
+.git-review-meta {
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.82);
+  border: 1px solid rgba(226, 232, 240, 0.88);
+}
+
+.diff-viewer,
+.git-output-viewer {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+  overflow: auto;
+}
+
+.diff-viewer {
+  max-height: 520px;
+  padding: 16px;
+}
+
+.git-output-viewer {
+  max-height: 220px;
+  padding: 14px;
+}
+
+.git-push-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.git-push-controls label {
+  display: grid;
+  gap: 8px;
+}
+
+.git-push-controls span {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.git-push-controls input {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 14px;
+  padding: 12px 14px;
+  color: #0f172a;
+}
+
 .terminal-panel {
   overflow: hidden;
   border: 1px solid rgba(15, 23, 42, 0.08);
@@ -863,7 +931,8 @@ ul {
   .detail-grid,
   .tool-grid,
   .comparison-grid,
-  .form-row {
+  .form-row,
+  .git-push-controls {
     grid-template-columns: 1fr;
   }
 

@@ -219,7 +219,12 @@ export default function App() {
         </section>
 
         <section id="detail">
-          <TaskDetailPage task={currentTask} busyTaskId={busyTaskId} onRunTask={handleRunTask} />
+          <TaskDetailPage
+            task={currentTask}
+            busyTaskId={busyTaskId}
+            onRunTask={handleRunTask}
+            onTaskChanged={() => refreshData(true)}
+          />
         </section>
       </main>
     </div>

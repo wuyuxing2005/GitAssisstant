@@ -5,6 +5,9 @@ from app.schemas.task import (
     EvaluationTaskCreate,
     EvaluationTaskResponse,
     EvaluationTaskUpdate,
+    GitDiffResponse,
+    GitPushRequest,
+    GitPushResponse,
     TaskRunRequest,
 )
 from app.services.evaluation_service import evaluation_service
@@ -91,3 +94,32 @@ def get_task_result(task_id: str) -> EvaluationResult:
     if result is None:
         raise HTTPException(status_code=404, detail="Result not found")
     return result
+
+
+@router.get("/{task_id}/diff", response_model=GitDiffResponse)
+def get_task_diff(task_id: str) -> GitDiffResponse:
+    try:
+        diff = evaluation_service.get_git_diff(task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if diff is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return diff
+
+
+@router.post("/{task_id}/push", response_model=GitPushResponse)
+def push_task_changes(
+    task_id: str,
+    payload: GitPushRequest | None = None,
+) -> GitPushResponse:
+    try:
+        response = evaluation_service.push_changes(task_id, payload or GitPushRequest())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if response is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return response

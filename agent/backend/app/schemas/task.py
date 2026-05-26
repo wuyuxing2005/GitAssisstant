@@ -102,6 +102,28 @@ class EvaluationTaskResponse(EvaluationTaskBase):
     result: EvaluationResult | None = None
 
 
+class GitDiffResponse(BaseModel):
+    task_id: str
+    repo_path: str
+    status: str = ""
+    diff: str = ""
+    has_changes: bool = False
+
+
+class GitPushRequest(BaseModel):
+    commit_message: str | None = None
+    remote: str = "origin"
+    branch: str | None = None
+
+
+class GitPushResponse(BaseModel):
+    task_id: str
+    repo_path: str
+    commit_hash: str | None = None
+    pushed: bool = False
+    output: str = ""
+
+
 class ComparisonItem(BaseModel):
     task_id: str
     task_name: str

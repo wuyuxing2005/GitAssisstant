@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import type { EvaluationTask, MetricScore, RunMode } from "../types/task";
+import { fetchTaskDiff, pushTaskChanges } from "../services/api";
+import type { EvaluationTask, GitDiffResponse, GitPushResponse, MetricScore, RunMode } from "../types/task";
 import { formatDisplayTime } from "../utils/time";
 
 interface TaskDetailPageProps {
   task: EvaluationTask | null;
   busyTaskId: string | null;
   onRunTask: (taskId: string, mode: RunMode, reset?: boolean) => Promise<void>;
+  onTaskChanged?: () => Promise<void>;
 }
 
 function formatMetric(metric: MetricScore): string {
@@ -13,12 +15,92 @@ function formatMetric(metric: MetricScore): string {
   return metric.unit ? `${rawValue} ${metric.unit}` : rawValue;
 }
 
-export function TaskDetailPage({ task, busyTaskId, onRunTask }: TaskDetailPageProps) {
+export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: TaskDetailPageProps) {
   const [expandedEntries, setExpandedEntries] = useState<Record<string, boolean>>({});
+  const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [gitActionBusy, setGitActionBusy] = useState(false);
+  const [gitMessage, setGitMessage] = useState<string | null>(null);
+  const [gitError, setGitError] = useState<string | null>(null);
+  const [pushResult, setPushResult] = useState<GitPushResponse | null>(null);
+  const [commitMessage, setCommitMessage] = useState("");
 
   useEffect(() => {
     setExpandedEntries({});
+    setDiffInfo(null);
+    setGitMessage(null);
+    setGitError(null);
+    setPushResult(null);
+    setCommitMessage(task ? `fix: ${task.name}` : "");
   }, [task?.id]);
+
+  useEffect(() => {
+    if (!task || task.status !== "completed") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setDiffLoading(true);
+    setGitError(null);
+
+    fetchTaskDiff(task.id)
+      .then((response) => {
+        if (!cancelled) {
+          setDiffInfo(response);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setGitError(error instanceof Error ? error.message : "加载 Git diff 失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDiffLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [task?.id, task?.status]);
+
+  async function handleRefreshDiff() {
+    if (!task) {
+      return;
+    }
+    try {
+      setDiffLoading(true);
+      setGitError(null);
+      setDiffInfo(await fetchTaskDiff(task.id));
+    } catch (error) {
+      setGitError(error instanceof Error ? error.message : "刷新 Git diff 失败");
+    } finally {
+      setDiffLoading(false);
+    }
+  }
+
+  async function handlePushChanges() {
+    if (!task || !diffInfo?.has_changes) {
+      return;
+    }
+    try {
+      setGitActionBusy(true);
+      setGitError(null);
+      setGitMessage(null);
+      const result = await pushTaskChanges(task.id, {
+        commit_message: commitMessage.trim() || `fix: ${task.name}`
+      });
+      setPushResult(result);
+      setGitMessage(result.commit_hash ? `已提交并推送：${result.commit_hash}` : "已推送");
+      await handleRefreshDiff();
+      await onTaskChanged?.();
+    } catch (error) {
+      setGitError(error instanceof Error ? error.message : "Git push 失败");
+    } finally {
+      setGitActionBusy(false);
+    }
+  }
 
   if (!task) {
     return (
@@ -138,6 +220,71 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask }: TaskDetailPagePr
           </dl>
         </article>
       </div>
+
+      {task.status === "completed" ? (
+        <section className="git-review-panel">
+          <div className="section-header">
+            <div>
+              <h3>本地修改 Diff</h3>
+              <p>Agent 只修改本地 clone。确认 diff 后，可由后端提交并 push 到仓库。</p>
+            </div>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleRefreshDiff()}
+              disabled={diffLoading || gitActionBusy}
+            >
+              刷新 diff
+            </button>
+          </div>
+
+          {gitError ? <p className="error-copy">{gitError}</p> : null}
+          {gitMessage ? <p className="success-copy">{gitMessage}</p> : null}
+
+          {diffInfo ? (
+            <div className="git-review-meta">
+              <dl className="detail-list">
+                <div>
+                  <dt>本地仓库</dt>
+                  <dd>{diffInfo.repo_path}</dd>
+                </div>
+                <div>
+                  <dt>Git status</dt>
+                  <dd>{diffInfo.status || "工作区干净"}</dd>
+                </div>
+              </dl>
+            </div>
+          ) : null}
+
+          <pre className="diff-viewer">
+            {diffLoading
+              ? "正在加载 diff..."
+              : diffInfo?.diff || "未检测到可展示的 diff。"}
+          </pre>
+
+          <div className="git-push-controls">
+            <label>
+              <span>Commit message</span>
+              <input
+                value={commitMessage}
+                onChange={(event) => setCommitMessage(event.target.value)}
+                placeholder={`fix: ${task.name}`}
+                disabled={gitActionBusy}
+              />
+            </label>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void handlePushChanges()}
+              disabled={gitActionBusy || diffLoading || !diffInfo?.has_changes}
+            >
+              确认提交并 Push
+            </button>
+          </div>
+
+          {pushResult?.output ? <pre className="git-output-viewer">{pushResult.output}</pre> : null}
+        </section>
+      ) : null}
 
       <section className="timeline-panel">
         <div className="section-header">
