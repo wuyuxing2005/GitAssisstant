@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { SummaryCards } from "../components/SummaryCards";
 import { TaskTable } from "../components/TaskTable";
 import type {
   ComparisonResponse,
+  AppSettings,
   CreateTaskPayload,
   EvaluationTask,
   RunMode
@@ -13,6 +14,8 @@ interface DashboardPageProps {
   comparison: ComparisonResponse | null;
   selectedTaskId: string | null;
   busyTaskId: string | null;
+  settings: AppSettings | null;
+  models: string[];
   onSelectTask: (taskId: string) => void;
   onCreateTask: (payload: CreateTaskPayload) => Promise<void>;
   onRunTask: (taskId: string, mode: RunMode, reset?: boolean) => Promise<void>;
@@ -43,6 +46,8 @@ export function DashboardPage({
   comparison,
   selectedTaskId,
   busyTaskId,
+  settings,
+  models,
   onSelectTask,
   onCreateTask,
   onRunTask,
@@ -62,11 +67,27 @@ export function DashboardPage({
       repo_source: "",
       issue_input: "",
       target_dir: "",
-      model_name: "",
+      model_name: settings?.model_name || models[0] || "",
       max_iterations: 15,
       run_mode: "auto"
     }
   });
+
+  useEffect(() => {
+    const nextModel = settings?.model_name || models[0];
+    if (!nextModel) {
+      return;
+    }
+    setFormState((current) => {
+      if (current.config.model_name) {
+        return current;
+      }
+      return {
+        ...current,
+        config: { ...current.config, model_name: nextModel }
+      };
+    });
+  }, [settings?.model_name, models]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -88,7 +109,7 @@ export function DashboardPage({
           repo_source: "",
           issue_input: "",
           target_dir: "",
-          model_name: "",
+          model_name: settings?.model_name || models[0] || "",
           max_iterations: 15,
           run_mode: "auto"
         }
@@ -168,7 +189,7 @@ export function DashboardPage({
 
           <div className="form-row">
             <label>
-              <span>本地目录名</span>
+              <span>克隆到本地目录名</span>
               <input
                 value={formState.config.target_dir ?? ""}
                 onChange={(event) =>
@@ -177,13 +198,14 @@ export function DashboardPage({
                     config: { ...current.config, target_dir: event.target.value }
                   }))
                 }
-                placeholder="可选，远程仓库克隆目录名"
+                placeholder="可选，仅远程仓库需要"
               />
             </label>
 
             <label>
               <span>模型名</span>
-              <input
+              <select
+                required
                 value={formState.config.model_name ?? ""}
                 onChange={(event) =>
                   setFormState((current) => ({
@@ -191,8 +213,17 @@ export function DashboardPage({
                     config: { ...current.config, model_name: event.target.value }
                   }))
                 }
-                placeholder="可选，覆盖默认 MODEL_NAME"
-              />
+              >
+                {settings?.model_name ? <option value={settings.model_name}>{settings.model_name}</option> : null}
+                {models
+                  .filter((model) => model !== settings?.model_name)
+                  .map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                {!settings?.model_name && models.length === 0 ? (
+                  <option value="" disabled>请先在设置中导入模型</option>
+                ) : null}
+              </select>
             </label>
 
             <label>

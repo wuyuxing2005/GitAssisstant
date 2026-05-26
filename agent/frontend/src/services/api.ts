@@ -1,11 +1,14 @@
 import type {
   ComparisonResponse,
+  AppSettings,
+  AppSettingsUpdate,
   CreateTaskPayload,
   EvaluationMetadataResponse,
   EvaluationTask,
   GitDiffResponse,
   GitPushRequest,
   GitPushResponse,
+  ModelListResponse,
   TaskRunRequest
 } from "../types/task";
 
@@ -92,4 +95,19 @@ export async function compareTasks(taskIds: string[]): Promise<ComparisonRespons
   taskIds.forEach((taskId) => query.append("task_ids", taskId));
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return request<ComparisonResponse>(`/analytics/compare${suffix}`);
+}
+
+export async function fetchSettings(): Promise<AppSettings> {
+  return request<AppSettings>("/settings/");
+}
+
+export async function updateSettings(payload: AppSettingsUpdate): Promise<AppSettings> {
+  return request<AppSettings>("/settings/", {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function fetchOpenAIModels(): Promise<ModelListResponse> {
+  return request<ModelListResponse>("/settings/models");
 }

@@ -138,3 +138,24 @@ export interface TaskRunRequest {
   mode?: RunMode;
   reset: boolean;
 }
+
+export interface AppSettings {
+  openai_api_key_set: boolean;
+  github_token_set: boolean;
+  openai_base_url: string;
+  model_name: string;
+  clone_root: string;
+  env_path: string;
+}
+
+export interface AppSettingsUpdate {
+  openai_api_key?: string | null;
+  github_token?: string | null;
+  openai_base_url?: string | null;
+  model_name?: string | null;
+  clone_root?: string | null;
+}
+
+export interface ModelListResponse {
+  models: string[];
+}

@@ -91,6 +91,17 @@ def _load_runtime_env() -> None:
             load_dotenv(env_file, override=False)
 
 
+def _configured_clone_root() -> Path:
+    configured = os.getenv("GIT_ISSUE_ASSISTANT_CLONE_ROOT", "").strip()
+    if not configured:
+        return WORKSPACE_ROOT / "repos"
+    clone_root = Path(configured).expanduser()
+    if not clone_root.is_absolute():
+        clone_root = (WORKSPACE_ROOT / clone_root).resolve()
+    clone_root.mkdir(parents=True, exist_ok=True)
+    return clone_root
+
+
 def _run_git_command(
     repo_path: str | Path,
     args: list[str],
@@ -257,6 +268,7 @@ class EvaluationService:
         agent = Agent(llm)
         orchestrator = AgentOrchestrator(agent, tools=web_safe_tools)
         manager = SessionManager(orchestrator, workspace_root=WORKSPACE_ROOT)
+        manager.repos_root = _configured_clone_root()
         manager.create_session(
             task.config.repo_source,
             target_dir=task.config.target_dir,
