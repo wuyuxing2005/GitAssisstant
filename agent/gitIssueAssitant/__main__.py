@@ -15,6 +15,38 @@ class CLI:
     def __init__(self, orchestrator:AgentOrchestrator, manager:SessionManager):
         self.orchestrator:AgentOrchestrator = orchestrator
         self.manager:SessionManager = manager
+        # 后台 stdin reader 会把每行写入这里；REPL 与 /solve 都从此读取。
+        self.input_queue: asyncio.Queue[str] = asyncio.Queue()
+        self.solve_active: bool = False
+
+    async def _read_line(self, prompt: str = "") -> str:
+        """异步读取一行用户输入（来自后台 stdin reader）。"""
+        if prompt:
+            print(prompt, end="", flush=True)
+        return (await self.input_queue.get()).strip()
+
+    async def _drain_injections(self, thread_id: str) -> int:
+        """把队列中累积的用户输入注入到正在运行的 agent。返回本次注入的条数。
+
+        以 !replan 开头的指令会同时设置 replan_trigger，让下一次反思路由回 h_planner。
+        """
+        count = 0
+        while True:
+            try:
+                raw = self.input_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return count
+            text = raw.strip()
+            if not text:
+                continue
+            if text.startswith("!replan"):
+                payload = text[len("!replan"):].strip() or "用户要求重新规划"
+                self.orchestrator.inject_message(thread_id, payload, replan=True)
+                print(f"📨 已注入并标记重规划: {payload}")
+            else:
+                self.orchestrator.inject_message(thread_id, text)
+                print(f"📨 已注入用户输入: {text}")
+            count += 1
     
     def _print_status(self, state: dict):
         plan = state.get("plan") or []
@@ -163,12 +195,65 @@ class CLI:
                     return
                 thread_id = self.manager.get_current_thread_id()
                 verbose = any(flag in parts[1:] for flag in ["--verbose", "-v"])
-                final_state = await self.orchestrator.run_auto(thread_id, verbose=verbose)
+
+                print(
+                    "💡 Agent 运行中可直接输入文字插入对话；"
+                    "以 !replan 开头会同时触发重规划。"
+                )
+                self.solve_active = True
+                try:
+                    while True:
+                        # 记录最后一次 drain 的注入数，用于判断终态时是否有「来不及处理」的输入
+                        last_drain = 0
+                        async for _step in self.orchestrator.run_auto_interactive(
+                            thread_id, verbose=verbose
+                        ):
+                            last_drain = await self._drain_injections(thread_id)
+
+                        # generator 退出后再 drain 一次，捕获最后一个 yield 之后到达的输入
+                        last_drain += await self._drain_injections(thread_id)
+
+                        current_state = self.manager.get_current_state()
+                        status = current_state.get("status", "")
+
+                        if last_drain > 0:
+                            # 视作「结束后的输入」：自动作为追加要求继续跑
+                            print(
+                                f"\n🔁 Agent 已结束 (status={status})，"
+                                f"自动接续刚才的 {last_drain} 条追加输入..."
+                            )
+                            self.orchestrator.reopen_after_terminal(thread_id)
+                            continue
+
+                        if status not in ("SUCCESS", "FAILED"):
+                            break
+
+                        # Chat 模式：等用户继续输入；/done 才进入提交流程
+                        print(
+                            f"\n💬 Agent 已结束 (status={status})。"
+                            f"继续输入会触发新一轮；输入 /done 进入提交流程。"
+                        )
+                        follow_up = await self._read_line("[solve+] > ")
+                        if not follow_up or follow_up.lower()=='/done':
+                            break
+
+                        if follow_up.startswith("!replan"):
+                            payload = follow_up[len("!replan"):].strip() or "用户要求重新规划"
+                            self.orchestrator.inject_message(thread_id, payload, replan=True)
+                            print(f"📨 已注入并标记重规划: {payload}")
+                        else:
+                            self.orchestrator.inject_message(thread_id, follow_up)
+                            print(f"📨 已注入追加要求: {follow_up}")
+                        self.orchestrator.reopen_after_terminal(thread_id)
+                finally:
+                    self.solve_active = False
+
+                final_state = self.manager.get_current_state()
                 # 求解完成后，展示 diff 并询问是否推送
                 if final_state.get("status") == "SUCCESS":
                     repo_path = final_state.get("repo_path")
                     from .tools.tools import _git_diff_impl, _git_push_impl, _git_add_impl, _git_commit_impl
-                    
+
                     diff = _git_diff_impl(repo_path)
                     if diff.strip():
                         print("\n" + "="*60)
@@ -176,21 +261,21 @@ class CLI:
                         print("="*60)
                         print(diff)
                         print("="*60)
-                        
+
                         # 让 Agent 决定提交哪些文件和 commit message
                         print("🤖 Agent 正在决定提交方案...")
-                        
+
                         # 调用 Agent 生成提交计划
                         commit_plan = await self._get_commit_plan_from_agent(
-                            final_state, 
+                            final_state,
                             diff
                         )
-                        
+
                         if commit_plan:
                             print(f"\n📦 Agent 建议提交的文件: {commit_plan['files']}")
                             print(f"📝 Agent 建议的提交信息: {commit_plan['message']}")
-                            
-                            confirm = input("\n🔐 是否按照 Agent 的建议提交并推送？(y/n): ")
+
+                            confirm = await self._read_line("\n🔐 是否按照 Agent 的建议提交并推送？(y/n): ")
                             if confirm.lower() == 'y':
                                 # 1. 添加文件
                                 add_result = _git_add_impl(commit_plan['files'])
@@ -226,9 +311,15 @@ class CLI:
                 /sessions                    列出所有会话
                 /issue <desc|#number>        设置问题，支持 GitHub Issue 编号或链接
                 /run                         单步执行
-                /solve [-v|--verbose]        自动解决问题
+                /solve [-v|--verbose]        自动解决问题（运行期间可随时插入对话）
                 /status                      查看状态
                 exit                         退出
+
+                运行 /solve 时：
+                  - 任意时刻直接输入文字 → 注入到下一节点的对话中
+                  - 以 !replan <理由> 开头 → 同时触发重规划（回到 h_planner）
+                  - Agent 到达终态后会进入 [solve+] chat 模式，继续输入会触发新一轮；
+                    输入 /done 结束 chat 模式并进入提交流程
                 """)
 
             else:
@@ -242,31 +333,55 @@ class CLI:
         print(response)
 
 
-async def run_repl(cli:CLI):
-    print("🚀 Agent CLI 启动！输入 /help 查看命令")
+async def _stdin_reader(cli: CLI):
+    """后台从 stdin 持续读行并写入队列。
 
+    使用 asyncio.to_thread 避免阻塞事件循环。线程在进程退出时随之结束。
+    """
     while True:
         try:
-            user_input = input("\n> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n👋 拜拜！")
-            break
+            line = await asyncio.to_thread(sys.stdin.readline)
+        except Exception:
+            return
+        if not line:
+            # stdin 关闭
+            return
+        await cli.input_queue.put(line.rstrip("\r\n"))
 
-        if not user_input:
-            continue
 
-        # ===== 退出 =====
-        if user_input.lower() in ["exit", "quit"]:
-            print("👋 拜拜！")
-            break
+async def run_repl(cli:CLI):
+    print("🚀 Agent CLI 启动！输入 /help 查看命令")
+    #启动异步读取
+    reader_task = asyncio.create_task(_stdin_reader(cli))
+    
+    try:
+        while True:
+            # 注意：/solve 运行期间，用户输入会被 _drain_injections 抢走；
+            # 这里只在没有 /solve 时拿到普通命令。
+            print("\n> ", end="", flush=True)
+            try:
+                user_input = (await cli.input_queue.get()).strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n👋 拜拜！")
+                break
 
-        # ===== 命令 =====
-        if user_input.startswith("/"):
-            await cli.handle_command(user_input)
-            continue
+            if not user_input:
+                continue
 
-        # ===== 测试输入 =====
-        await cli.handle_input(user_input)
+            # ===== 退出 =====
+            if user_input.lower() in ["exit", "quit"]:
+                print("👋 拜拜！")
+                break
+
+            # ===== 命令 =====
+            if user_input.startswith("/"):
+                await cli.handle_command(user_input)
+                continue
+
+            # ===== 测试输入 =====
+            await cli.handle_input(user_input)
+    finally:
+        reader_task.cancel()
 
 
 def main():

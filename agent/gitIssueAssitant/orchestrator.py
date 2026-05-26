@@ -630,13 +630,18 @@ class AgentOrchestrator:
             return "verified"
         return "retry"
 
-    def inject_message(self, thread_id: str, content: str):
-        """向正在运行的会话注入一条用户消息"""
+    def inject_message(self, thread_id: str, content: str, replan: bool = False):
+        """向正在运行的会话注入一条用户消息。
+
+        replan=True 时同时设置 replan_trigger，下一次进入 reflect 会被路由回 h_planner。
+        """
         config = {"configurable": {"thread_id": thread_id}}
-        self.graph.update_state(
-            config,
-            {"messages": [HumanMessage(content=f"[用户插入指令] {content}")]},
-        )
+        update: dict = {
+            "messages": [HumanMessage(content=f"[用户插入指令] {content}")]
+        }
+        if replan:
+            update["replan_trigger"] = "user_intervention"
+        self.graph.update_state(config, update)
 
     async def run_step(self, thread_id: str):
         config = {"configurable": {"thread_id": thread_id}}
@@ -657,7 +662,10 @@ class AgentOrchestrator:
         return final_state
 
     async def run_auto_interactive(self, thread_id: str, verbose: bool = False):
-        """逐步执行，每步之间 yield 控制权，允许调用方注入用户消息。
+        """逐节点执行，每个节点结束后 yield 一次，调用方可在 yield 期间 inject_message。
+
+        即使是终态节点（SUCCESS/FAILED）也会先 yield 再 return，
+        给调用方最后一次机会把队列里的输入注入到 state。
 
         用法：
             async for step_info in orchestrator.run_auto_interactive(thread_id):
@@ -667,25 +675,36 @@ class AgentOrchestrator:
         """
         config = {"configurable": {"thread_id": thread_id}}
 
-        while True:
-            state = self.graph.get_state(config)
-            if state.next == ():
-                break
-
-            async for event in self.graph.astream(None, config=config, stream_mode="updates"):
-                node_name = list(event.keys())[0]
-                current_state = self.graph.get_state(config).values
-                self._print_event(
-                    node_name, event[node_name], state=current_state, verbose=verbose)
-
+        async for event in self.graph.astream(None, config=config, stream_mode="updates"):
+            node_name = list(event.keys())[0]
             current_state = self.graph.get_state(config).values
+            self._print_event(
+                node_name, event[node_name], state=current_state, verbose=verbose)
+
+            yield {"node": node_name, "state": current_state}
+
             status = current_state.get("status", "")
             if status in ("SUCCESS", "FAILED"):
                 if status == "FAILED":
                     self._print_failure_diagnostics(current_state)
-                break
+                return
 
-            yield {"node": node_name, "state": current_state}
+    def reopen_after_terminal(self, thread_id: str):
+        """图已到达终态后，若用户追加了输入，把状态推回 react 继续处理。
+
+        通过 as_node="tools" 让 graph 走 tools→react 的固定边重新进入推理；
+        同时把 max_iterations 抬高，避免立即被 iteration 上限挡掉。
+        """
+        config = {"configurable": {"thread_id": thread_id}}
+        current_state = self.graph.get_state(config).values
+        current_max = current_state.get("max_iterations", 15)
+        current_count = current_state.get("iteration_count", 0)
+        new_max = max(current_max, current_count + 5)
+        self.graph.update_state(
+            config,
+            {"status": "RUNNING", "max_iterations": new_max},
+            as_node="tools",
+        )
 
     async def raw_chat(self, user_input):
         return (await self.agent.chat(user_input)).content
