@@ -204,15 +204,6 @@ export default function App() {
           <a href="#compare">对比结果</a>
         </nav>
 
-        <div className="sidebar-project">
-          <span className="sidebar-section-title">项目</span>
-          <div className="project-row">
-            <span className="project-folder" />
-            <strong>agent</strong>
-            <small>code-agent</small>
-          </div>
-        </div>
-
         <div className="sidebar-task-list">
           {tasks.map((task) => (
             <button
@@ -259,10 +250,7 @@ export default function App() {
             busyTaskId={busyTaskId}
             settings={settings}
             models={models}
-            onSelectTask={setSelectedTaskId}
             onCreateTask={handleCreateTask}
-            onRunTask={handleRunTask}
-            onDeleteTask={handleDeleteTask}
           />
         </section>
 

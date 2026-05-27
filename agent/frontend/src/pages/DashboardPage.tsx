@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { SummaryCards } from "../components/SummaryCards";
-import { TaskTable } from "../components/TaskTable";
 import type {
   ComparisonResponse,
   AppSettings,
@@ -16,10 +15,7 @@ interface DashboardPageProps {
   busyTaskId: string | null;
   settings: AppSettings | null;
   models: string[];
-  onSelectTask: (taskId: string) => void;
   onCreateTask: (payload: CreateTaskPayload) => Promise<void>;
-  onRunTask: (taskId: string, mode: RunMode, reset?: boolean) => Promise<void>;
-  onDeleteTask: (taskId: string) => Promise<void>;
 }
 
 function formatMetricValue(value: number): string {
@@ -48,10 +44,7 @@ export function DashboardPage({
   busyTaskId,
   settings,
   models,
-  onSelectTask,
-  onCreateTask,
-  onRunTask,
-  onDeleteTask
+  onCreateTask
 }: DashboardPageProps) {
   const running = tasks.filter((task) => task.status === "running" || task.status === "scheduled").length;
   const completed = tasks.filter((task) => task.status === "completed").length;
@@ -283,15 +276,6 @@ export function DashboardPage({
           </div>
         </form>
       </section>
-
-      <TaskTable
-        tasks={tasks}
-        selectedTaskId={selectedTaskId}
-        busyTaskId={busyTaskId}
-        onSelectTask={onSelectTask}
-        onRunTask={onRunTask}
-        onDeleteTask={onDeleteTask}
-      />
 
       <section className="card dashboard-terminal-card">
         <div className="section-header">
