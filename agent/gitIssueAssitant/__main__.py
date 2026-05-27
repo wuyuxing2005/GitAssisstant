@@ -388,10 +388,6 @@ def main():
     load_dotenv()
     os.environ["GIT_ISSUE_ASSISTANT_HOME"] = os.getcwd()
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", "-m")
-    args = parser.parse_args()
-
     api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key:

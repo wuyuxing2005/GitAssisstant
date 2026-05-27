@@ -1,0 +1,56 @@
+stages:
+  - lint
+  - build
+
+# ============================================================
+# 全局配置
+# ============================================================
+cache:
+  paths:
+    - agent/frontend/node_modules/
+    - .cache/pip/
+
+# ============================================================
+# Stage 1: Lint
+# ============================================================
+
+lint:backend:
+  stage: lint
+  image: python:3.11-slim
+  before_script:
+    - pip install --quiet ruff -i https://pypi.tuna.tsinghua.edu.cn/simple
+  script:
+    - ruff check --select E,F --ignore E501 agent/backend/ agent/gitIssueAssitant/
+
+lint:frontend:
+  stage: lint
+  image: node:20-alpine
+  before_script:
+    - cd agent/frontend
+    - npm config set registry https://registry.npmmirror.com
+    - npm ci --prefer-offline
+  script:
+    - npx tsc --noEmit
+
+# ============================================================
+# Stage 2: Build
+# ============================================================
+
+build:backend:
+  stage: build
+  image: python:3.11-slim
+  before_script:
+    - cd agent/backend
+    - pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+  script:
+    - pip install -e .
+
+build:frontend:
+  stage: build
+  image: node:20-alpine
+  before_script:
+    - cd agent/frontend
+    - npm config set registry https://registry.npmmirror.com
+    - npm ci --prefer-offline
+  script:
+    - npm run build
