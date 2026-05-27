@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import re
 import asyncio
 import os
 import subprocess
@@ -135,7 +135,8 @@ def _run_git_command(
 
 def _is_git_repo(repo_path: str | Path) -> bool:
     try:
-        _run_git_command(repo_path, ["rev-parse", "--show-toplevel"], timeout=10)
+        _run_git_command(
+            repo_path, ["rev-parse", "--show-toplevel"], timeout=10)
     except Exception:
         return False
     return True
@@ -228,7 +229,8 @@ def _github_json_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"GitHub PR creation failed: HTTP {exc.code} {detail}") from exc
+        raise RuntimeError(
+            f"GitHub PR creation failed: HTTP {exc.code} {detail}") from exc
 
 
 @lru_cache
@@ -501,13 +503,16 @@ class EvaluationService:
     def _build_fix_report(self, task: EvaluationTaskRecord, result: EvaluationResult) -> FixReport | None:
         if task.status != "completed":
             return None
-        repo_path = task.repo_path or (result.current_state.repo_path if result.current_state else "")
+        repo_path = task.repo_path or (
+            result.current_state.repo_path if result.current_state else "")
         diff = ""
         if repo_path:
             try:
                 diff_parts = [
-                    _run_git_command(repo_path, ["diff", "--no-ext-diff", "--binary"], timeout=60),
-                    _run_git_command(repo_path, ["diff", "--no-ext-diff", "--binary", "--cached"], timeout=60),
+                    _run_git_command(
+                        repo_path, ["diff", "--no-ext-diff", "--binary"], timeout=60),
+                    _run_git_command(
+                        repo_path, ["diff", "--no-ext-diff", "--binary", "--cached"], timeout=60),
                     _build_untracked_diff(Path(repo_path)),
                 ]
                 diff = "\n".join(part for part in diff_parts if part.strip())
@@ -516,8 +521,10 @@ class EvaluationService:
 
         files = self._extract_modified_files(diff)
         test_command, test_output = self._test_summary(result)
-        root_cause = self._latest_timeline_content(result, "reflection") or self._latest_timeline_content(result, "assistant")
-        key_changes = "\n".join(f"- {path}: 根据 diff 完成针对性修改。" for path in files) or "- 未检测到文件修改。"
+        root_cause = self._latest_timeline_content(
+            result, "reflection") or self._latest_timeline_content(result, "assistant")
+        key_changes = "\n".join(
+            f"- {path}: 根据 diff 完成针对性修改。" for path in files) or "- 未检测到文件修改。"
         suggested_title = f"fix: {task.name}"
         suggested_body = (
             "## Summary\n"
@@ -813,9 +820,11 @@ class EvaluationService:
 
         resolved_repo_path = Path(repo_path).expanduser().resolve()
         if not resolved_repo_path.exists():
-            raise ValueError(f"Repository path does not exist: {resolved_repo_path}")
+            raise ValueError(
+                f"Repository path does not exist: {resolved_repo_path}")
         if not _is_git_repo(resolved_repo_path):
-            raise ValueError(f"Path is not a Git repository: {resolved_repo_path}")
+            raise ValueError(
+                f"Path is not a Git repository: {resolved_repo_path}")
         return resolved_repo_path
 
     def get_git_diff(self, task_id: str) -> GitDiffResponse | None:
@@ -826,7 +835,8 @@ class EvaluationService:
         repo_path = self._repo_path_for_task(task)
         status = _run_git_command(repo_path, ["status", "--short"], timeout=30)
         diff_parts = [
-            _run_git_command(repo_path, ["diff", "--no-ext-diff", "--binary"], timeout=60),
+            _run_git_command(
+                repo_path, ["diff", "--no-ext-diff", "--binary"], timeout=60),
             _run_git_command(
                 repo_path,
                 ["diff", "--no-ext-diff", "--binary", "--cached"],
@@ -888,9 +898,11 @@ class EvaluationService:
 
         outputs = [
             _run_git_command(repo_path, ["add", "-A"], timeout=60),
-            _run_git_command(repo_path, ["commit", "-m", commit_message], timeout=60),
+            _run_git_command(
+                repo_path, ["commit", "-m", commit_message], timeout=60),
         ]
-        commit_hash = _run_git_command(repo_path, ["rev-parse", "--short", "HEAD"], timeout=10).strip()
+        commit_hash = _run_git_command(
+            repo_path, ["rev-parse", "--short", "HEAD"], timeout=10).strip()
         outputs.append(
             _run_git_command(
                 repo_path,
@@ -931,28 +943,40 @@ class EvaluationService:
             timeout=10,
         ).strip()
         if not current_branch or current_branch == "HEAD":
-            raise ValueError("Cannot create a pull request from a detached HEAD state")
+            raise ValueError(
+                "Cannot create a pull request from a detached HEAD state")
 
-        base_branch = request.base_branch.strip() if request.base_branch and request.base_branch.strip() else current_branch
-        branch = request.branch.strip() if request.branch and request.branch.strip() else f"agent-fix-{task.id}"
-        commit_message = request.commit_message.strip() if request.commit_message and request.commit_message.strip() else f"fix: {task.name}"
+        base_branch = request.base_branch.strip(
+        ) if request.base_branch and request.base_branch.strip() else current_branch
+        branch = request.branch.strip(
+        ) if request.branch and request.branch.strip() else f"agent-fix-{task.id}"
+        commit_message = request.commit_message.strip(
+        ) if request.commit_message and request.commit_message.strip() else f"fix: {task.name}"
         report = self.get_fix_report(task_id)
-        title = request.title.strip() if request.title and request.title.strip() else (report.suggested_pr_title if report else f"fix: {task.name}")
-        body = request.body.strip() if request.body and request.body.strip() else (report.suggested_pr_description if report else "")
+        title = request.title.strip() if request.title and request.title.strip() else (
+            report.suggested_pr_title if report else f"fix: {task.name}")
+        body = request.body.strip() if request.body and request.body.strip() else (
+            report.suggested_pr_description if report else "")
 
-        remote_url = _run_git_command(repo_path, ["config", "--get", f"remote.{remote}.url"], timeout=10).strip()
+        remote_url = _run_git_command(
+            repo_path, ["config", "--get", f"remote.{remote}.url"], timeout=10).strip()
         repo_info = _parse_github_remote(remote_url)
         if repo_info is None:
-            raise ValueError(f"Remote {remote} is not a recognized GitHub remote: {remote_url}")
+            raise ValueError(
+                f"Remote {remote} is not a recognized GitHub remote: {remote_url}")
         owner, repo = repo_info
 
         outputs = [
-            _run_git_command(repo_path, ["checkout", "-B", branch], timeout=30),
+            _run_git_command(
+                repo_path, ["checkout", "-B", branch], timeout=30),
             _run_git_command(repo_path, ["add", "-A"], timeout=60),
-            _run_git_command(repo_path, ["commit", "-m", commit_message], timeout=60),
+            _run_git_command(
+                repo_path, ["commit", "-m", commit_message], timeout=60),
         ]
-        commit_hash = _run_git_command(repo_path, ["rev-parse", "--short", "HEAD"], timeout=10).strip()
-        outputs.append(_run_git_command(repo_path, ["push", "-u", remote, branch], timeout=180))
+        commit_hash = _run_git_command(
+            repo_path, ["rev-parse", "--short", "HEAD"], timeout=10).strip()
+        outputs.append(_run_git_command(
+            repo_path, ["push", "-u", remote, branch], timeout=180))
 
         payload = {
             "title": title,
@@ -960,7 +984,8 @@ class EvaluationService:
             "head": branch,
             "base": base_branch,
         }
-        pr_payload = _github_json_request(f"/repos/{owner}/{repo}/pulls", payload)
+        pr_payload = _github_json_request(
+            f"/repos/{owner}/{repo}/pulls", payload)
         task_service.save_task_record(task)
         return GitPullRequestResponse(
             task_id=task.id,
