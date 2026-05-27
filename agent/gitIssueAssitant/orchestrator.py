@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage
@@ -453,6 +454,70 @@ class AgentOrchestrator:
     async def _node_reopen(self, state: AgentState):
         return {}
 
+    def _run_git_for_verification(self, repo_path: str, args: list[str], timeout: int = 60) -> str:
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=str(Path(repo_path).resolve()),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except Exception:
+            return ""
+        if result.returncode != 0:
+            return ""
+        return result.stdout
+
+    def _verification_diff(self, repo_path: str) -> str:
+        parts: list[str] = []
+
+        try:
+            unstaged = _git_diff_impl(repo_path)
+        except Exception:
+            unstaged = ""
+        if unstaged.strip():
+            parts.append("未暂存 diff:\n" + unstaged)
+
+        try:
+            staged = _git_diff_impl(repo_path, staged=True)
+        except Exception:
+            staged = ""
+        if staged.strip():
+            parts.append("已暂存 diff:\n" + staged)
+
+        if parts:
+            return "\n\n".join(parts)
+
+        branch = self._run_git_for_verification(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
+        upstream = self._run_git_for_verification(
+            repo_path,
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        ).strip()
+        if not upstream and branch and branch != "HEAD":
+            candidate = f"origin/{branch}"
+            exists = self._run_git_for_verification(
+                repo_path,
+                ["rev-parse", "--verify", candidate],
+            ).strip()
+            if exists:
+                upstream = candidate
+
+        if upstream:
+            committed = self._run_git_for_verification(
+                repo_path,
+                ["diff", "--no-ext-diff", "--binary", f"{upstream}...HEAD"],
+            )
+            if not committed.strip():
+                committed = self._run_git_for_verification(
+                    repo_path,
+                    ["diff", "--no-ext-diff", "--binary", f"{upstream}..HEAD"],
+                )
+            if committed.strip():
+                return f"本地提交相对 {upstream} 的 diff:\n{committed}"
+
+        return ""
+
     def _repo_contains_file(self, repo_path: str, relative_path: str) -> bool:
         repo_root = Path(repo_path)
         candidate = Path(relative_path)
@@ -535,10 +600,22 @@ class AgentOrchestrator:
             }
 
         repo_path = state.get("repo_path", ".")
-        try:
-            diff_output = _git_diff_impl(repo_path)
-        except Exception:
-            diff_output = ""
+        diff_output = self._verification_diff(repo_path)
+
+        if not diff_output.strip():
+            note = "未检测到工作区、暂存区或本地提交中的代码差异，无法验证修改。"
+            return {
+                "trajectory": [{"type": "verification", "content": note}],
+                "status": "VERIFYING",
+                "messages": [
+                    HumanMessage(
+                        content=(
+                            f"{note}\n"
+                            "请检查当前仓库状态；如果已经提交，请确认本地提交相对远端分支存在 diff。"
+                        )
+                    )
+                ],
+            }
 
         verdict = await self.agent.verify_issue_resolved(
             state.get("issue_description", ""), diff_output
@@ -584,11 +661,11 @@ class AgentOrchestrator:
         if "TASK_FAILED" in content:
             return "finish_failed"
 
-        if state["iteration_count"] >= state.get("max_iterations", 15):
-            return "finish_max_iterations"
-
         if hasattr(last_msg, "tool_calls") and len(last_msg.tool_calls) > 0:
             return "tools"
+
+        if state["iteration_count"] >= state.get("max_iterations", 15):
+            return "finish_max_iterations"
 
         if "GOAL_DONE" in content or self._recent_successful_edit(state):
             goals = state.get("goals", [])

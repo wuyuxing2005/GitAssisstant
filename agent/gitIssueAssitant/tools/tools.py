@@ -568,7 +568,4 @@ AGENT_TOOLS = [
     git_clone_repo,
     git_status,
     git_diff,
-    git_add,
-    git_commit,
-    git_push,
 ]
