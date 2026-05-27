@@ -128,6 +128,57 @@ class SessionManager:
         owner, repo, issue_number = issue_info
         return self._fetch_github_issue(owner, repo, issue_number)
 
+    def _refresh_existing_clone(self, destination: Path) -> None:
+        """复用已有 clone 时，把工作区强制重置到 origin 默认分支的最新状态。
+
+        防止上次会话残留的本地 commit / reset / 未跟踪文件影响新会话的 verify 逻辑
+        （例如出现工作区与 HEAD 不一致、git diff 为空但 issue 实际未修等情况）。
+        """
+
+        def run(cmd: list[str]) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                cmd, capture_output=True, text=True, cwd=str(destination)
+            )
+
+        fetch = run(["git", "fetch", "--prune", "origin"])
+        if fetch.returncode != 0:
+            print(
+                f"⚠️ git fetch 失败，跳过重置，沿用本地状态: "
+                f"{(fetch.stderr or fetch.stdout).strip()}"
+            )
+            return
+
+        default_branch = ""
+        head_ref = run(["git", "symbolic-ref", "refs/remotes/origin/HEAD"])
+        if head_ref.returncode == 0:
+            default_branch = head_ref.stdout.strip().rsplit("/", 1)[-1]
+        else:
+            run(["git", "remote", "set-head", "origin", "--auto"])
+            head_ref = run(["git", "symbolic-ref", "refs/remotes/origin/HEAD"])
+            if head_ref.returncode == 0:
+                default_branch = head_ref.stdout.strip().rsplit("/", 1)[-1]
+
+        if not default_branch:
+            for candidate in ("main", "master"):
+                check = run(["git", "rev-parse", "--verify", f"origin/{candidate}"])
+                if check.returncode == 0:
+                    default_branch = candidate
+                    break
+
+        if not default_branch:
+            print("⚠️ 无法判定 origin 默认分支，跳过重置。")
+            return
+
+        run(["git", "checkout", default_branch])
+        reset = run(["git", "reset", "--hard", f"origin/{default_branch}"])
+        run(["git", "clean", "-fd"])
+        if reset.returncode == 0:
+            print(
+                f"🔄 复用已有 clone，已重置到 origin/{default_branch} 并清理工作区。"
+            )
+        else:
+            print(f"⚠️ 重置失败: {(reset.stderr or reset.stdout).strip()}")
+
     def _resolve_repo_path(self, repo_ref: str, target_dir: str | None = None) -> Path:
         if self._is_git_url(repo_ref):
             repo_name = target_dir or self._sanitize_repo_name(repo_ref)
@@ -143,6 +194,8 @@ class SessionManager:
                 if result.returncode != 0:
                     error = result.stderr.strip() or result.stdout.strip() or "git clone 失败"
                     raise ValueError(error)
+            else:
+                self._refresh_existing_clone(destination)
             return destination
 
         candidate = Path(repo_ref)

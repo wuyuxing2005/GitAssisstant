@@ -38,6 +38,7 @@ EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
 TEST_TOOL_NAMES = {"run_pytest"}
 TERMINAL_TASK_STATUSES = {"completed", "failed"}
 AGENT_DISABLED_GIT_TOOL_NAMES = {"git_add", "git_commit", "git_push"}
+MAX_ITERATIONS_REACHED_STATUS = "MAX_ITERATIONS_REACHED"
 
 
 @dataclass
@@ -337,6 +338,8 @@ class EvaluationService:
             return "completed"
         if runtime_status == "FAILED":
             return "failed"
+        if runtime_status == MAX_ITERATIONS_REACHED_STATUS:
+            return "scheduled"
         if runtime_status == "INIT":
             return "scheduled"
         return "running"
@@ -511,6 +514,12 @@ class EvaluationService:
             result.summary = (
                 f"任务执行中，当前已完成 {result.current_state.iteration_count if result.current_state else 0} 轮推理。"
             )
+        elif result.current_state and result.current_state.status == MAX_ITERATIONS_REACHED_STATUS:
+            result.outcome = "running"
+            result.summary = (
+                f"已达到 max_iterations={result.current_state.max_iterations}，"
+                "等待用户再次运行以延长对话继续。"
+            )
         elif task.status == "scheduled":
             result.outcome = "running" if task.started_at else "not_started"
             result.summary = "任务上下文已初始化，等待执行。"
@@ -561,6 +570,9 @@ class EvaluationService:
     ) -> None:
         self._activate_runtime(handle)
         config = {"configurable": {"thread_id": handle.thread_id}}
+        current_state = handle.orchestrator.graph.get_state(config).values
+        if current_state.get("status") == MAX_ITERATIONS_REACHED_STATUS:
+            handle.orchestrator.reopen_after_terminal(handle.thread_id)
         task.status = "running"
         task.started_at = task.started_at or _utcnow()
         self._refresh_result(task)

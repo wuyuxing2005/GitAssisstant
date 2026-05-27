@@ -360,8 +360,8 @@ class Agent:
         return await self.llm.ainvoke(user_input)
 
 
-def LLM_factory():
-    model_name = _get_env("MODEL_NAME") or "hunyuan-lite"
+def LLM_factory(model_name: str | None = None):
+    model_name = model_name or _get_env("MODEL_NAME") or "hunyuan-lite"
     api_key = _get_env("OPENAI_API_KEY")
     base_url = _get_env("OPENAI_BASE_URL")
 

@@ -1,12 +1,23 @@
-"""多级上下文压缩器
+"""多层降级上下文压缩器
 
-将对话历史按时间远近分为三个压缩级别：
-- Level 0 (近期): 保留原始消息，不做压缩
-- Level 1 (中期): 压缩工具输出，保留 AI 推理和关键结论
-- Level 2 (远期): 将多条消息合并为一条摘要
+按代价从低到高排列，越靠后越贵；只有上一层无法把 token 压到预算内时才触发下一层。
+当前仅实现兜底的 AutoCompact，其余层级保留为后续扩展点。
+
+层级表（从轻到重）：
+1. Tool Result Budget   — 工具结果写盘、上下文留预览                [TODO]
+2. Snip                 — 移除明显冗余消息                          [TODO]
+3. Microcompact         — 本地清理旧工具结果，不调 API              [TODO]
+4. Context Collapse     — 只读折叠视图，不改原始数据                [TODO]
+5. AutoCompact          — fork 子 Agent 调 LLM 生成结构化摘要        [已实现]
+
+边界安全（始终运行）：保证不会在 AIMessage(tool_calls) 与对应 ToolMessage 之间切断，
+否则 OpenAI 接口会以 "Messages with role 'tool' must be a response to a preceding
+message with 'tool_calls'" 拒绝请求。
 """
 
 from __future__ import annotations
+
+import json
 
 from langchain_core.messages import (
     AIMessage,
@@ -17,114 +28,180 @@ from langchain_core.messages import (
 )
 
 
-# 默认窗口大小
-DEFAULT_LEVEL0_WINDOW = 6   # 最近 6 条消息保持原样
-DEFAULT_LEVEL1_WINDOW = 12  # 再往前 12 条做中度压缩
-# 更早的消息做高度压缩（合并为摘要）
+DEFAULT_MAX_CONTEXT_TOKENS = 128000
+DEFAULT_KEEP_RECENT_MESSAGES = 6
+DEFAULT_SUMMARY_MAX_TOKENS = 8000
+DEFAULT_TOOL_OUTPUT_TRUNCATE = 300
+DEFAULT_TOOL_OUTPUT_TRUNCATE_FOR_PROMPT = 400
 
-# 工具输出截断阈值
-TOOL_OUTPUT_TRUNCATE = 300
-LEVEL2_SUMMARY_MAX_ITEMS = 8
-
-# 粗略估算：1 token ≈ 2 中文字符 或 4 英文字符
 CHARS_PER_TOKEN_CJK = 2
 CHARS_PER_TOKEN_EN = 4
 
 
 class ContextCompressor:
-    """多级上下文压缩器，在发送给 LLM 前压缩历史消息。"""
+    """多层降级压缩器。当前仅启用 AutoCompact 兜底，其余层todo。"""
 
     def __init__(
         self,
-        level0_window: int = DEFAULT_LEVEL0_WINDOW,
-        level1_window: int = DEFAULT_LEVEL1_WINDOW,
-        tool_output_truncate: int = TOOL_OUTPUT_TRUNCATE,
-        max_context_tokens: int = 0,
+        compactor_llm=None,
+        max_context_tokens: int = DEFAULT_MAX_CONTEXT_TOKENS,
+        keep_recent_messages: int = DEFAULT_KEEP_RECENT_MESSAGES,
+        summary_max_tokens: int = DEFAULT_SUMMARY_MAX_TOKENS,
+        tool_output_truncate: int = DEFAULT_TOOL_OUTPUT_TRUNCATE,
     ):
-        self.level0_window = level0_window
-        self.level1_window = level1_window
-        self.tool_output_truncate = tool_output_truncate
+        self.compactor_llm = compactor_llm
         self.max_context_tokens = max_context_tokens
+        self.keep_recent_messages = keep_recent_messages
+        self.summary_max_tokens = summary_max_tokens
+        self.tool_output_truncate = tool_output_truncate
+        # 给 orchestrator._node_react 算 compression_stats 用，保持字段存在即可。
+        self.level0_window = keep_recent_messages
+        self.level1_window = 0
+
+    # ============================================================
+    # 主入口
+    # ============================================================
+
+    async def compress(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """超出预算才触发 AutoCompact；否则只做边界清理后原样返回。"""
+        if not messages:
+            return []
+
+        # TODO: 在这里依次插入 Tool Result Budget / Snip / Microcompact / Context Collapse
+        # 每一层尝试把 estimate_tokens 压到 max_context_tokens 以下，压到了就 return。
+
+        if self.estimate_tokens(messages) <= self.max_context_tokens:
+            return self._drop_orphan_tool_messages(list(messages))
+
+        return await self._autocompact(messages)
+
+    def compress_sync(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """同步入口：不调用 LLM，仅做机械裁剪。供测试或异步上下文外的调用使用。"""
+        if not messages:
+            return []
+        if self.estimate_tokens(messages) <= self.max_context_tokens:
+            return self._drop_orphan_tool_messages(list(messages))
+        return self._mechanical_fallback(messages)
+
+    # ============================================================
+    # AutoCompact（Level 5）
+    # ============================================================
+
+    async def _autocompact(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        cut = self._safe_cut_point(messages)
+        if cut <= 0:
+            # 全部消息都在"近期窗口"里，没法再压；退回机械裁剪。
+            return self._mechanical_fallback(messages)
+
+        if self.compactor_llm is None:
+            # 没配压缩模型 → 不调 LLM，退回机械裁剪。
+            return self._mechanical_fallback(messages)
+
+        to_summarize = messages[:cut]
+        kept = messages[cut:]
+
+        try:
+            summary_text = await self._llm_summarize(to_summarize)
+        except Exception as exc:
+            print(f"⚠️ AutoCompact LLM 调用失败，降级为机械裁剪: {exc}")
+            return self._mechanical_fallback(messages)
+
+        if not summary_text:
+            return self._mechanical_fallback(messages)
+
+        summary_msg = HumanMessage(content=f"[历史上下文摘要]\n{summary_text}")
+        return self._drop_orphan_tool_messages([summary_msg] + kept)
+
+    def _safe_cut_point(self, messages: list[BaseMessage]) -> int:
+        """决定从哪条开始保留原文：默认保留最近 keep_recent_messages 条，
+        然后把切点向前回退，避免落在 ToolMessage 上（会和上面的 AIMessage(tool_calls) 拆开）。
+        """
+        target = max(0, len(messages) - self.keep_recent_messages)
+        while 0 < target < len(messages) and isinstance(messages[target], ToolMessage):
+            target -= 1
+        return target
+
+    async def _llm_summarize(self, messages: list[BaseMessage]) -> str:
+        prompt = self._build_summary_prompt(messages)
+        response = await self.compactor_llm.ainvoke(prompt)
+        return (getattr(response, "content", "") or "").strip()
+
+    def _build_summary_prompt(self, messages: list[BaseMessage]) -> str:
+        formatted = self._format_messages_for_prompt(messages)
+        return (
+            "你正在帮一个代码修复 Agent 压缩对话上下文。把下面这段对话历史浓缩成"
+            f"结构化的「长期记忆」，不超过 {self.summary_max_tokens} tokens。\n\n"
+            "需要保留的信息：\n"
+            "1. 已确认的事实（仓库结构、关键文件、错误根因、读到的关键代码片段）\n"
+            "2. 已尝试过的方案及结果（失败也要保留，写明原因，避免后续重蹈覆辙）\n"
+            "3. 还在猜测、未验证的假设\n"
+            "4. 修改过的文件 / 测试结果 / commit hash 等关键产物\n\n"
+            "输出格式（严格四段，每段一行一项，不要输出其他内容）：\n"
+            "## 已确认事实\n- ...\n"
+            "## 已尝试的方案\n- 方案 → 成功/失败（原因）\n"
+            "## 当前假设 / 未验证\n- ...\n"
+            "## 关键产物\n- ...\n\n"
+            "对话历史：\n"
+            f"{formatted}"
+        )
+
+    def _format_messages_for_prompt(self, messages: list[BaseMessage]) -> str:
+        lines = []
+        for msg in messages:
+            if isinstance(msg, SystemMessage):
+                continue
+            if isinstance(msg, HumanMessage):
+                content = self._truncate(msg.content or "", 400)
+                lines.append(f"[用户] {content}")
+            elif isinstance(msg, AIMessage):
+                content = self._truncate((msg.content or "").strip(), 300)
+                lines.append(f"[Agent] {content}" if content else "[Agent] (仅工具调用)")
+                for call in getattr(msg, "tool_calls", []) or []:
+                    name = call.get("name", "?") if isinstance(call, dict) else getattr(call, "name", "?")
+                    args = call.get("args", {}) if isinstance(call, dict) else getattr(call, "args", {})
+                    lines.append(f"  └ 调用 {name}({self._brief_args(args)})")
+            elif isinstance(msg, ToolMessage):
+                content = self._truncate(msg.content or "", DEFAULT_TOOL_OUTPUT_TRUNCATE_FOR_PROMPT)
+                name = getattr(msg, "name", None) or "tool"
+                lines.append(f"[工具 {name}] {content}")
+        return "\n".join(lines)
+
+    # ============================================================
+    # 机械降级（LLM 不可用 / 不值得调用时的兜底的兜底）
+    # ============================================================
+
+    def _mechanical_fallback(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """无 LLM 时的最后手段：截断老工具输出 + 缩短 AI 文本，不调 API。"""
+        cutoff = max(0, len(messages) - self.keep_recent_messages)
+        # 边界回退，跟 _safe_cut_point 同逻辑
+        while 0 < cutoff < len(messages) and isinstance(messages[cutoff], ToolMessage):
+            cutoff -= 1
+
+        result: list[BaseMessage] = []
+        for i, msg in enumerate(messages):
+            if i >= cutoff:
+                result.append(msg)
+                continue
+            if isinstance(msg, ToolMessage):
+                result.append(self._truncate_tool_message(msg))
+            elif isinstance(msg, AIMessage):
+                result.append(self._compress_ai_message(msg))
+            else:
+                result.append(msg)
+        return self._drop_orphan_tool_messages(result)
+
+    # ============================================================
+    # 工具方法
+    # ============================================================
 
     def estimate_tokens(self, messages: list[BaseMessage]) -> int:
-        """估算消息列表的 token 数（无需 tiktoken 依赖）。
-
-        使用字符级启发式：中文按 2 字符/token，英文按 4 字符/token，
-        加上每条消息固定 4 token 的格式开销。
-        """
         total = 0
         for msg in messages:
             content = self._get_message_text(msg)
             total += self._estimate_text_tokens(content) + 4
         return total
 
-    def compress(self, messages: list[BaseMessage]) -> list[BaseMessage]:
-        """对消息列表执行多级压缩，返回压缩后的消息列表。
-
-        如果设置了 max_context_tokens，会自适应调整压缩窗口直到满足预算。
-        """
-        if len(messages) <= self.level0_window:
-            return list(messages)
-
-        result = self._compress_with_windows(
-            messages, self.level0_window, self.level1_window
-        )
-
-        if self.max_context_tokens > 0:
-            result = self._adaptive_compress(messages, result)
-
-        return result
-
-    def _adaptive_compress(
-        self, original: list[BaseMessage], current: list[BaseMessage]
-    ) -> list[BaseMessage]:
-        """如果压缩后仍超预算，逐步收紧窗口。"""
-        estimated = self.estimate_tokens(current)
-        if estimated <= self.max_context_tokens:
-            return current
-
-        # 逐步缩小 level0 和 level1 窗口
-        l0 = self.level0_window
-        l1 = self.level1_window
-
-        for _ in range(3):
-            l1 = max(2, l1 // 2)
-            result = self._compress_with_windows(original, l0, l1)
-            if self.estimate_tokens(result) <= self.max_context_tokens:
-                return result
-
-            l0 = max(2, l0 // 2)
-            result = self._compress_with_windows(original, l0, l1)
-            if self.estimate_tokens(result) <= self.max_context_tokens:
-                return result
-
-        return result
-
-    def _compress_with_windows(
-        self, messages: list[BaseMessage], l0: int, l1: int
-    ) -> list[BaseMessage]:
-        """使用指定窗口大小执行压缩。"""
-        level0_start = max(0, len(messages) - l0)
-        level1_start = max(0, level0_start - l1)
-
-        level2_msgs = messages[:level1_start]
-        level1_msgs = messages[level1_start:level0_start]
-        level0_msgs = messages[level0_start:]
-
-        compressed = []
-
-        if level2_msgs:
-            summary = self._compress_level2(level2_msgs)
-            compressed.append(summary)
-
-        if level1_msgs:
-            compressed.extend(self._compress_level1(level1_msgs))
-
-        compressed.extend(level0_msgs)
-        return compressed
-
     def _estimate_text_tokens(self, text: str) -> int:
-        """根据字符类型混合估算 token 数。"""
         if not text:
             return 0
         cjk_chars = sum(1 for c in text if '一' <= c <= '鿿')
@@ -132,76 +209,13 @@ class ContextCompressor:
         return cjk_chars // CHARS_PER_TOKEN_CJK + other_chars // CHARS_PER_TOKEN_EN
 
     def _get_message_text(self, msg: BaseMessage) -> str:
-        """提取消息的全部文本内容（包括 tool_calls 的序列化）。"""
         content = getattr(msg, "content", "") or ""
         tool_calls = getattr(msg, "tool_calls", []) or []
         if tool_calls:
-            import json
-            content += json.dumps(tool_calls, ensure_ascii=False)
+            content += json.dumps(tool_calls, ensure_ascii=False, default=str)
         return content
 
-    def _compress_level1(self, messages: list[BaseMessage]) -> list[BaseMessage]:
-        """中度压缩：截断工具输出，保留 AI 消息的核心内容。"""
-        result = []
-        for msg in messages:
-            if isinstance(msg, ToolMessage):
-                result.append(self._truncate_tool_message(msg))
-            elif isinstance(msg, AIMessage):
-                result.append(self._compress_ai_message(msg))
-            else:
-                result.append(msg)
-        return result
-
-    def _compress_level2(self, messages: list[BaseMessage]) -> HumanMessage:
-        """高度压缩：将多条消息合并为一条摘要消息。"""
-        actions = []
-        findings = []
-
-        for msg in messages:
-            if isinstance(msg, AIMessage):
-                tool_calls = getattr(msg, "tool_calls", []) or []
-                if tool_calls:
-                    for call in tool_calls[:2]:
-                        name = call.get("name", "unknown")
-                        args = call.get("args", {})
-                        brief_args = self._brief_args(args)
-                        actions.append(f"{name}({brief_args})")
-                else:
-                    content = (getattr(msg, "content", "") or "").strip()
-                    if content:
-                        findings.append(self._truncate(content, 80))
-
-            elif isinstance(msg, ToolMessage):
-                content = (getattr(msg, "content", "") or "").strip()
-                name = getattr(msg, "name", "") or "tool"
-                if content and not content.lower().startswith("error:"):
-                    findings.append(f"[{name}] {self._truncate(content, 60)}")
-                elif content.lower().startswith("error:"):
-                    findings.append(f"[{name}] 错误: {self._truncate(content[6:], 60)}")
-
-            elif isinstance(msg, HumanMessage):
-                content = (getattr(msg, "content", "") or "").strip()
-                if content and not content.startswith("["):
-                    findings.append(f"[指令] {self._truncate(content, 60)}")
-
-        summary_parts = []
-        if actions:
-            unique_actions = list(dict.fromkeys(actions))[:LEVEL2_SUMMARY_MAX_ITEMS]
-            summary_parts.append("已执行操作: " + ", ".join(unique_actions))
-        if findings:
-            unique_findings = list(dict.fromkeys(findings))[:LEVEL2_SUMMARY_MAX_ITEMS]
-            summary_parts.append("关键发现:\n" + "\n".join(f"- {f}" for f in unique_findings))
-
-        summary_text = (
-            "[历史上下文摘要]\n" + "\n".join(summary_parts)
-            if summary_parts
-            else "[历史上下文摘要] 早期对话已压缩，无关键信息。"
-        )
-
-        return HumanMessage(content=summary_text)
-
     def _truncate_tool_message(self, msg: ToolMessage) -> ToolMessage:
-        """截断过长的工具输出。"""
         content = getattr(msg, "content", "") or ""
         if len(content) <= self.tool_output_truncate:
             return msg
@@ -213,21 +227,34 @@ class ContextCompressor:
         )
 
     def _compress_ai_message(self, msg: AIMessage) -> AIMessage:
-        """压缩 AI 消息：保留 tool_calls，截断过长的文本内容。"""
         content = (getattr(msg, "content", "") or "").strip()
         tool_calls = getattr(msg, "tool_calls", []) or []
-
         if len(content) > 200:
             content = content[:200] + "..."
+        return AIMessage(content=content, tool_calls=tool_calls)
 
-        return AIMessage(
-            content=content,
-            tool_calls=tool_calls,
-        )
+    def _drop_orphan_tool_messages(
+        self, messages: list[BaseMessage]
+    ) -> list[BaseMessage]:
+        seen_call_ids: set[str] = set()
+        result: list[BaseMessage] = []
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                for call in getattr(msg, "tool_calls", []) or []:
+                    call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
+                    if call_id:
+                        seen_call_ids.add(call_id)
+                result.append(msg)
+            elif isinstance(msg, ToolMessage):
+                call_id = getattr(msg, "tool_call_id", "")
+                if call_id and call_id in seen_call_ids:
+                    result.append(msg)
+            else:
+                result.append(msg)
+        return result
 
-    def _brief_args(self, args: dict) -> str:
-        """将工具参数压缩为简短描述。"""
-        if not args:
+    def _brief_args(self, args) -> str:
+        if not isinstance(args, dict) or not args:
             return ""
         parts = []
         for key, value in list(args.items())[:2]:

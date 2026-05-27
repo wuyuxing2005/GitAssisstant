@@ -4,7 +4,7 @@ import os
 import shlex
 import sys
 from  .agent import Agent,LLM_factory
-from  .orchestrator import AgentOrchestrator
+from  .orchestrator import AgentOrchestrator, MAX_ITERATIONS_REACHED_STATUS
 from  .session_manager import SessionManager
 from  .skills import SkillRegistry
 from dotenv import load_dotenv
@@ -66,6 +66,27 @@ class CLI:
             content = getattr(last_message, "content", "")
             if content:
                 print(f"💬 最近输出: {content}")
+
+    async def _ask_extend_iterations(self, state: dict) -> int | None:
+        iteration_count = state.get("iteration_count", 0)
+        max_iterations = state.get("max_iterations", 0)
+        print(
+            f"\n⏸️ Agent 已达到 max_iterations："
+            f"{iteration_count}/{max_iterations}。"
+        )
+        print("是否延长对话继续？回车/yes 延长 5 轮；输入数字可自定义延长轮数；输入 n 结束。")
+        answer = await self._read_line("[extend?] > ")
+        while(True):
+            normalized = answer.strip().lower()
+            if normalized in ("", "y", "yes", "继续", "是"):
+                return 5
+            if normalized in ("n", "no", "否", "不", "停止", "结束"):
+                return None
+            if normalized.isdigit():
+                return max(int(normalized), 1)
+            print(f"⚠️ 未识别的输入: {answer}")
+            answer = await self._read_line("[extend?] > ")
+
 
     async def _get_commit_plan_from_agent(self, state: dict, diff: str) -> dict | None:
             """让 Agent 根据修改内容和 issue 决定提交方案"""
@@ -225,16 +246,29 @@ class CLI:
                             self.orchestrator.reopen_after_terminal(thread_id)
                             continue
 
+                        if status == MAX_ITERATIONS_REACHED_STATUS:
+                            extra_iterations = await self._ask_extend_iterations(current_state)
+                            if extra_iterations is None:
+                                self.orchestrator.mark_failed_after_user_declines_extension(thread_id)
+                                print("🛑 已按用户选择结束，本次任务标记为 FAILED。")
+                                break
+                            self.orchestrator.reopen_after_terminal(
+                                thread_id, extra_iterations=extra_iterations
+                            )
+                            print(f"🔁 已延长 {extra_iterations} 轮，继续运行。")
+                            continue
+
                         if status not in ("SUCCESS", "FAILED"):
                             break
 
-                        # Chat 模式：等用户继续输入；/done 才进入提交流程
+                        # Chat 模式：等用户继续输入；/done|done|exit|quit 才进入提交流程
                         print(
                             f"\n💬 Agent 已结束 (status={status})。"
-                            f"继续输入会触发新一轮；输入 /done 进入提交流程。"
+                            f"继续输入会触发新一轮；输入 /done（或 done / exit / quit）进入提交流程。"
                         )
                         follow_up = await self._read_line("[solve+] > ")
-                        if not follow_up or follow_up.lower()=='/done':
+                        follow_up_norm = follow_up.strip().lower()
+                        if follow_up_norm in ("", "/done", "done", "/exit", "exit", "/quit", "quit", "q"):
                             break
 
                         if follow_up.startswith("!replan"):
