@@ -4,19 +4,25 @@ import asyncio
 import os
 import subprocess
 import sys
+import json
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 from app.models.task import EvaluationTaskRecord
 from app.schemas.task import (
     ComparisonItem,
     ComparisonResponse,
     EvaluationResult,
+    FixReport,
     GitDiffResponse,
+    GitPullRequestRequest,
+    GitPullRequestResponse,
     GitPushRequest,
     GitPushResponse,
     MetricScore,
@@ -187,6 +193,42 @@ def _build_untracked_diff(repo_path: Path) -> str:
         if (diff := _new_file_diff(repo_path, line.strip()))
     ]
     return "\n".join(parts)
+
+
+def _parse_github_remote(remote_url: str) -> tuple[str, str] | None:
+    patterns = (
+        r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?/?$",
+        r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, remote_url.strip())
+        if match:
+            return match.group("owner"), match.group("repo").removesuffix(".git")
+    return None
+
+
+def _github_json_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("GITHUB_TOKEN is required to create a pull request")
+
+    request = Request(
+        f"https://api.github.com{path}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "gitIssueAssitant",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"GitHub PR creation failed: HTTP {exc.code} {detail}") from exc
 
 
 @lru_cache
@@ -429,6 +471,102 @@ class EvaluationService:
             for name, count in counter.most_common()
         ]
 
+    def _extract_modified_files(self, diff: str) -> list[str]:
+        files: list[str] = []
+        for line in diff.splitlines():
+            if not line.startswith("diff --git a/"):
+                continue
+            match = re.search(r" b/(.+)$", line)
+            if match and match.group(1) not in files:
+                files.append(match.group(1))
+        return files
+
+    def _latest_timeline_content(self, result: EvaluationResult, event_type: str) -> str:
+        for entry in reversed(result.timeline):
+            if entry.event_type == event_type and entry.content.strip():
+                return entry.content.strip()
+        return ""
+
+    def _test_summary(self, result: EvaluationResult) -> tuple[str, str]:
+        test_entries = [
+            entry
+            for entry in result.timeline
+            if entry.event_type == "tool" and "run_pytest" in entry.title
+        ]
+        if not test_entries:
+            return "未检测到测试命令", "未检测到测试输出"
+        output = test_entries[-1].content.strip() or "无输出"
+        return "run_pytest", output
+
+    def _build_fix_report(self, task: EvaluationTaskRecord, result: EvaluationResult) -> FixReport | None:
+        if task.status != "completed":
+            return None
+        repo_path = task.repo_path or (result.current_state.repo_path if result.current_state else "")
+        diff = ""
+        if repo_path:
+            try:
+                diff_parts = [
+                    _run_git_command(repo_path, ["diff", "--no-ext-diff", "--binary"], timeout=60),
+                    _run_git_command(repo_path, ["diff", "--no-ext-diff", "--binary", "--cached"], timeout=60),
+                    _build_untracked_diff(Path(repo_path)),
+                ]
+                diff = "\n".join(part for part in diff_parts if part.strip())
+            except Exception:
+                diff = ""
+
+        files = self._extract_modified_files(diff)
+        test_command, test_output = self._test_summary(result)
+        root_cause = self._latest_timeline_content(result, "reflection") or self._latest_timeline_content(result, "assistant")
+        key_changes = "\n".join(f"- {path}: 根据 diff 完成针对性修改。" for path in files) or "- 未检测到文件修改。"
+        suggested_title = f"fix: {task.name}"
+        suggested_body = (
+            "## Summary\n"
+            f"- {task.config.issue_input}\n\n"
+            "## Test\n"
+            f"- {test_command}\n"
+        )
+        markdown = "\n".join(
+            [
+                f"# Agent 修复报告 - {task.name}",
+                "",
+                "## Issue 摘要",
+                task.config.issue_input or "未提供 Issue 描述。",
+                "",
+                "## 根因分析",
+                root_cause or "Agent 未输出明确根因；请结合 diff 和测试结果复核。",
+                "",
+                "## 修改文件列表",
+                "\n".join(f"- {path}" for path in files) or "- 无",
+                "",
+                "## 关键修改说明",
+                key_changes,
+                "",
+                "## 测试命令和测试结果",
+                f"命令: `{test_command}`",
+                "",
+                "```text",
+                test_output[:4000],
+                "```",
+                "",
+                "## 剩余风险",
+                "- 建议人工复核边界条件、异常输入和未覆盖路径。",
+                "",
+                "## 建议的 PR 标题",
+                suggested_title,
+                "",
+                "## 建议的 PR 描述",
+                suggested_body,
+                "",
+            ]
+        )
+        return FixReport(
+            file_name=f"{task.id}-fix-report.md",
+            markdown=markdown,
+            suggested_pr_title=suggested_title,
+            suggested_pr_description=suggested_body,
+            created_at=_utcnow(),
+        )
+
     def _build_metrics(
         self,
         task: EvaluationTaskRecord,
@@ -506,6 +644,8 @@ class EvaluationService:
                 f"任务执行完成，仓库已定位到 {task.repo_path or task.config.repo_source}，"
                 f"共执行 {result.current_state.iteration_count if result.current_state else 0} 轮。"
             )
+            if result.fix_report is None:
+                result.fix_report = self._build_fix_report(task, result)
         elif task.status == "failed":
             result.outcome = "failed"
             result.summary = result.error_message or "任务执行失败。"
@@ -704,6 +844,18 @@ class EvaluationService:
             has_changes=bool(status.strip()),
         )
 
+    def get_fix_report(self, task_id: str) -> FixReport | None:
+        task = task_service.get_task_record(task_id)
+        if task is None:
+            return None
+        result = self.get_result(task_id)
+        if result is None:
+            return None
+        if result.fix_report is None:
+            result.fix_report = self._build_fix_report(task, result)
+            task_service.save_task_record(task)
+        return result.fix_report
+
     def push_changes(self, task_id: str, request: GitPushRequest) -> GitPushResponse | None:
         task = task_service.get_task_record(task_id)
         if task is None:
@@ -753,6 +905,70 @@ class EvaluationService:
             repo_path=str(repo_path),
             commit_hash=commit_hash,
             pushed=True,
+            output="\n".join(output for output in outputs if output.strip()),
+        )
+
+    def create_pull_request(
+        self,
+        task_id: str,
+        request: GitPullRequestRequest,
+    ) -> GitPullRequestResponse | None:
+        task = task_service.get_task_record(task_id)
+        if task is None:
+            return None
+        if task.status != "completed":
+            raise ValueError("Only completed tasks can create pull requests")
+
+        repo_path = self._repo_path_for_task(task)
+        remote = request.remote.strip() or "origin"
+        status = _run_git_command(repo_path, ["status", "--short"], timeout=30)
+        if not status.strip():
+            raise ValueError("No local changes to commit for pull request")
+
+        current_branch = _run_git_command(
+            repo_path,
+            ["rev-parse", "--abbrev-ref", "HEAD"],
+            timeout=10,
+        ).strip()
+        if not current_branch or current_branch == "HEAD":
+            raise ValueError("Cannot create a pull request from a detached HEAD state")
+
+        base_branch = request.base_branch.strip() if request.base_branch and request.base_branch.strip() else current_branch
+        branch = request.branch.strip() if request.branch and request.branch.strip() else f"agent-fix-{task.id}"
+        commit_message = request.commit_message.strip() if request.commit_message and request.commit_message.strip() else f"fix: {task.name}"
+        report = self.get_fix_report(task_id)
+        title = request.title.strip() if request.title and request.title.strip() else (report.suggested_pr_title if report else f"fix: {task.name}")
+        body = request.body.strip() if request.body and request.body.strip() else (report.suggested_pr_description if report else "")
+
+        remote_url = _run_git_command(repo_path, ["config", "--get", f"remote.{remote}.url"], timeout=10).strip()
+        repo_info = _parse_github_remote(remote_url)
+        if repo_info is None:
+            raise ValueError(f"Remote {remote} is not a recognized GitHub remote: {remote_url}")
+        owner, repo = repo_info
+
+        outputs = [
+            _run_git_command(repo_path, ["checkout", "-B", branch], timeout=30),
+            _run_git_command(repo_path, ["add", "-A"], timeout=60),
+            _run_git_command(repo_path, ["commit", "-m", commit_message], timeout=60),
+        ]
+        commit_hash = _run_git_command(repo_path, ["rev-parse", "--short", "HEAD"], timeout=10).strip()
+        outputs.append(_run_git_command(repo_path, ["push", "-u", remote, branch], timeout=180))
+
+        payload = {
+            "title": title,
+            "body": body,
+            "head": branch,
+            "base": base_branch,
+        }
+        pr_payload = _github_json_request(f"/repos/{owner}/{repo}/pulls", payload)
+        task_service.save_task_record(task)
+        return GitPullRequestResponse(
+            task_id=task.id,
+            repo_path=str(repo_path),
+            branch=branch,
+            base_branch=base_branch,
+            commit_hash=commit_hash,
+            pr_url=pr_payload.get("html_url"),
             output="\n".join(output for output in outputs if output.strip()),
         )
 

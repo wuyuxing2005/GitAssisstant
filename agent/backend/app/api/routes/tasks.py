@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from app.schemas.task import (
     EvaluationResult,
@@ -6,6 +6,8 @@ from app.schemas.task import (
     EvaluationTaskResponse,
     EvaluationTaskUpdate,
     GitDiffResponse,
+    GitPullRequestRequest,
+    GitPullRequestResponse,
     GitPushRequest,
     GitPushResponse,
     TaskRunRequest,
@@ -109,6 +111,20 @@ def get_task_diff(task_id: str) -> GitDiffResponse:
     return diff
 
 
+@router.get("/{task_id}/report")
+def download_task_report(task_id: str) -> Response:
+    report = evaluation_service.get_fix_report(task_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return Response(
+        content=report.markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{report.file_name}"',
+        },
+    )
+
+
 @router.post("/{task_id}/push", response_model=GitPushResponse)
 def push_task_changes(
     task_id: str,
@@ -116,6 +132,25 @@ def push_task_changes(
 ) -> GitPushResponse:
     try:
         response = evaluation_service.push_changes(task_id, payload or GitPushRequest())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if response is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return response
+
+
+@router.post("/{task_id}/pull-request", response_model=GitPullRequestResponse)
+def create_task_pull_request(
+    task_id: str,
+    payload: GitPullRequestRequest | None = None,
+) -> GitPullRequestResponse:
+    try:
+        response = evaluation_service.create_pull_request(
+            task_id,
+            payload or GitPullRequestRequest(),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:

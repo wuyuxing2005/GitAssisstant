@@ -63,6 +63,15 @@ export interface EvaluationResult {
   started_at?: string | null;
   finished_at?: string | null;
   error_message?: string | null;
+  fix_report?: FixReport | null;
+}
+
+export interface FixReport {
+  file_name: string;
+  markdown: string;
+  suggested_pr_title: string;
+  suggested_pr_description: string;
+  created_at: string;
 }
 
 export interface EvaluationTask {
@@ -95,6 +104,25 @@ export interface GitPushResponse {
   repo_path: string;
   commit_hash?: string | null;
   pushed: boolean;
+  output: string;
+}
+
+export interface GitPullRequestRequest {
+  commit_message?: string | null;
+  title?: string | null;
+  body?: string | null;
+  remote?: string;
+  branch?: string | null;
+  base_branch?: string | null;
+}
+
+export interface GitPullRequestResponse {
+  task_id: string;
+  repo_path: string;
+  branch: string;
+  base_branch: string;
+  commit_hash?: string | null;
+  pr_url?: string | null;
   output: string;
 }
 
