@@ -78,6 +78,10 @@ def _format_command_result(result: subprocess.CompletedProcess[str]) -> str:
     return _truncate_output("\n".join(part for part in parts if part))
 
 
+def _text_output_kwargs() -> dict[str, str | bool]:
+    return {"text": True, "encoding": "utf-8", "errors": "replace"}
+
+
 def _run_command(
     command: list[str] | str,
     *,
@@ -90,7 +94,7 @@ def _run_command(
             command,
             shell=shell,
             capture_output=True,
-            text=True,
+            **_text_output_kwargs(),
             timeout=timeout,
             cwd=str(cwd or _repo_root()),
         )
@@ -209,7 +213,7 @@ def _search_code_impl(
         result = subprocess.run(
             command,
             capture_output=True,
-            text=True,
+            **_text_output_kwargs(),
             cwd=str(_repo_root()),
         )
         if result.returncode == 0:
@@ -397,7 +401,7 @@ def _git_push_impl(
             result = subprocess.run(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 capture_output=True,
-                text=True,
+                **_text_output_kwargs(),
                 cwd=str(_repo_root()),
                 timeout=10,
             )

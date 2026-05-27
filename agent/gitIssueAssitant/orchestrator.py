@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
-from pathlib import Path
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
@@ -18,6 +16,7 @@ from .tools.tools import AGENT_TOOLS, _git_diff_impl
 
 EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
 MAX_ITERATIONS_REACHED_STATUS = "MAX_ITERATIONS_REACHED"
+USER_INSERT_PREFIX = "[用户插入指令]"
 
 
 class AgentOrchestrator:
@@ -41,7 +40,6 @@ class AgentOrchestrator:
         workflow.add_node("react", self._node_react)
         workflow.add_node("tools", ToolNode(self.tools))
         workflow.add_node("reflect", self._node_reflect)
-        workflow.add_node("verify", self._node_verify)
         workflow.add_node("finish_success", self._node_finish_success)
         workflow.add_node("finish_failed", self._node_finish_failed)
         workflow.add_node("finish_max_iterations", self._node_finish_max_iterations)
@@ -51,14 +49,13 @@ class AgentOrchestrator:
         workflow.add_conditional_edges(
             "h_planner",
             self._route_after_planner,
-            {"react": "react", "verify": "verify"},
+            {"react": "react", "finish_success": "finish_success"},
         )
         workflow.add_conditional_edges(
             "react",
             self._route_react,
             {
                 "tools": "tools",
-                "verify": "verify",
                 "reflect": "reflect",
                 "h_planner": "h_planner",
                 "finish_success": "finish_success",
@@ -72,11 +69,6 @@ class AgentOrchestrator:
             "reflect",
             self._route_after_reflect,
             {"h_planner": "h_planner", "react": "react"},
-        )
-        workflow.add_conditional_edges(
-            "verify",
-            self._route_verify,
-            {"verified": "finish_success", "retry": "react"},
         )
         workflow.add_edge("finish_success", END)
         workflow.add_edge("finish_failed", END)
@@ -101,6 +93,31 @@ class AgentOrchestrator:
             return False
         content = getattr(message, "content", "") or ""
         return not content.lower().startswith("error:")
+
+    def _has_meaningful_git_output(self, output: str) -> bool:
+        text = (output or "").strip()
+        return bool(text and text != "Command finished with exit code 0.")
+
+    def user_added_requirements(self, state: AgentState) -> list[str]:
+        requirements: list[str] = []
+        for message in state.get("messages", []):
+            content = getattr(message, "content", "") or ""
+            if not isinstance(content, str):
+                continue
+            if not content.startswith(USER_INSERT_PREFIX):
+                continue
+            requirement = content[len(USER_INSERT_PREFIX):].strip()
+            if requirement:
+                requirements.append(requirement)
+        return requirements
+
+    def effective_issue_description(self, state: AgentState) -> str:
+        base = state.get("issue_description", "")
+        requirements = self.user_added_requirements(state)
+        if not requirements:
+            return base
+        appended = "\n".join(f"- {requirement}" for requirement in requirements)
+        return f"{base}\n\n用户追加要求（同样必须满足，按时间顺序）：\n{appended}"
 
     def _tool_messages(self, state: AgentState) -> list:
         return [message for message in state.get("messages", []) if getattr(message, "name", None)]
@@ -150,6 +167,13 @@ class AgentOrchestrator:
             return False
         return current == previous
 
+    def _last_message_has_tool_calls(self, state: AgentState) -> bool:
+        messages = state.get("messages", [])
+        if not messages:
+            return False
+        tool_calls = getattr(messages[-1], "tool_calls", []) or []
+        return len(tool_calls) > 0
+
     def _format_tool_call(self, call: dict) -> str:
         name = call.get("name", "unknown_tool")
         args = call.get("args", {})
@@ -162,7 +186,7 @@ class AgentOrchestrator:
             print(f"   无法显示修改 diff: {exc}")
             return
 
-        if not diff_output.strip():
+        if not self._has_meaningful_git_output(diff_output):
             print("   未检测到 Git diff。")
             return
 
@@ -241,6 +265,12 @@ class AgentOrchestrator:
                     content = getattr(message, "content", "")
                     print(
                         f"   [{idx}] {name}: {self._shorten(str(content), 1200)}")
+            else:
+                for idx, message in enumerate(messages, start=1):
+                    name = getattr(message, "name", None) or getattr(
+                        message, "tool_call_id", None) or f"tool_{idx}"
+                    print(
+                        f"   [{idx}] {name}")
             if any(self._is_successful_edit_message(message) for message in messages):
                 repo_path = (state or {}).get("repo_path", ".")
                 self._print_repo_diff(repo_path, verbose=verbose)
@@ -283,7 +313,7 @@ class AgentOrchestrator:
             # 首次规划：同时做 Skill 选择 + 目标生成
             skills_catalog = self.skill_registry.router_catalog()
             skill_name, goals = await self.agent.select_skill_and_plan(
-                state["issue_description"],
+                self.effective_issue_description(state),
                 skills_catalog,
             )
 
@@ -327,7 +357,7 @@ class AgentOrchestrator:
         if replan_trigger:
             # 重规划：保留已选 Skill，只重新生成目标
             goals = await self.agent.generate_hierarchical_plan(
-                state["issue_description"],
+                self.effective_issue_description(state),
                 existing_goals=existing_goals,
                 replan_reason=replan_trigger,
             )
@@ -387,7 +417,7 @@ class AgentOrchestrator:
 
         response = await self.agent.run_react(
             compressed_messages,
-            issue_description=state["issue_description"],
+            issue_description=self.effective_issue_description(state),
             repo_path=state.get("repo_path", ""),
             plan=plan_lines,
             reflexion_notes=state.get("reflexion_notes", ""),
@@ -454,199 +484,12 @@ class AgentOrchestrator:
     async def _node_reopen(self, state: AgentState):
         return {}
 
-    def _run_git_for_verification(self, repo_path: str, args: list[str], timeout: int = 60) -> str:
-        try:
-            result = subprocess.run(
-                ["git", *args],
-                cwd=str(Path(repo_path).resolve()),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-        except Exception:
-            return ""
-        if result.returncode != 0:
-            return ""
-        return result.stdout
-
-    def _verification_diff(self, repo_path: str) -> str:
-        parts: list[str] = []
-
-        try:
-            unstaged = _git_diff_impl(repo_path)
-        except Exception:
-            unstaged = ""
-        if unstaged.strip():
-            parts.append("未暂存 diff:\n" + unstaged)
-
-        try:
-            staged = _git_diff_impl(repo_path, staged=True)
-        except Exception:
-            staged = ""
-        if staged.strip():
-            parts.append("已暂存 diff:\n" + staged)
-
-        if parts:
-            return "\n\n".join(parts)
-
-        branch = self._run_git_for_verification(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
-        upstream = self._run_git_for_verification(
-            repo_path,
-            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
-        ).strip()
-        if not upstream and branch and branch != "HEAD":
-            candidate = f"origin/{branch}"
-            exists = self._run_git_for_verification(
-                repo_path,
-                ["rev-parse", "--verify", candidate],
-            ).strip()
-            if exists:
-                upstream = candidate
-
-        if upstream:
-            committed = self._run_git_for_verification(
-                repo_path,
-                ["diff", "--no-ext-diff", "--binary", f"{upstream}...HEAD"],
-            )
-            if not committed.strip():
-                committed = self._run_git_for_verification(
-                    repo_path,
-                    ["diff", "--no-ext-diff", "--binary", f"{upstream}..HEAD"],
-                )
-            if committed.strip():
-                return f"本地提交相对 {upstream} 的 diff:\n{committed}"
-
-        return ""
-
-    def _repo_contains_file(self, repo_path: str, relative_path: str) -> bool:
-        repo_root = Path(repo_path)
-        candidate = Path(relative_path)
-        if candidate.is_absolute():
-            return candidate.exists()
-
-        direct = (repo_root / candidate).exists()
-        if direct:
-            return True
-
-        if len(candidate.parts) == 1:
-            return any(path.is_file() for path in repo_root.rglob(candidate.name))
-        return False
-
-    def _has_successful_test_signal(self, state: AgentState) -> bool:
-        test_tool_names = {"run_pytest", "bash_terminal"}
-        test_success_markers = [" passed", "passed in", "ok",
-                                "tests passed", "build successful", "success"]
-        test_failure_markers = ["failed", "error", "failure"]
-
-        for message in reversed(self._tool_messages(state)):
-            tool_name = getattr(message, "name", None)
-            if tool_name not in test_tool_names:
-                continue
-            content = (getattr(message, "content", "") or "").lower()
-            if content.startswith("error:"):
-                return False
-            # bash_terminal 只有在内容看起来像测试输出时才算
-            if tool_name == "bash_terminal":
-                is_test_output = any(kw in content for kw in [
-                                     "test", "pytest", "jest", "mocha", "unittest", "go test", "cargo test"])
-                if not is_test_output:
-                    continue
-            if any(marker in content for marker in test_failure_markers):
-                return False
-            if any(marker in content for marker in test_success_markers):
-                return True
-            return False
-        return False
-
-    def _issue_requirements_satisfied(self, state: AgentState) -> tuple[bool | None, str]:
-
-        # Fast path: 测试通过信号
-        if self._has_successful_test_signal(state):
-            return True, "验证通过：检测到成功的测试信号。"
-
-        # 无快速通道命中，标记需要 LLM 验证
-        return None, ""
-
-    async def _node_verify(self, state: AgentState):
-        fast_result, fast_note = self._issue_requirements_satisfied(state)
-
-        if fast_result is True:
-            return {
-                "trajectory": [{"type": "verification", "content": fast_note}],
-                "status": "SUCCESS",
-            }
-        if fast_result is False:
-            return {
-                "trajectory": [{"type": "verification", "content": fast_note}],
-                "status": "VERIFYING",
-                "messages": [
-                    HumanMessage(
-                        content=(
-                            f"{fast_note}\n"
-                            "请继续修改或检查仓库，并优先使用工具获取证据；确认满足 issue 要求后再输出 TASK_SUCCESS。"
-                        )
-                    )
-                ],
-            }
-
-        # LLM 验证：需要有实际编辑才值得调用
-        has_edit = self._latest_successful_edit_index(state) is not None
-        if not has_edit:
-            note = "尚未检测到实际代码修改，请先完成修改再验证。"
-            return {
-                "trajectory": [{"type": "verification", "content": note}],
-                "status": "VERIFYING",
-                "messages": [HumanMessage(content=note)],
-            }
-
-        repo_path = state.get("repo_path", ".")
-        diff_output = self._verification_diff(repo_path)
-
-        if not diff_output.strip():
-            note = "未检测到工作区、暂存区或本地提交中的代码差异，无法验证修改。"
-            return {
-                "trajectory": [{"type": "verification", "content": note}],
-                "status": "VERIFYING",
-                "messages": [
-                    HumanMessage(
-                        content=(
-                            f"{note}\n"
-                            "请检查当前仓库状态；如果已经提交，请确认本地提交相对远端分支存在 diff。"
-                        )
-                    )
-                ],
-            }
-
-        verdict = await self.agent.verify_issue_resolved(
-            state.get("issue_description", ""), diff_output
-        )
-
-        if verdict.get("resolved"):
-            note = f"LLM 验证通过：{verdict.get('reason', '')}"
-            return {
-                "trajectory": [{"type": "verification", "content": note}],
-                "token_usage": self._accumulate_token_usage(state),
-                "status": "SUCCESS",
-            }
-
-        note = f"LLM 验证未通过：{verdict.get('reason', '')}。请继续修改。"
-        return {
-            "trajectory": [{"type": "verification", "content": note}],
-            "token_usage": self._accumulate_token_usage(state),
-            "status": "VERIFYING",
-            "messages": [
-                HumanMessage(
-                    content=f"{note}\n请根据以上反馈继续修改代码，确认满足 issue 要求后再输出 TASK_SUCCESS。"
-                )
-            ],
-        }
-
     def _route_after_planner(self, state: AgentState) -> str:
         goals = state.get("goals", [])
         current_goal_index = state.get("current_goal_index", 0)
 
         if current_goal_index >= len(goals):
-            return "verify"
+            return "finish_success"
 
         return "react"
 
@@ -657,11 +500,11 @@ class AgentOrchestrator:
         # Agent 主动给出的终止信号优先于 iteration 上限：
         # 即使刚好打满 max_iterations，只要它说"做完了/做不下去了"，也别强行判 FAILED。
         if "TASK_SUCCESS" in content:
-            return "verify"
+            return "finish_success"
         if "TASK_FAILED" in content:
             return "finish_failed"
 
-        if hasattr(last_msg, "tool_calls") and len(last_msg.tool_calls) > 0:
+        if self._last_message_has_tool_calls(state):
             return "tools"
 
         if state["iteration_count"] >= state.get("max_iterations", 15):
@@ -692,11 +535,6 @@ class AgentOrchestrator:
         if replan_trigger and plan_version < 3:
             return "h_planner"
         return "react"
-
-    def _route_verify(self, state: AgentState) -> str:
-        if state.get("status") == "SUCCESS":
-            return "verified"
-        return "retry"
 
     def inject_message(self, thread_id: str, content: str, replan: bool = False):
         """向正在运行的会话注入一条用户消息。
@@ -769,10 +607,11 @@ class AgentOrchestrator:
         current_count = current_state.get("iteration_count", 0)
         extra_iterations = max(int(extra_iterations or 0), 1)
         new_max = max(current_max + extra_iterations, current_count + extra_iterations)
+        resume_node = "react" if self._last_message_has_tool_calls(current_state) else "reopen"
         self.graph.update_state(
             config,
             {"status": "RUNNING", "max_iterations": new_max},
-            as_node="reopen",
+            as_node=resume_node,
         )
 
     def mark_failed_after_user_declines_extension(self, thread_id: str):

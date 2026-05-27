@@ -15,6 +15,10 @@ from langchain_core.messages import HumanMessage
 from .orchestrator import AgentOrchestrator
 
 
+def _text_output_kwargs() -> dict[str, str | bool]:
+    return {"text": True, "encoding": "utf-8", "errors": "replace"}
+
+
 @dataclass
 class Session:
     session_id: str
@@ -22,6 +26,7 @@ class Session:
     repo_path: str
     issue_ref: Optional[str] = None
     issue_description: Optional[str] = None
+    max_iterations: int = 25
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -63,7 +68,7 @@ class SessionManager:
         result = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
             capture_output=True,
-            text=True,
+            **_text_output_kwargs(),
             cwd=self.current_repo,
         )
         remote_url = result.stdout.strip()
@@ -137,7 +142,7 @@ class SessionManager:
 
         def run(cmd: list[str]) -> subprocess.CompletedProcess:
             return subprocess.run(
-                cmd, capture_output=True, text=True, cwd=str(destination)
+                cmd, capture_output=True, **_text_output_kwargs(), cwd=str(destination)
             )
 
         fetch = run(["git", "fetch", "--prune", "origin"])
@@ -188,7 +193,7 @@ class SessionManager:
                 result = subprocess.run(
                     ["git", "clone", repo_ref, str(destination)],
                     capture_output=True,
-                    text=True,
+                    **_text_output_kwargs(),
                     cwd=str(self.repos_root),
                 )
                 if result.returncode != 0:
@@ -293,7 +298,7 @@ class SessionManager:
             "issue_description": resolved_desc,
             "status": "INIT",
             "iteration_count": 0,
-            "max_iterations": 15,
+            "max_iterations": session.max_iterations,
             "goals": [],
             "current_goal_index": 0,
             "plan_version": 0,
@@ -314,6 +319,24 @@ class SessionManager:
         }
 
         self.orchestrator.graph.update_state(config, initial_state)
+
+    def set_max_iterations(self, max_iterations: int) -> int:
+        """设置当前会话的 ReAct 最大轮数，并同步到已初始化的 graph state。"""
+        session = self._current_session()
+        if not session:
+            raise ValueError("当前没有激活的会话，请先创建会话")
+        if max_iterations < 1:
+            raise ValueError("max_iterations 必须大于等于 1")
+
+        session.max_iterations = max_iterations
+        config = {"configurable": {"thread_id": session.thread_id}}
+        state_snapshot = self.orchestrator.graph.get_state(config)
+        if state_snapshot and state_snapshot.values:
+            self.orchestrator.graph.update_state(
+                config,
+                {"max_iterations": max_iterations},
+            )
+        return max_iterations
 
     def get_current_thread_id(self) -> str:
         """获取当前会话的 thread_id"""

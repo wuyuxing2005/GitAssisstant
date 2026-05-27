@@ -1,7 +1,9 @@
 import argparse
 import asyncio
 import os
+from pathlib import Path
 import shlex
+import subprocess
 import sys
 from  .agent import Agent,LLM_factory
 from  .orchestrator import AgentOrchestrator, MAX_ITERATIONS_REACHED_STATUS
@@ -94,7 +96,7 @@ class CLI:
             import json
             import re
             
-            issue_description = state.get("issue_description", "")
+            issue_description = self.orchestrator.effective_issue_description(state)
             modified_files = self._extract_modified_files_from_diff(diff)
             
             prompt = f"""你是 Git 提交助手。根据以下信息，决定应该提交哪些文件以及撰写 commit message。
@@ -106,7 +108,7 @@ class CLI:
         {chr(10).join(f'- {f}' for f in modified_files)}
 
         ## 完整的修改内容（diff）
-        {diff[:2000]}
+        {diff[:6000]}
 
         ## 请按照以下 JSON 格式输出（不要输出其他内容）：
         ```json
@@ -116,9 +118,11 @@ class CLI:
         }}
         ```
         ## 规则：
-        只提交与修复直接相关的文件，排除自动生成的测试文件（除非 issue 要求添加测试）
+        只提交与当前任务和用户追加要求直接相关的文件。
 
-        commit message 使用中文，格式：fix: 修复了XXX问题
+        新增的源码文件和测试文件如果属于本次需求，也必须列入 files 数组。
+
+        commit message 使用中文，格式：fix: 简要描述本次完整变更
 
         如果修改了多个文件，全部列入 files 数组
 
@@ -132,6 +136,18 @@ class CLI:
                 else:
                     plan = json.loads(content)
                 if "files" in plan and "message" in plan:
+                    allowed_files = set(modified_files)
+                    plan["files"] = [
+                        file_path
+                        for file_path in plan.get("files", [])
+                        if file_path in allowed_files and not self._is_temporary_file(file_path)
+                    ]
+                    if not plan["files"]:
+                        plan["files"] = [
+                            file_path
+                            for file_path in modified_files
+                            if not self._is_temporary_file(file_path)
+                        ]
                     return plan
                 else:
                     print(f"❌ Agent 输出的提交方案格式不正确:{plan}")
@@ -147,9 +163,66 @@ class CLI:
         for line in diff.splitlines():
             if line.startswith("diff --git a/"):
                 match = re.search(r'a/(.+?) b/', line)
-            if match:
-                files.append(match.group(1))
+                if match:
+                    file_path = match.group(1)
+                    if file_path not in files and not self._is_temporary_file(file_path):
+                        files.append(file_path)
         return files
+
+    def _is_temporary_file(self, file_path: str) -> bool:
+        path = Path(file_path)
+        ignored_parts = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+        return any(part in ignored_parts for part in path.parts) or path.suffix == ".pyc"
+
+    def _run_git_capture(self, repo_path: str, args: list[str]) -> str:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
+        return (result.stdout or "") + (result.stderr or "")
+
+    def _untracked_file_diff(self, repo_path: str, relative_path: str) -> str:
+        if self._is_temporary_file(relative_path):
+            return ""
+        full_path = Path(repo_path) / relative_path
+        if not full_path.is_file():
+            return ""
+        data = full_path.read_bytes()
+        if b"\0" in data:
+            return ""
+        text = data.decode("utf-8", errors="replace")
+        lines = "".join(f"+{line}" for line in text.splitlines(keepends=True))
+        if text and not text.endswith(("\n", "\r")):
+            lines += "\n\\ No newline at end of file\n"
+        return (
+            f"diff --git a/{relative_path} b/{relative_path}\n"
+            "new file mode 100644\n"
+            "index 0000000..0000000\n"
+            "--- /dev/null\n"
+            f"+++ b/{relative_path}\n"
+            "@@ -0,0 +1 @@\n"
+            f"{lines}"
+        )
+
+    def _working_tree_diff_for_commit(self, repo_path: str) -> str:
+        parts = [
+            self._run_git_capture(repo_path, ["diff", "--no-ext-diff", "--binary"]),
+            self._run_git_capture(repo_path, ["diff", "--no-ext-diff", "--binary", "--cached"]),
+        ]
+        status = self._run_git_capture(repo_path, ["status", "--porcelain", "--untracked-files=all"])
+        for line in status.splitlines():
+            if not line.startswith("?? "):
+                continue
+            relative_path = line[3:].strip().strip('"')
+            untracked_diff = self._untracked_file_diff(repo_path, relative_path)
+            if untracked_diff:
+                parts.append(untracked_diff)
+        return "\n".join(part for part in parts if part.strip())
     
     async def handle_command(self, cmd: str):
         parts = shlex.split(cmd)
@@ -208,6 +281,22 @@ class CLI:
                 thread_id = self.manager.get_current_thread_id()
                 await self.orchestrator.run_step(thread_id)
                 self._print_status(self.manager.get_current_state())
+
+            elif command in ("/max_iterations", "/max-iterations", "/maxiter"):
+                if len(parts) != 2 or not parts[1].isdigit():
+                    print("用法: /max_iterations <正整数>，例如 /max_iterations 40")
+                    return
+                max_iterations = int(parts[1])
+                state = self.manager.get_current_state()
+                current_count = int(state.get("iteration_count") or 0)
+                if current_count and max_iterations <= current_count:
+                    print(
+                        f"⚠️ 当前已执行 {current_count} 轮，"
+                        f"请设置大于 {current_count} 的 max_iterations。"
+                    )
+                    return
+                updated = self.manager.set_max_iterations(max_iterations)
+                print(f"🔁 当前会话 max_iterations 已设置为 {updated}")
 
             elif command == "/solve":
                 state = self.manager.get_current_state()
@@ -276,8 +365,8 @@ class CLI:
                             self.orchestrator.inject_message(thread_id, payload, replan=True)
                             print(f"📨 已注入并标记重规划: {payload}")
                         else:
-                            self.orchestrator.inject_message(thread_id, follow_up)
-                            print(f"📨 已注入追加要求: {follow_up}")
+                            self.orchestrator.inject_message(thread_id, follow_up, replan=True)
+                            print(f"📨 已注入追加要求并标记重规划: {follow_up}")
                         self.orchestrator.reopen_after_terminal(thread_id)
                 finally:
                     self.solve_active = False
@@ -286,9 +375,9 @@ class CLI:
                 # 求解完成后，展示 diff 并询问是否推送
                 if final_state.get("status") == "SUCCESS":
                     repo_path = final_state.get("repo_path")
-                    from .tools.tools import _git_diff_impl, _git_push_impl, _git_add_impl, _git_commit_impl
+                    from .tools.tools import _git_push_impl, _git_add_impl, _git_commit_impl
 
-                    diff = _git_diff_impl(repo_path)
+                    diff = self._working_tree_diff_for_commit(repo_path)
                     if diff.strip():
                         print("\n" + "="*60)
                         print("📝 Agent 完成的修改内容：")
@@ -345,6 +434,7 @@ class CLI:
                 /sessions                    列出所有会话
                 /issue <desc|#number>        设置问题，支持 GitHub Issue 编号或链接
                 /run                         单步执行
+                /max_iterations <n>          设置当前会话最大推理轮数，默认25
                 /solve [-v|--verbose]        自动解决问题（运行期间可随时插入对话）
                 /status                      查看状态
                 exit                         退出
