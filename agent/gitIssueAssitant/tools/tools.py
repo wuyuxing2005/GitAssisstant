@@ -49,11 +49,17 @@ def _repo_root() -> Path:
 
 
 def _resolve_workspace_path(raw_path: str) -> Path:
-    root = _repo_root()
-    path = Path(raw_path)
+    root = _repo_root().resolve()
+    cleaned_path = str(raw_path).strip().strip("\"'")
+    path = Path(cleaned_path)
+    if path.anchor and not path.drive and cleaned_path.startswith(("/", "\\")):
+        path = Path(cleaned_path.lstrip("/\\"))
     resolved = (root / path).resolve() if not path.is_absolute() else path.resolve()
     if root not in resolved.parents and resolved != root:
-        raise ValueError("Path must stay inside the current workspace.")
+        raise ValueError(
+            "Path must stay inside the current workspace. "
+            f"raw_path={raw_path!r}, repo_root={root}, resolved={resolved}"
+        )
     return resolved
 
 
@@ -346,12 +352,91 @@ def _git_status_impl(repo_path: str = ".") -> str:
     return _run_command(["git", "status", "--short"], cwd=resolved_repo_path, timeout=60)
 
 
+def _new_file_diff(repo_path: Path, relative_path: str, max_bytes: int = 200_000) -> str:
+    relative_path = relative_path.strip()
+    if not relative_path or _is_ignored_path(Path(relative_path)):
+        return ""
+
+    file_path = (repo_path / relative_path).resolve()
+    try:
+        file_path.relative_to(repo_path.resolve())
+    except ValueError:
+        return ""
+    if not file_path.is_file():
+        return ""
+
+    data = file_path.read_bytes()
+    if b"\0" in data:
+        return (
+            f"diff --git a/{relative_path} b/{relative_path}\n"
+            "new file mode 100644\n"
+            f"Binary files /dev/null and b/{relative_path} differ\n"
+        )
+    if len(data) > max_bytes:
+        return (
+            f"diff --git a/{relative_path} b/{relative_path}\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            f"+++ b/{relative_path}\n"
+            "@@\n"
+            f"+[new file omitted: {len(data)} bytes]\n"
+        )
+
+    text = data.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    body = "\n".join(f"+{line}" for line in lines)
+    trailing = "\n" if body else ""
+    return (
+        f"diff --git a/{relative_path} b/{relative_path}\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        f"+++ b/{relative_path}\n"
+        f"@@ -0,0 +1,{len(lines)} @@\n"
+        f"{body}{trailing}"
+    )
+
+
+def _build_untracked_diff(repo_path: Path) -> str:
+    result = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        capture_output=True,
+        **_text_output_kwargs(),
+        timeout=30,
+        cwd=str(repo_path),
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip() or "Unknown git error."
+        return f"Error listing untracked files.\n[STDERR]\n{stderr}"
+
+    parts = [
+        diff
+        for line in result.stdout.splitlines()
+        if (diff := _new_file_diff(repo_path, line))
+    ]
+    return "\n".join(parts)
+
+
 def _git_diff_impl(repo_path: str = ".", staged: bool = False) -> str:
     resolved_repo_path = _resolve_workspace_path(repo_path)
     command = ["git", "diff"]
     if staged:
         command.append("--staged")
-    return _run_command(command, cwd=resolved_repo_path, timeout=60)
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        **_text_output_kwargs(),
+        timeout=60,
+        cwd=str(resolved_repo_path),
+    )
+    if result.returncode != 0:
+        return _format_command_result(result)
+
+    parts = [result.stdout.strip()]
+    if not staged:
+        parts.append(_build_untracked_diff(resolved_repo_path).strip())
+
+    diff = "\n".join(part for part in parts if part)
+    return _truncate_output(diff or "Command finished with exit code 0.")
 
 def _git_add_impl(file_paths: list[str] | str = ".") -> str:
     """Add files to staging area."""

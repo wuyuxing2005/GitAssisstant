@@ -29,6 +29,7 @@ class AgentOrchestrator:
     ):
         self.agent = agent
         self.tools = tools
+        self.agent.set_tools(self.tools)
         self.memory = MemorySaver()
         self.compressor = compressor or ContextCompressor()
         self.skill_registry = skill_registry or SkillRegistry()
@@ -223,10 +224,12 @@ class AgentOrchestrator:
         if node_name == "h_planner":
             goals = payload.get("goals") or []
             plan_version = payload.get("plan_version", 1)
-            selected_skill = payload.get("selected_skill", "")
+            selected_skill = payload.get("selected_skill", "") or (state or {}).get("selected_skill", "")
             print(f"🧭 分层规划（v{plan_version}）")
             if selected_skill:
                 print(f"   🎯 选定 Skill: {selected_skill}")
+            else:
+                print("   🎯 未选择 Skill，使用通用流程")
             if goals and verbose:
                 for idx, goal in enumerate(goals, 1):
                     print(f"   目标{idx}: {goal.get('description', '')}")
@@ -334,14 +337,13 @@ class AgentOrchestrator:
                 {"type": "plan", "content": json.dumps(
                     goals, ensure_ascii=False)}
             ]
-            if skill:
-                trajectory_entries.insert(
-                    0,
-                    {
-                        "type": "skill_select",
-                        "content": f"selected_skill={skill.name}",
-                    },
-                )
+            trajectory_entries.insert(
+                0,
+                {
+                    "type": "skill_select",
+                    "content": f"selected_skill={skill.name if skill else 'none'}",
+                },
+            )
 
             return {
                 **skill_state,

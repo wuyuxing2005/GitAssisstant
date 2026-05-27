@@ -36,8 +36,32 @@ def _validate_llm_settings(model_name: str, base_url: str | None) -> None:
 class Agent:
     def __init__(self, llm: ChatOpenAI, tools=AGENT_TOOLS):
         self.llm = llm
-        self.llm_with_tools = llm.bind_tools(tools)
+        self.tools = list(tools)
+        self._llm_with_tools_cache = {}
+        self.llm_with_tools = self._llm_for_tools()
         self.last_token_usage: dict[str, int] = {}
+
+    def set_tools(self, tools: list) -> None:
+        """Set the base tools this agent may expose to the model."""
+        self.tools = list(tools)
+        self._llm_with_tools_cache = {}
+        self.llm_with_tools = self._llm_for_tools()
+
+    def _tool_name(self, tool) -> str:
+        return str(getattr(tool, "name", "") or getattr(tool, "__name__", ""))
+
+    def _tools_for_allowed(self, allowed_tools: list[str] | None = None) -> list:
+        if not allowed_tools:
+            return self.tools
+        allowed = {name.strip() for name in allowed_tools if str(name).strip()}
+        return [tool for tool in self.tools if self._tool_name(tool) in allowed]
+
+    def _llm_for_tools(self, allowed_tools: list[str] | None = None):
+        selected_tools = self._tools_for_allowed(allowed_tools)
+        cache_key = tuple(self._tool_name(tool) for tool in selected_tools)
+        if cache_key not in self._llm_with_tools_cache:
+            self._llm_with_tools_cache[cache_key] = self.llm.bind_tools(selected_tools)
+        return self._llm_with_tools_cache[cache_key]
 
     def _extract_usage(self, response) -> dict[str, int]:
         """从 LLM 响应中提取 token 用量并缓存到 last_token_usage。"""
@@ -58,7 +82,7 @@ class Agent:
         skills_catalog: str,
     ) -> str:
         return (
-            "你既是 Skill 路由器，又是修复规划器。\n\n"
+            "你负责 Skill 路由和是修复规划。\n\n"
             "可用 Skill：\n"
             f"{skills_catalog}\n\n"
             "请根据 Issue 选择最匹配的 Skill。如果都不合适或都不能显著优于通用流程，"
@@ -287,7 +311,8 @@ class Agent:
                 skill_allowed_tools=skill_allowed_tools,
             )
         )
-        response = await self.llm_with_tools.ainvoke([sys_prompt] + messages)
+        llm_with_tools = self._llm_for_tools(skill_allowed_tools)
+        response = await llm_with_tools.ainvoke([sys_prompt] + messages)
         self._extract_usage(response)
         return response
 

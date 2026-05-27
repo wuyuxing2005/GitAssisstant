@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+from contextlib import suppress
 import os
 from pathlib import Path
 import shlex
@@ -10,6 +11,8 @@ from  .orchestrator import AgentOrchestrator, MAX_ITERATIONS_REACHED_STATUS
 from  .session_manager import SessionManager
 from  .skills import SkillRegistry
 from dotenv import load_dotenv
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
 
 def _permission_mode(args: argparse.Namespace) -> str:
     return "default"
@@ -17,15 +20,33 @@ class CLI:
     def __init__(self, orchestrator:AgentOrchestrator, manager:SessionManager):
         self.orchestrator:AgentOrchestrator = orchestrator
         self.manager:SessionManager = manager
-        # 后台 stdin reader 会把每行写入这里；REPL 与 /solve 都从此读取。
+        # /solve 自动运行期间，后台注入 reader 会把用户插话写入这里。
         self.input_queue: asyncio.Queue[str] = asyncio.Queue()
         self.solve_active: bool = False
+        self.prompt_session: PromptSession | None = None
+        self.injection_reader_task: asyncio.Task | None = None
 
     async def _read_line(self, prompt: str = "") -> str:
-        """异步读取一行用户输入（来自后台 stdin reader）。"""
-        if prompt:
-            print(prompt, end="", flush=True)
-        return (await self.input_queue.get()).strip()
+        """Read one interactive line through the shared PromptSession."""
+        if self.prompt_session is None:
+            raise RuntimeError("Prompt session has not been initialized.")
+        return (await self.prompt_session.prompt_async(prompt)).strip()
+
+    def _start_injection_reader(self):
+        if self.prompt_session is None:
+            raise RuntimeError("Prompt session has not been initialized.")
+        if self.injection_reader_task is None or self.injection_reader_task.done():
+            self.injection_reader_task = asyncio.create_task(
+                _prompt_toolkit_reader(self, self.prompt_session)
+            )
+
+    async def _stop_injection_reader(self):
+        if self.injection_reader_task is None:
+            return
+        self.injection_reader_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await self.injection_reader_task
+        self.injection_reader_task = None
 
     async def _drain_injections(self, thread_id: str) -> int:
         """把队列中累积的用户输入注入到正在运行的 agent。返回本次注入的条数。
@@ -77,7 +98,7 @@ class CLI:
             f"{iteration_count}/{max_iterations}。"
         )
         print("是否延长对话继续？回车/yes 延长 5 轮；输入数字可自定义延长轮数；输入 n 结束。")
-        answer = await self._read_line("[extend?] > ")
+        answer = await self._read_line("[延长?] > ")
         while(True):
             normalized = answer.strip().lower()
             if normalized in ("", "y", "yes", "继续", "是"):
@@ -87,8 +108,7 @@ class CLI:
             if normalized.isdigit():
                 return max(int(normalized), 1)
             print(f"⚠️ 未识别的输入: {answer}")
-            answer = await self._read_line("[extend?] > ")
-
+            answer = await self._read_line("[延长?] > ")
 
     async def _get_commit_plan_from_agent(self, state: dict, diff: str) -> dict | None:
             """让 Agent 根据修改内容和 issue 决定提交方案"""
@@ -259,14 +279,35 @@ class CLI:
 
             # ===== 列出会话 =====
             elif command == "/sessions":
-                sessions = self.manager.list_sessions()
-                if not sessions:
-                    print("暂无会话，使用 /repo 创建。")
+                if len(parts) > 2:
+                    print("用法: /sessions [session_id]")
+                    return
+                if len(parts) == 2:
+                    session = self.manager.get_session(parts[1])
+                    state = self.manager.get_session_state(parts[1])
+                    marker = "是" if session.session_id == self.manager.current_session_id else "否"
+                    print(f"会话: {session.session_id}")
+                    print(f"线程: {session.thread_id}")
+                    print(f"当前: {marker}")
+                    print(f"仓库: {session.repo_path}")
+                    print(f"Issue: {session.issue_ref or '未设置'}")
+                    print(f"创建时间: {session.created_at}")
+                    print(f"状态: {state.get('status', 'INIT')}")
+                    print(
+                        f"迭代: {state.get('iteration_count', 0)}/"
+                        f"{state.get('max_iterations', session.max_iterations)}"
+                    )
+                    if session.issue_description:
+                        print(f"Issue 描述: {session.issue_description}")
                 else:
-                    current_id = self.manager.current_session_id
-                    for s in sessions:
-                        marker = " ← 当前" if s.session_id == current_id else ""
-                        print(f"  [{s.session_id}] repo={s.repo_path} issue={s.issue_ref or '未设置'}{marker}")
+                    sessions = self.manager.list_sessions()
+                    if not sessions:
+                        print("暂无会话，使用 /repo 创建。")
+                    else:
+                        current_id = self.manager.current_session_id
+                        for s in sessions:
+                            marker = " ← 当前" if s.session_id == current_id else ""
+                            print(f"  [{s.session_id}] repo={s.repo_path} issue={s.issue_ref or '未设置'}{marker}")
 
             elif command == "/issue":
                 if len(parts) < 2:
@@ -315,10 +356,14 @@ class CLI:
                     while True:
                         # 记录最后一次 drain 的注入数，用于判断终态时是否有「来不及处理」的输入
                         last_drain = 0
-                        async for _step in self.orchestrator.run_auto_interactive(
-                            thread_id, verbose=verbose
-                        ):
-                            last_drain = await self._drain_injections(thread_id)
+                        self._start_injection_reader()
+                        try:
+                            async for _step in self.orchestrator.run_auto_interactive(
+                                thread_id, verbose=verbose
+                            ):
+                                last_drain = await self._drain_injections(thread_id)
+                        finally:
+                            await self._stop_injection_reader()
 
                         # generator 退出后再 drain 一次，捕获最后一个 yield 之后到达的输入
                         last_drain += await self._drain_injections(thread_id)
@@ -355,7 +400,7 @@ class CLI:
                             f"\n💬 Agent 已结束 (status={status})。"
                             f"继续输入会触发新一轮；输入 /done（或 done / exit / quit）进入提交流程。"
                         )
-                        follow_up = await self._read_line("[solve+] > ")
+                        follow_up = await self._read_line("[还有问题吗] > ")
                         follow_up_norm = follow_up.strip().lower()
                         if follow_up_norm in ("", "/done", "done", "/exit", "exit", "/quit", "quit", "q"):
                             break
@@ -370,6 +415,7 @@ class CLI:
                         self.orchestrator.reopen_after_terminal(thread_id)
                 finally:
                     self.solve_active = False
+                    await self._stop_injection_reader()
 
                 final_state = self.manager.get_current_state()
                 # 求解完成后，展示 diff 并询问是否推送
@@ -431,7 +477,7 @@ class CLI:
                 print("""
                 /repo <url|path> [dir] [-f]  创建新会话（关联仓库）
                 /switch <session_id>         切换到已有会话
-                /sessions                    列出所有会话
+                /sessions [session_id]       列出所有会话，或查看指定会话详情
                 /issue <desc|#number>        设置问题，支持 GitHub Issue 编号或链接
                 /run                         单步执行
                 /max_iterations <n>          设置当前会话最大推理轮数，默认25
@@ -457,55 +503,44 @@ class CLI:
         print(response)
 
 
-async def _stdin_reader(cli: CLI):
-    """后台从 stdin 持续读行并写入队列。
-
-    使用 asyncio.to_thread 避免阻塞事件循环。线程在进程退出时随之结束。
-    """
+async def _prompt_toolkit_reader(cli: CLI, session):
     while True:
         try:
-            line = await asyncio.to_thread(sys.stdin.readline)
-        except Exception:
-            return
-        if not line:
-            # stdin 关闭
+            line = await session.prompt_async("\n[插入对话] > ")
+        except (EOFError, KeyboardInterrupt):
+            await cli.input_queue.put("exit")
             return
         await cli.input_queue.put(line.rstrip("\r\n"))
 
 
+async def _repl_loop(cli: CLI):
+    while True:
+        try:
+            user_input = await cli._read_line("\n> ")
+        except (EOFError, KeyboardInterrupt):
+            print("\nBye.")
+            break
+
+        if not user_input:
+            continue
+
+        if user_input.lower() in ["exit", "quit"]:
+            print("Bye.")
+            break
+
+        if user_input.startswith("/"):
+            await cli.handle_command(user_input)
+            continue
+
+        await cli.handle_input(user_input)
+
+
 async def run_repl(cli:CLI):
-    print("🚀 Agent CLI 启动！输入 /help 查看命令")
-    #启动异步读取
-    reader_task = asyncio.create_task(_stdin_reader(cli))
-    
-    try:
-        while True:
-            # 注意：/solve 运行期间，用户输入会被 _drain_injections 抢走；
-            # 这里只在没有 /solve 时拿到普通命令。
-            print("\n> ", end="", flush=True)
-            try:
-                user_input = (await cli.input_queue.get()).strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\n👋 拜拜！")
-                break
-
-            if not user_input:
-                continue
-
-            # ===== 退出 =====
-            if user_input.lower() in ["exit", "quit"]:
-                print("👋 拜拜！")
-                break
-
-            # ===== 命令 =====
-            if user_input.startswith("/"):
-                await cli.handle_command(user_input)
-                continue
-
-            # ===== 测试输入 =====
-            await cli.handle_input(user_input)
-    finally:
-        reader_task.cancel()
+    print("Agent CLI started. Type /help for commands.")
+    session = PromptSession()
+    cli.prompt_session = session
+    with patch_stdout():
+        await _repl_loop(cli)
 
 
 def main():

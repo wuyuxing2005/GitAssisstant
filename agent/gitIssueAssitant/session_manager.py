@@ -276,6 +276,19 @@ class SessionManager:
             return [s for s in self.sessions.values() if s.repo_path == repo_path]
         return list(self.sessions.values())
 
+    def get_session(self, session_id: str) -> Session:
+        """获取指定会话。"""
+        if session_id not in self.sessions:
+            raise ValueError(f"会话不存在: {session_id}")
+        return self.sessions[session_id]
+
+    def get_session_state(self, session_id: str) -> dict:
+        """获取指定会话的实时状态数据，不切换当前会话。"""
+        session = self.get_session(session_id)
+        config = {"configurable": {"thread_id": session.thread_id}}
+        state_snapshot = self.orchestrator.graph.get_state(config)
+        return state_snapshot.values if state_snapshot else {}
+
     def _switch_to(self, session: Session):
         self.current_session_id = session.session_id
         os.environ["GIT_ISSUE_ASSISTANT_REPO_ROOT"] = session.repo_path
