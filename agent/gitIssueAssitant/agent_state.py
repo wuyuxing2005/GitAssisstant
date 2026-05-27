@@ -10,7 +10,7 @@ class AgentState(TypedDict):
     issue_description: str
 
     # 核心状态
-    status: str  # INIT, PLANNING, RUNNING, REFLECTING, REPLANNING, SUCCESS, FAILED
+    status: str  # INIT, PLANNING, RUNNING, REFLECTING, REPLANNING, SUCCESS, FAILED, MAX_ITERATIONS_REACHED
     iteration_count: int
     max_iterations: int
 

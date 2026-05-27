@@ -15,6 +15,10 @@ from langchain_core.messages import HumanMessage
 from .orchestrator import AgentOrchestrator
 
 
+def _text_output_kwargs() -> dict[str, str | bool]:
+    return {"text": True, "encoding": "utf-8", "errors": "replace"}
+
+
 @dataclass
 class Session:
     session_id: str
@@ -22,6 +26,7 @@ class Session:
     repo_path: str
     issue_ref: Optional[str] = None
     issue_description: Optional[str] = None
+    max_iterations: int = 25
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -63,7 +68,7 @@ class SessionManager:
         result = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
             capture_output=True,
-            text=True,
+            **_text_output_kwargs(),
             cwd=self.current_repo,
         )
         remote_url = result.stdout.strip()
@@ -128,6 +133,57 @@ class SessionManager:
         owner, repo, issue_number = issue_info
         return self._fetch_github_issue(owner, repo, issue_number)
 
+    def _refresh_existing_clone(self, destination: Path) -> None:
+        """复用已有 clone 时，把工作区强制重置到 origin 默认分支的最新状态。
+
+        防止上次会话残留的本地 commit / reset / 未跟踪文件影响新会话的 verify 逻辑
+        （例如出现工作区与 HEAD 不一致、git diff 为空但 issue 实际未修等情况）。
+        """
+
+        def run(cmd: list[str]) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                cmd, capture_output=True, **_text_output_kwargs(), cwd=str(destination)
+            )
+
+        fetch = run(["git", "fetch", "--prune", "origin"])
+        if fetch.returncode != 0:
+            print(
+                f"⚠️ git fetch 失败，跳过重置，沿用本地状态: "
+                f"{(fetch.stderr or fetch.stdout).strip()}"
+            )
+            return
+
+        default_branch = ""
+        head_ref = run(["git", "symbolic-ref", "refs/remotes/origin/HEAD"])
+        if head_ref.returncode == 0:
+            default_branch = head_ref.stdout.strip().rsplit("/", 1)[-1]
+        else:
+            run(["git", "remote", "set-head", "origin", "--auto"])
+            head_ref = run(["git", "symbolic-ref", "refs/remotes/origin/HEAD"])
+            if head_ref.returncode == 0:
+                default_branch = head_ref.stdout.strip().rsplit("/", 1)[-1]
+
+        if not default_branch:
+            for candidate in ("main", "master"):
+                check = run(["git", "rev-parse", "--verify", f"origin/{candidate}"])
+                if check.returncode == 0:
+                    default_branch = candidate
+                    break
+
+        if not default_branch:
+            print("⚠️ 无法判定 origin 默认分支，跳过重置。")
+            return
+
+        run(["git", "checkout", default_branch])
+        reset = run(["git", "reset", "--hard", f"origin/{default_branch}"])
+        run(["git", "clean", "-fd"])
+        if reset.returncode == 0:
+            print(
+                f"🔄 复用已有 clone，已重置到 origin/{default_branch} 并清理工作区。"
+            )
+        else:
+            print(f"⚠️ 重置失败: {(reset.stderr or reset.stdout).strip()}")
+
     def _resolve_repo_path(self, repo_ref: str, target_dir: str | None = None) -> Path:
         if self._is_git_url(repo_ref):
             repo_name = target_dir or self._sanitize_repo_name(repo_ref)
@@ -137,12 +193,14 @@ class SessionManager:
                 result = subprocess.run(
                     ["git", "clone", repo_ref, str(destination)],
                     capture_output=True,
-                    text=True,
+                    **_text_output_kwargs(),
                     cwd=str(self.repos_root),
                 )
                 if result.returncode != 0:
                     error = result.stderr.strip() or result.stdout.strip() or "git clone 失败"
                     raise ValueError(error)
+            else:
+                self._refresh_existing_clone(destination)
             return destination
 
         candidate = Path(repo_ref)
@@ -218,6 +276,19 @@ class SessionManager:
             return [s for s in self.sessions.values() if s.repo_path == repo_path]
         return list(self.sessions.values())
 
+    def get_session(self, session_id: str) -> Session:
+        """获取指定会话。"""
+        if session_id not in self.sessions:
+            raise ValueError(f"会话不存在: {session_id}")
+        return self.sessions[session_id]
+
+    def get_session_state(self, session_id: str) -> dict:
+        """获取指定会话的实时状态数据，不切换当前会话。"""
+        session = self.get_session(session_id)
+        config = {"configurable": {"thread_id": session.thread_id}}
+        state_snapshot = self.orchestrator.graph.get_state(config)
+        return state_snapshot.values if state_snapshot else {}
+
     def _switch_to(self, session: Session):
         self.current_session_id = session.session_id
         os.environ["GIT_ISSUE_ASSISTANT_REPO_ROOT"] = session.repo_path
@@ -240,7 +311,7 @@ class SessionManager:
             "issue_description": resolved_desc,
             "status": "INIT",
             "iteration_count": 0,
-            "max_iterations": 15,
+            "max_iterations": session.max_iterations,
             "goals": [],
             "current_goal_index": 0,
             "plan_version": 0,
@@ -261,6 +332,24 @@ class SessionManager:
         }
 
         self.orchestrator.graph.update_state(config, initial_state)
+
+    def set_max_iterations(self, max_iterations: int) -> int:
+        """设置当前会话的 ReAct 最大轮数，并同步到已初始化的 graph state。"""
+        session = self._current_session()
+        if not session:
+            raise ValueError("当前没有激活的会话，请先创建会话")
+        if max_iterations < 1:
+            raise ValueError("max_iterations 必须大于等于 1")
+
+        session.max_iterations = max_iterations
+        config = {"configurable": {"thread_id": session.thread_id}}
+        state_snapshot = self.orchestrator.graph.get_state(config)
+        if state_snapshot and state_snapshot.values:
+            self.orchestrator.graph.update_state(
+                config,
+                {"max_iterations": max_iterations},
+            )
+        return max_iterations
 
     def get_current_thread_id(self) -> str:
         """获取当前会话的 thread_id"""

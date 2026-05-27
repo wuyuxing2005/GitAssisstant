@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
-import { fetchTaskDiff, pushTaskChanges } from "../services/api";
-import type { EvaluationTask, GitDiffResponse, GitPushResponse, MetricScore, RunMode } from "../types/task";
+import { createTaskPullRequest, fetchTaskDiff, pushTaskChanges, taskReportDownloadUrl } from "../services/api";
+import type {
+  EvaluationTask,
+  GitDiffResponse,
+  GitPullRequestResponse,
+  GitPushResponse,
+  MetricScore,
+  RunMode
+} from "../types/task";
 import { formatDisplayTime } from "../utils/time";
 
 interface TaskDetailPageProps {
@@ -23,6 +30,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: T
   const [gitMessage, setGitMessage] = useState<string | null>(null);
   const [gitError, setGitError] = useState<string | null>(null);
   const [pushResult, setPushResult] = useState<GitPushResponse | null>(null);
+  const [pullRequestResult, setPullRequestResult] = useState<GitPullRequestResponse | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
 
   useEffect(() => {
@@ -31,6 +39,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: T
     setGitMessage(null);
     setGitError(null);
     setPushResult(null);
+    setPullRequestResult(null);
     setCommitMessage(task ? `fix: ${task.name}` : "");
   }, [task?.id]);
 
@@ -97,6 +106,30 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: T
       await onTaskChanged?.();
     } catch (error) {
       setGitError(error instanceof Error ? error.message : "Git push 失败");
+    } finally {
+      setGitActionBusy(false);
+    }
+  }
+
+  async function handleCreatePullRequest() {
+    if (!task || !diffInfo?.has_changes) {
+      return;
+    }
+    try {
+      setGitActionBusy(true);
+      setGitError(null);
+      setGitMessage(null);
+      const result = await createTaskPullRequest(task.id, {
+        commit_message: commitMessage.trim() || `fix: ${task.name}`,
+        title: task.result?.fix_report?.suggested_pr_title || `fix: ${task.name}`,
+        body: task.result?.fix_report?.suggested_pr_description || task.result?.fix_report?.markdown || ""
+      });
+      setPullRequestResult(result);
+      setGitMessage(result.pr_url ? `已创建 PR：${result.pr_url}` : "已创建 PR");
+      await handleRefreshDiff();
+      await onTaskChanged?.();
+    } catch (error) {
+      setGitError(error instanceof Error ? error.message : "创建 PR 失败");
     } finally {
       setGitActionBusy(false);
     }
@@ -238,6 +271,25 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: T
             </button>
           </div>
 
+          {result?.fix_report ? (
+            <div className="git-review-meta">
+              <div className="section-header compact">
+                <div>
+                  <h3>修复报告</h3>
+                  <p>{result.fix_report.file_name}</p>
+                </div>
+                <a
+                  className="secondary-button"
+                  href={taskReportDownloadUrl(task.id)}
+                  download={result.fix_report.file_name}
+                >
+                  下载报告
+                </a>
+              </div>
+              <pre className="git-output-viewer">{result.fix_report.markdown}</pre>
+            </div>
+          ) : null}
+
           {gitError ? <p className="error-copy">{gitError}</p> : null}
           {gitMessage ? <p className="success-copy">{gitMessage}</p> : null}
 
@@ -280,9 +332,25 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: T
             >
               确认提交并 Push
             </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleCreatePullRequest()}
+              disabled={gitActionBusy || diffLoading || !diffInfo?.has_changes}
+            >
+              创建 PR
+            </button>
           </div>
 
           {pushResult?.output ? <pre className="git-output-viewer">{pushResult.output}</pre> : null}
+          {pullRequestResult?.output ? <pre className="git-output-viewer">{pullRequestResult.output}</pre> : null}
+          {pullRequestResult?.pr_url ? (
+            <p className="success-copy">
+              <a href={pullRequestResult.pr_url} target="_blank" rel="noreferrer">
+                打开 PR
+              </a>
+            </p>
+          ) : null}
         </section>
       ) : null}
 

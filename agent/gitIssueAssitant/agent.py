@@ -36,8 +36,32 @@ def _validate_llm_settings(model_name: str, base_url: str | None) -> None:
 class Agent:
     def __init__(self, llm: ChatOpenAI, tools=AGENT_TOOLS):
         self.llm = llm
-        self.llm_with_tools = llm.bind_tools(tools)
+        self.tools = list(tools)
+        self._llm_with_tools_cache = {}
+        self.llm_with_tools = self._llm_for_tools()
         self.last_token_usage: dict[str, int] = {}
+
+    def set_tools(self, tools: list) -> None:
+        """Set the base tools this agent may expose to the model."""
+        self.tools = list(tools)
+        self._llm_with_tools_cache = {}
+        self.llm_with_tools = self._llm_for_tools()
+
+    def _tool_name(self, tool) -> str:
+        return str(getattr(tool, "name", "") or getattr(tool, "__name__", ""))
+
+    def _tools_for_allowed(self, allowed_tools: list[str] | None = None) -> list:
+        if not allowed_tools:
+            return self.tools
+        allowed = {name.strip() for name in allowed_tools if str(name).strip()}
+        return [tool for tool in self.tools if self._tool_name(tool) in allowed]
+
+    def _llm_for_tools(self, allowed_tools: list[str] | None = None):
+        selected_tools = self._tools_for_allowed(allowed_tools)
+        cache_key = tuple(self._tool_name(tool) for tool in selected_tools)
+        if cache_key not in self._llm_with_tools_cache:
+            self._llm_with_tools_cache[cache_key] = self.llm.bind_tools(selected_tools)
+        return self._llm_with_tools_cache[cache_key]
 
     def _extract_usage(self, response) -> dict[str, int]:
         """从 LLM 响应中提取 token 用量并缓存到 last_token_usage。"""
@@ -58,7 +82,7 @@ class Agent:
         skills_catalog: str,
     ) -> str:
         return (
-            "你既是 Skill 路由器，又是修复规划器。\n\n"
+            "你负责 Skill 路由和是修复规划。\n\n"
             "可用 Skill：\n"
             f"{skills_catalog}\n\n"
             "请根据 Issue 选择最匹配的 Skill。如果都不合适或都不能显著优于通用流程，"
@@ -248,6 +272,9 @@ class Agent:
             "3. 优先使用高信息增益工具：read_file、search_code、list_files、run_pytest\n"
             "4. 修改代码后立即验证（读取修改后的文件或运行测试）\n"
             "5. 调用工具前用一句话说明假设和预期\n\n"
+            "Git 约束：\n"
+            "- 不要执行 git add / git commit / git push\n"
+            "- 修复完成后保留工作区或暂存区 diff，提交和推送由外层流程处理\n\n"
             "终止标记：\n"
             "- 修复完成且已验证 → 输出 TASK_SUCCESS\n"
             "- 确认无法继续推进 → 输出 TASK_FAILED\n"
@@ -284,7 +311,8 @@ class Agent:
                 skill_allowed_tools=skill_allowed_tools,
             )
         )
-        response = await self.llm_with_tools.ainvoke([sys_prompt] + messages)
+        llm_with_tools = self._llm_for_tools(skill_allowed_tools)
+        response = await llm_with_tools.ainvoke([sys_prompt] + messages)
         self._extract_usage(response)
         return response
 
@@ -360,8 +388,8 @@ class Agent:
         return await self.llm.ainvoke(user_input)
 
 
-def LLM_factory():
-    model_name = _get_env("MODEL_NAME") or "hunyuan-lite"
+def LLM_factory(model_name: str | None = None):
+    model_name = model_name or _get_env("MODEL_NAME") or "hunyuan-lite"
     api_key = _get_env("OPENAI_API_KEY")
     base_url = _get_env("OPENAI_BASE_URL")
 

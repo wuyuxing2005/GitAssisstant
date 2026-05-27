@@ -6,6 +6,8 @@ import type {
   EvaluationMetadataResponse,
   EvaluationTask,
   GitDiffResponse,
+  GitPullRequestRequest,
+  GitPullRequestResponse,
   GitPushRequest,
   GitPushResponse,
   ModelListResponse,
@@ -84,6 +86,20 @@ export async function pushTaskChanges(
     method: "POST",
     body: JSON.stringify(payload)
   });
+}
+
+export async function createTaskPullRequest(
+  taskId: string,
+  payload: GitPullRequestRequest
+): Promise<GitPullRequestResponse> {
+  return request<GitPullRequestResponse>(`/tasks/${taskId}/pull-request`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function taskReportDownloadUrl(taskId: string): string {
+  return `${API_ROOT}/tasks/${taskId}/report`;
 }
 
 export async function fetchMetadata(): Promise<EvaluationMetadataResponse> {

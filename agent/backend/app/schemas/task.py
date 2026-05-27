@@ -80,6 +80,14 @@ class RuntimeSnapshot(BaseModel):
     last_message: str = ""
 
 
+class FixReport(BaseModel):
+    file_name: str
+    markdown: str
+    suggested_pr_title: str = ""
+    suggested_pr_description: str = ""
+    created_at: datetime
+
+
 class EvaluationResult(BaseModel):
     task_id: str
     summary: str = ""
@@ -92,6 +100,7 @@ class EvaluationResult(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_message: str | None = None
+    fix_report: FixReport | None = None
 
 
 class EvaluationTaskResponse(EvaluationTaskBase):
@@ -121,6 +130,25 @@ class GitPushResponse(BaseModel):
     repo_path: str
     commit_hash: str | None = None
     pushed: bool = False
+    output: str = ""
+
+
+class GitPullRequestRequest(BaseModel):
+    commit_message: str | None = None
+    title: str | None = None
+    body: str | None = None
+    remote: str = "origin"
+    branch: str | None = None
+    base_branch: str | None = None
+
+
+class GitPullRequestResponse(BaseModel):
+    task_id: str
+    repo_path: str
+    branch: str
+    base_branch: str
+    commit_hash: str | None = None
+    pr_url: str | None = None
     output: str = ""
 
 
