@@ -310,7 +310,6 @@ class AgentOrchestrator:
         existing_goals = state.get("goals", [])
         replan_trigger = state.get("replan_trigger", "")
         plan_version = state.get("plan_version", 0)
-        selected_skill = state.get("selected_skill", "")
 
         if not existing_goals:
             # 首次规划：同时做 Skill 选择 + 目标生成

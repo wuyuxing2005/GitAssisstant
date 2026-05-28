@@ -11,7 +11,6 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
