@@ -9,6 +9,7 @@ export interface EvaluationConfig {
   model_name?: string | null;
   max_iterations: number;
   run_mode: RunMode;
+  enabled_skills?: string[] | null;
 }
 
 export interface ToolCallRecord {
@@ -29,6 +30,26 @@ export interface TimelineEntry {
 export interface ToolUsageItem {
   name: string;
   count: number;
+}
+
+export type TaskMessageRole = "user" | "assistant" | "system";
+
+export interface TaskMessage {
+  id: string;
+  role: TaskMessageRole;
+  content: string;
+  created_at: string;
+  replan: boolean;
+}
+
+export interface TaskMessageCreate {
+  content: string;
+  replan: boolean;
+}
+
+export interface TaskMessageList {
+  task_id: string;
+  messages: TaskMessage[];
 }
 
 export interface MetricScore {
@@ -59,6 +80,7 @@ export interface EvaluationResult {
   logs_preview: string[];
   tool_usage: ToolUsageItem[];
   timeline: TimelineEntry[];
+  messages: TaskMessage[];
   current_state?: RuntimeSnapshot | null;
   started_at?: string | null;
   finished_at?: string | null;
@@ -134,9 +156,69 @@ export interface ComparisonItem {
   scores: MetricScore[];
 }
 
+export interface ComparisonAggregate {
+  success_rate: number;
+  failed_count: number;
+  average_duration_seconds: number;
+  average_tool_call_count: number;
+  average_test_run_count: number;
+}
+
 export interface ComparisonResponse {
   compared_metrics: string[];
   items: ComparisonItem[];
+  aggregate: ComparisonAggregate;
+}
+
+export interface BadCaseRecord {
+  id: string;
+  source_task_id: string;
+  task_name: string;
+  issue_input: string;
+  status: TaskStatus;
+  tags: string[];
+  note: string;
+  timeline: TimelineEntry[];
+  metrics: MetricScore[];
+  diff_summary: string;
+  test_output_summary: string;
+  summary: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BadCaseListResponse {
+  items: BadCaseRecord[];
+  default_tags: string[];
+}
+
+export interface BadCaseCreate {
+  task_id: string;
+  tags: string[];
+  note: string;
+}
+
+export interface BadCaseUpdate {
+  tags: string[];
+  note: string;
+}
+
+export interface BadCaseRerunRequest {
+  name?: string | null;
+  auto_start: boolean;
+}
+
+export interface SkillRecord {
+  name: string;
+  description: string;
+  allowed_tools: string[];
+  priority_tools: string[];
+  body: string;
+  enabled: boolean;
+}
+
+export interface SkillListResponse {
+  items: SkillRecord[];
 }
 
 export interface ToolDescriptor {

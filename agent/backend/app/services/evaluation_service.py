@@ -11,11 +11,13 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from app.models.task import EvaluationTaskRecord
 from app.schemas.task import (
+    ComparisonAggregate,
     ComparisonItem,
     ComparisonResponse,
     EvaluationResult,
@@ -27,11 +29,15 @@ from app.schemas.task import (
     GitPushResponse,
     MetricScore,
     RuntimeSnapshot,
+    TaskMessage,
+    TaskMessageCreate,
+    TaskMessageList,
     TaskRunRequest,
     TimelineEntry,
     ToolCallRecord,
     ToolUsageItem,
 )
+from app.services.skill_service import skill_service
 from app.services.task_service import task_service
 from app.utils.time import now_local
 
@@ -262,6 +268,14 @@ class EvaluationService:
         return EvaluationResult(
             task_id=task.id,
             summary="任务已创建，等待执行。",
+            messages=[
+                TaskMessage(
+                    id=f"{task.id}-msg-1",
+                    role="system",
+                    content=f"任务已创建：{task.config.issue_input}",
+                    created_at=_utcnow(),
+                )
+            ],
             outcome="not_started",
             current_state=RuntimeSnapshot(
                 thread_id=task.thread_id,
@@ -278,6 +292,25 @@ class EvaluationService:
         if task.result is None:
             task.result = self._blank_result(task)
         return task.result
+
+    def _append_task_message(
+        self,
+        task: EvaluationTaskRecord,
+        role: str,
+        content: str,
+        *,
+        replan: bool = False,
+    ) -> TaskMessage:
+        result = self._ensure_result(task)
+        message = TaskMessage(
+            id=f"{task.id}-msg-{len(result.messages) + 1}",
+            role=role,  # type: ignore[arg-type]
+            content=content,
+            created_at=_utcnow(),
+            replan=replan,
+        )
+        result.messages.append(message)
+        return message
 
     def _activate_runtime(self, handle: AssistantRuntimeHandle) -> None:
         os.environ["GIT_ISSUE_ASSISTANT_HOME"] = str(WORKSPACE_ROOT)
@@ -311,7 +344,26 @@ class EvaluationService:
                 os.environ["MODEL_NAME"] = original_model_name
 
         agent = Agent(llm)
-        orchestrator = AgentOrchestrator(agent, tools=web_safe_tools)
+        from gitIssueAssitant.skills import SkillRegistry
+
+        enabled_skills = (
+            task.config.enabled_skills
+            if task.config.enabled_skills is not None
+            else skill_service.default_enabled_names()
+        )
+        enabled_skill_set = {name.strip() for name in enabled_skills if name.strip()}
+        skill_registry = SkillRegistry(WORKSPACE_ROOT / "gitIssueAssitant" / "skills")
+        skill_registry.load()
+        skill_registry._skills = {
+            name: skill
+            for name, skill in skill_registry._skills.items()
+            if name in enabled_skill_set
+        }
+        orchestrator = AgentOrchestrator(
+            agent,
+            tools=web_safe_tools,
+            skill_registry=skill_registry,
+        )
         manager = SessionManager(orchestrator, workspace_root=WORKSPACE_ROOT)
         manager.repos_root = _configured_clone_root()
         manager.create_session(
@@ -419,18 +471,20 @@ class EvaluationService:
             messages = payload.get("messages") or []
             ai_message = messages[-1] if messages else None
             tool_calls = _tool_calls_from_message(ai_message)
+            content = _serialize_content(getattr(ai_message, "content", ""))
             result.timeline.append(
                 TimelineEntry(
                     id=next_id(),
                     node="react",
                     event_type="assistant",
                     title="Agent 思考",
-                    content=_serialize_content(
-                        getattr(ai_message, "content", "")),
+                    content=content,
                     tool_calls=_to_tool_call_records(tool_calls),
                     created_at=created_at,
                 )
             )
+            if content.strip():
+                self._append_task_message(task, "assistant", content)
             return
 
         if node_name == "reflect":
@@ -805,6 +859,49 @@ class EvaluationService:
         task_service.save_task_record(task)
         return self._ensure_result(task)
 
+    def get_messages(self, task_id: str) -> TaskMessageList | None:
+        task = task_service.get_task_record(task_id)
+        if task is None:
+            return None
+        result = self._ensure_result(task)
+        return TaskMessageList(task_id=task.id, messages=result.messages)
+
+    def submit_message(self, task_id: str, payload: TaskMessageCreate) -> TaskMessageList | None:
+        task = task_service.get_task_record(task_id)
+        if task is None:
+            return None
+        if task_id not in self._runtime_handles:
+            raise RuntimeError("请先运行或初始化任务后再发送多轮对话消息。")
+        content = payload.content.strip()
+        if not content:
+            raise ValueError("Message content cannot be empty")
+
+        handle = self._runtime_handles[task_id]
+        self._activate_runtime(handle)
+        self._append_task_message(task, "user", content, replan=payload.replan)
+        handle.orchestrator.inject_message(handle.thread_id, content, replan=payload.replan)
+
+        config = {"configurable": {"thread_id": handle.thread_id}}
+        current_state = handle.orchestrator.graph.get_state(config).values
+        if current_state.get("status") in ("SUCCESS", "FAILED", MAX_ITERATIONS_REACHED_STATUS):
+            handle.orchestrator.reopen_after_terminal(handle.thread_id)
+            current_state = handle.orchestrator.graph.get_state(config).values
+            self._append_task_message(
+                task,
+                "system",
+                "已接收追加要求，任务已重新打开；请点击继续单步或自动执行。",
+                replan=payload.replan,
+            )
+            task.status = "scheduled"
+            task.finished_at = None
+
+        self._sync_state(task, current_state)
+        if task.status == "running":
+            task.status = "scheduled"
+            self._refresh_result(task)
+        task_service.save_task_record(task)
+        return self.get_messages(task_id)
+
     def clear_task_state(self, task_id: str) -> None:
         job = self._background_jobs.pop(task_id, None)
         if job is not None and not job.done():
@@ -1022,10 +1119,174 @@ class EvaluationService:
                 )
             )
 
+        def metric(item: ComparisonItem, name: str) -> float:
+            for score in item.scores:
+                if score.name == name:
+                    return score.value
+            return 0.0
+
+        count = len(items)
+        aggregate = ComparisonAggregate()
+        if count:
+            aggregate = ComparisonAggregate(
+                success_rate=sum(metric(item, "success") for item in items) / count,
+                failed_count=sum(1 for item in items if item.status == "failed"),
+                average_duration_seconds=sum(metric(item, "duration_seconds") for item in items) / count,
+                average_tool_call_count=sum(metric(item, "tool_call_count") for item in items) / count,
+                average_test_run_count=sum(metric(item, "test_run_count") for item in items) / count,
+            )
+
         return ComparisonResponse(
             compared_metrics=sorted(set(compared_metric_names)),
             items=items,
+            aggregate=aggregate,
         )
+
+    def export_report_markdown(
+        self,
+        task_ids: list[str],
+        bad_case_ids: list[str],
+    ) -> str:
+        from app.services.bad_case_service import bad_case_service
+
+        comparison = self.compare(task_ids)
+        selected_bad_case_ids = set(bad_case_ids) if bad_case_ids else None
+        bad_cases = [
+            case
+            for case in bad_case_service.list_cases()
+            if selected_bad_case_ids is None or case.id in selected_bad_case_ids
+        ]
+        tag_counts = bad_case_service.tag_counts(selected_bad_case_ids)
+        lines = [
+            "# Agent 评测对比报告",
+            "",
+            "## 总体指标",
+            f"- 成功率: {comparison.aggregate.success_rate:.2%}",
+            f"- 失败数: {comparison.aggregate.failed_count}",
+            f"- 平均耗时: {comparison.aggregate.average_duration_seconds:.2f} 秒",
+            f"- 平均工具调用: {comparison.aggregate.average_tool_call_count:.2f} 次",
+            f"- 平均测试次数: {comparison.aggregate.average_test_run_count:.2f} 次",
+            "",
+            "## 任务对比",
+            "| 任务 | 状态 | success | iteration_count | tool_call_count | test_run_count | duration_seconds |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        ]
+
+        def score_value(item: ComparisonItem, name: str) -> float:
+            for score in item.scores:
+                if score.name == name:
+                    return score.value
+            return 0.0
+
+        for item in comparison.items:
+            lines.append(
+                "| "
+                f"{item.task_name} | {item.status} | "
+                f"{score_value(item, 'success'):.2f} | "
+                f"{score_value(item, 'iteration_count'):.2f} | "
+                f"{score_value(item, 'tool_call_count'):.2f} | "
+                f"{score_value(item, 'test_run_count'):.2f} | "
+                f"{score_value(item, 'duration_seconds'):.2f} |"
+            )
+
+        lines.extend(["", "## 失败归因标签统计"])
+        if tag_counts:
+            lines.extend(f"- {tag}: {count}" for tag, count in tag_counts.most_common())
+        else:
+            lines.append("- 无")
+
+        lines.extend(["", "## Bad Case"])
+        if bad_cases:
+            for case in bad_cases:
+                lines.extend(
+                    [
+                        f"### {case.id} - {case.task_name}",
+                        f"- 来源任务: {case.source_task_id}",
+                        f"- 状态: {case.status}",
+                        f"- 标签: {', '.join(case.tags) or '无'}",
+                        f"- 摘要: {case.summary or '无'}",
+                        f"- 备注: {case.note or '无'}",
+                        "- 复测建议: 在 Bad Case 面板点击重新运行。",
+                        "",
+                    ]
+                )
+        else:
+            lines.append("- 无")
+
+        return "\n".join(lines)
+
+    def export_report_csv(
+        self,
+        task_ids: list[str],
+        bad_case_ids: list[str],
+    ) -> str:
+        import csv
+        from io import StringIO
+        from app.services.bad_case_service import bad_case_service
+
+        comparison = self.compare(task_ids)
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "type",
+                "id",
+                "name",
+                "status",
+                "success",
+                "iteration_count",
+                "tool_call_count",
+                "test_run_count",
+                "duration_seconds",
+                "tags",
+                "summary",
+            ]
+        )
+
+        def item_score(item: ComparisonItem, name: str) -> float:
+            for score in item.scores:
+                if score.name == name:
+                    return score.value
+            return 0.0
+
+        for item in comparison.items:
+            writer.writerow(
+                [
+                    "task",
+                    item.task_id,
+                    item.task_name,
+                    item.status,
+                    item_score(item, "success"),
+                    item_score(item, "iteration_count"),
+                    item_score(item, "tool_call_count"),
+                    item_score(item, "test_run_count"),
+                    item_score(item, "duration_seconds"),
+                    "",
+                    item.summary,
+                ]
+            )
+
+        selected_bad_case_ids = set(bad_case_ids) if bad_case_ids else None
+        for case in bad_case_service.list_cases():
+            if selected_bad_case_ids is not None and case.id not in selected_bad_case_ids:
+                continue
+            writer.writerow(
+                [
+                    "bad_case",
+                    case.id,
+                    case.task_name,
+                    case.status,
+                    bad_case_service.metric_value(case, "success"),
+                    bad_case_service.metric_value(case, "iteration_count"),
+                    bad_case_service.metric_value(case, "tool_call_count"),
+                    bad_case_service.metric_value(case, "test_run_count"),
+                    bad_case_service.metric_value(case, "duration_seconds"),
+                    ";".join(case.tags),
+                    case.summary,
+                ]
+            )
+
+        return output.getvalue()
 
 
 evaluation_service = EvaluationService()

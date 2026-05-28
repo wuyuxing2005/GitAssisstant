@@ -1,4 +1,9 @@
 import type {
+  BadCaseCreate,
+  BadCaseListResponse,
+  BadCaseRecord,
+  BadCaseRerunRequest,
+  BadCaseUpdate,
   ComparisonResponse,
   AppSettings,
   AppSettingsUpdate,
@@ -11,6 +16,10 @@ import type {
   GitPushRequest,
   GitPushResponse,
   ModelListResponse,
+  SkillListResponse,
+  SkillRecord,
+  TaskMessageCreate,
+  TaskMessageList,
   TaskRunRequest
 } from "../types/task";
 
@@ -74,6 +83,20 @@ export async function deleteTask(taskId: string): Promise<void> {
   await request(`/tasks/${taskId}`, { method: "DELETE" });
 }
 
+export async function fetchTaskMessages(taskId: string): Promise<TaskMessageList> {
+  return request<TaskMessageList>(`/tasks/${taskId}/messages`);
+}
+
+export async function submitTaskMessage(
+  taskId: string,
+  payload: TaskMessageCreate
+): Promise<TaskMessageList> {
+  return request<TaskMessageList>(`/tasks/${taskId}/messages`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function fetchTaskDiff(taskId: string): Promise<GitDiffResponse> {
   return request<GitDiffResponse>(`/tasks/${taskId}/diff`);
 }
@@ -111,6 +134,57 @@ export async function compareTasks(taskIds: string[]): Promise<ComparisonRespons
   taskIds.forEach((taskId) => query.append("task_ids", taskId));
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return request<ComparisonResponse>(`/analytics/compare${suffix}`);
+}
+
+export function analyticsReportUrl(format: "md" | "csv", taskIds: string[], badCaseIds: string[]): string {
+  const query = new URLSearchParams();
+  taskIds.forEach((taskId) => query.append("task_ids", taskId));
+  badCaseIds.forEach((caseId) => query.append("bad_case_ids", caseId));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return `${API_ROOT}/analytics/report.${format}${suffix}`;
+}
+
+export async function fetchBadCases(): Promise<BadCaseListResponse> {
+  return request<BadCaseListResponse>("/bad-cases/");
+}
+
+export async function createBadCase(payload: BadCaseCreate): Promise<BadCaseRecord> {
+  return request<BadCaseRecord>("/bad-cases/", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateBadCase(caseId: string, payload: BadCaseUpdate): Promise<BadCaseRecord> {
+  return request<BadCaseRecord>(`/bad-cases/${caseId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteBadCase(caseId: string): Promise<void> {
+  await request(`/bad-cases/${caseId}`, { method: "DELETE" });
+}
+
+export async function rerunBadCase(
+  caseId: string,
+  payload: BadCaseRerunRequest
+): Promise<EvaluationTask> {
+  return request<EvaluationTask>(`/bad-cases/${caseId}/rerun`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function fetchSkills(): Promise<SkillListResponse> {
+  return request<SkillListResponse>("/skills/");
+}
+
+export async function updateSkillEnabled(name: string, enabled: boolean): Promise<SkillRecord> {
+  return request<SkillRecord>(`/skills/${encodeURIComponent(name)}/enabled`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled })
+  });
 }
 
 export async function fetchSettings(): Promise<AppSettings> {

@@ -1467,6 +1467,242 @@ body {
   padding-top: 4px;
 }
 
+.field-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #3f4b52;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.skill-picker,
+.conversation-panel,
+.bad-case-panel,
+.skill-manager-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.skill-picker-grid,
+.tag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.skill-choice,
+.tag-choice {
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid #e4e8eb;
+  border-radius: 12px;
+  background: #fbfcfc;
+}
+
+.skill-choice {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr);
+  max-width: 360px;
+}
+
+.skill-choice small {
+  grid-column: 2;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.conversation-list {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.conversation-message {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #e6eaed;
+  border-radius: 14px;
+  background: #fbfcfc;
+}
+
+.conversation-message.user {
+  border-color: rgba(47, 125, 121, 0.3);
+  background: #eef8f6;
+}
+
+.conversation-message.assistant {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: #fff8ea;
+}
+
+.conversation-message span {
+  color: #647077;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.conversation-message p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.65;
+}
+
+.conversation-message small {
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.context-summary {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f6f8f8;
+  color: #4b5960;
+}
+
+.context-summary p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.conversation-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.conversation-composer textarea,
+.bad-case-note textarea {
+  width: 100%;
+  border: 1px solid #dde2e6;
+  border-radius: 12px;
+  background: #fbfcfc;
+  color: #0f172a;
+  padding: 11px 13px;
+}
+
+.bad-case-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.bad-case-list,
+.skill-manager-list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.bad-case-item {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e4e8eb;
+  border-radius: 14px;
+  background: #fbfcfc;
+  color: #334047;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bad-case-item.active {
+  border-color: rgba(47, 125, 121, 0.35);
+  background: #eef8f6;
+}
+
+.bad-case-item span,
+.bad-case-item small {
+  color: var(--muted);
+}
+
+.bad-case-detail,
+.skill-manager-item {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #e4e8eb;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.bad-case-detail h3,
+.bad-case-detail h4 {
+  margin: 0 0 8px;
+}
+
+.bad-case-note {
+  display: grid;
+  gap: 8px;
+}
+
+.bad-case-note span,
+.skill-detail-grid span,
+.compare-selector strong,
+.aggregate-grid span {
+  color: #647077;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.skill-detail-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.skill-detail-grid p {
+  margin: 4px 0 0;
+  color: #344047;
+}
+
+.skill-detail-grid pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: #111827;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.aggregate-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.aggregate-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #e7eaed;
+  border-radius: 14px;
+  background: #fbfcfc;
+}
+
+.aggregate-grid strong {
+  font-size: 24px;
+}
+
+.compare-selector {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #e7eaed;
+  border-radius: 14px;
+  background: #fbfcfc;
+}
+
 @media (max-width: 1380px) {
   .app-shell {
     grid-template-columns: 320px minmax(0, 1fr) 360px;
@@ -1520,6 +1756,12 @@ body {
   }
 
   .settings-inline-control {
+    grid-template-columns: 1fr;
+  }
+
+  .conversation-composer,
+  .bad-case-layout,
+  .aggregate-grid {
     grid-template-columns: 1fr;
   }
 }

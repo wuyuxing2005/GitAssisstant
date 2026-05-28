@@ -21,6 +21,10 @@ class EvaluationConfig(BaseModel):
     )
     max_iterations: int = Field(default=15, ge=1, le=50)
     run_mode: RunMode = Field(default="auto")
+    enabled_skills: list[str] | None = Field(
+        default=None,
+        description="本任务允许 Agent 路由使用的 Skill 名称列表；None 表示使用当前默认启用项。",
+    )
 
 
 class EvaluationTaskBase(BaseModel):
@@ -60,6 +64,27 @@ class ToolUsageItem(BaseModel):
     count: int
 
 
+MessageRole = Literal["user", "assistant", "system"]
+
+
+class TaskMessage(BaseModel):
+    id: str
+    role: MessageRole
+    content: str
+    created_at: datetime
+    replan: bool = False
+
+
+class TaskMessageCreate(BaseModel):
+    content: str = Field(..., min_length=1)
+    replan: bool = False
+
+
+class TaskMessageList(BaseModel):
+    task_id: str
+    messages: list[TaskMessage] = Field(default_factory=list)
+
+
 class MetricScore(BaseModel):
     name: str
     value: float
@@ -96,6 +121,7 @@ class EvaluationResult(BaseModel):
     logs_preview: list[str] = Field(default_factory=list)
     tool_usage: list[ToolUsageItem] = Field(default_factory=list)
     timeline: list[TimelineEntry] = Field(default_factory=list)
+    messages: list[TaskMessage] = Field(default_factory=list)
     current_state: RuntimeSnapshot | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -152,6 +178,14 @@ class GitPullRequestResponse(BaseModel):
     output: str = ""
 
 
+class ComparisonAggregate(BaseModel):
+    success_rate: float = 0.0
+    failed_count: int = 0
+    average_duration_seconds: float = 0.0
+    average_tool_call_count: float = 0.0
+    average_test_run_count: float = 0.0
+
+
 class ComparisonItem(BaseModel):
     task_id: str
     task_name: str
@@ -163,6 +197,75 @@ class ComparisonItem(BaseModel):
 class ComparisonResponse(BaseModel):
     compared_metrics: list[str]
     items: list[ComparisonItem]
+    aggregate: ComparisonAggregate = Field(default_factory=ComparisonAggregate)
+
+
+DEFAULT_BAD_CASE_TAGS = [
+    "文件定位错误",
+    "测试失败未恢复",
+    "工具参数错误",
+    "沙箱缺依赖",
+    "过早判定成功",
+    "上下文约束丢失",
+    "环境/凭证问题",
+]
+
+
+class BadCaseBase(BaseModel):
+    tags: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
+class BadCaseCreate(BadCaseBase):
+    task_id: str
+
+
+class BadCaseUpdate(BadCaseBase):
+    pass
+
+
+class BadCaseRecord(BaseModel):
+    id: str
+    source_task_id: str
+    task_name: str
+    issue_input: str
+    status: TaskStatus
+    tags: list[str] = Field(default_factory=list)
+    note: str = ""
+    timeline: list[TimelineEntry] = Field(default_factory=list)
+    metrics: list[MetricScore] = Field(default_factory=list)
+    diff_summary: str = ""
+    test_output_summary: str = ""
+    summary: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class BadCaseListResponse(BaseModel):
+    items: list[BadCaseRecord] = Field(default_factory=list)
+    default_tags: list[str] = Field(default_factory=lambda: list(DEFAULT_BAD_CASE_TAGS))
+
+
+class BadCaseRerunRequest(BaseModel):
+    name: str | None = None
+    auto_start: bool = False
+
+
+class SkillRecord(BaseModel):
+    name: str
+    description: str
+    allowed_tools: list[str] = Field(default_factory=list)
+    priority_tools: list[str] = Field(default_factory=list)
+    body: str = ""
+    enabled: bool = True
+
+
+class SkillListResponse(BaseModel):
+    items: list[SkillRecord] = Field(default_factory=list)
+
+
+class SkillEnabledUpdate(BaseModel):
+    enabled: bool
 
 
 class ToolDescriptor(BaseModel):

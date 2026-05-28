@@ -10,6 +10,8 @@ from app.schemas.task import (
     GitPullRequestResponse,
     GitPushRequest,
     GitPushResponse,
+    TaskMessageCreate,
+    TaskMessageList,
     TaskRunRequest,
 )
 from app.services.evaluation_service import evaluation_service
@@ -96,6 +98,27 @@ def get_task_result(task_id: str) -> EvaluationResult:
     if result is None:
         raise HTTPException(status_code=404, detail="Result not found")
     return result
+
+
+@router.get("/{task_id}/messages", response_model=TaskMessageList)
+def get_task_messages(task_id: str) -> TaskMessageList:
+    messages = evaluation_service.get_messages(task_id)
+    if messages is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return messages
+
+
+@router.post("/{task_id}/messages", response_model=TaskMessageList)
+def submit_task_message(task_id: str, payload: TaskMessageCreate) -> TaskMessageList:
+    try:
+        messages = evaluation_service.submit_message(task_id, payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if messages is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return messages
 
 
 @router.get("/{task_id}/diff", response_model=GitDiffResponse)

@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
 import { SettingsModal } from "./components/SettingsModal";
+import { BadCasePanel } from "./components/BadCasePanel";
+import { SkillManager } from "./components/SkillManager";
 import { DashboardPage } from "./pages/DashboardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import {
   compareTasks,
   createTask,
   deleteTask,
+  fetchBadCases,
   fetchOpenAIModels,
   fetchHealth,
   fetchMetadata,
   fetchSettings,
+  fetchSkills,
   fetchTasks,
   runTask,
   updateSettings
@@ -17,10 +21,12 @@ import {
 import type {
   AppSettings,
   AppSettingsUpdate,
+  BadCaseRecord,
   ComparisonResponse,
   CreateTaskPayload,
   EvaluationMetadataResponse,
   EvaluationTask,
+  SkillRecord,
   TaskStatus,
   RunMode
 } from "./types/task";
@@ -41,6 +47,9 @@ export default function App() {
   const [tasks, setTasks] = useState<EvaluationTask[]>([]);
   const [metadata, setMetadata] = useState<EvaluationMetadataResponse | null>(null);
   const [comparison, setComparison] = useState<ComparisonResponse | null>(null);
+  const [badCases, setBadCases] = useState<BadCaseRecord[]>([]);
+  const [badCaseTags, setBadCaseTags] = useState<string[]>([]);
+  const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -71,17 +80,22 @@ export default function App() {
   async function refreshData(keepBanner = false) {
     try {
       setErrorMessage(null);
-      const [health, taskList, metadataResponse, settingsResponse] = await Promise.all([
+      const [health, taskList, metadataResponse, settingsResponse, badCaseResponse, skillResponse] = await Promise.all([
         fetchHealth(),
         fetchTasks(),
         fetchMetadata(),
-        fetchSettings()
+        fetchSettings(),
+        fetchBadCases(),
+        fetchSkills()
       ]);
 
       setBackendStatus(health.status === "ok" ? "online" : "offline");
       setTasks(taskList);
       setMetadata(metadataResponse);
       setSettings(settingsResponse);
+      setBadCases(badCaseResponse.items);
+      setBadCaseTags(badCaseResponse.default_tags);
+      setSkills(skillResponse.items);
       setSelectedTaskId((current) => {
         if (current && taskList.some((task) => task.id === current)) {
           return current;
@@ -201,6 +215,8 @@ export default function App() {
           <a href="#dashboard">新任务</a>
           <a href="#dashboard">搜索</a>
           <a href="#detail">本地变更</a>
+          <a href="#bad-cases">Bad Case</a>
+          <a href="#skills">Skill</a>
           <a href="#compare">对比结果</a>
         </nav>
 
@@ -245,11 +261,13 @@ export default function App() {
         <section id="dashboard">
           <DashboardPage
             tasks={tasks}
+            badCases={badCases}
             comparison={comparison}
             selectedTaskId={selectedTaskId}
             busyTaskId={busyTaskId}
             settings={settings}
             models={models}
+            skills={skills}
             onCreateTask={handleCreateTask}
           />
         </section>
@@ -260,8 +278,21 @@ export default function App() {
             busyTaskId={busyTaskId}
             onRunTask={handleRunTask}
             onTaskChanged={() => refreshData(true)}
+            onBadCasesChanged={() => refreshData(true)}
           />
         </section>
+
+        <BadCasePanel
+          badCases={badCases}
+          defaultTags={badCaseTags}
+          onChanged={() => refreshData(true)}
+          onTaskCreated={() => refreshData(true)}
+        />
+
+        <SkillManager
+          skills={skills}
+          onChanged={() => refreshData(true)}
+        />
       </main>
 
       <aside className="inspector">

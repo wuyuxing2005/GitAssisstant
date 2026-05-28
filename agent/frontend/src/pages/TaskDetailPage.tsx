@@ -1,12 +1,21 @@
 import { useEffect, useState } from "react";
-import { createTaskPullRequest, fetchTaskDiff, pushTaskChanges, taskReportDownloadUrl } from "../services/api";
+import {
+  createBadCase,
+  createTaskPullRequest,
+  fetchTaskDiff,
+  fetchTaskMessages,
+  pushTaskChanges,
+  submitTaskMessage,
+  taskReportDownloadUrl
+} from "../services/api";
 import type {
   EvaluationTask,
   GitDiffResponse,
   GitPullRequestResponse,
   GitPushResponse,
   MetricScore,
-  RunMode
+  RunMode,
+  TaskMessage
 } from "../types/task";
 import { formatDisplayTime } from "../utils/time";
 
@@ -15,6 +24,7 @@ interface TaskDetailPageProps {
   busyTaskId: string | null;
   onRunTask: (taskId: string, mode: RunMode, reset?: boolean) => Promise<void>;
   onTaskChanged?: () => Promise<void>;
+  onBadCasesChanged?: () => Promise<void>;
 }
 
 function formatMetric(metric: MetricScore): string {
@@ -22,9 +32,14 @@ function formatMetric(metric: MetricScore): string {
   return metric.unit ? `${rawValue} ${metric.unit}` : rawValue;
 }
 
-export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: TaskDetailPageProps) {
+export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
   const [expandedEntries, setExpandedEntries] = useState<Record<string, boolean>>({});
   const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
+  const [messages, setMessages] = useState<TaskMessage[]>([]);
+  const [messageContent, setMessageContent] = useState("");
+  const [messageReplan, setMessageReplan] = useState(true);
+  const [messageBusy, setMessageBusy] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [gitActionBusy, setGitActionBusy] = useState(false);
   const [gitMessage, setGitMessage] = useState<string | null>(null);
@@ -41,7 +56,31 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: T
     setPushResult(null);
     setPullRequestResult(null);
     setCommitMessage(task ? `fix: ${task.name}` : "");
+    setMessages(task?.result?.messages ?? []);
+    setMessageContent("");
+    setMessageError(null);
   }, [task?.id]);
+
+  useEffect(() => {
+    if (!task) {
+      return undefined;
+    }
+    let cancelled = false;
+    fetchTaskMessages(task.id)
+      .then((response) => {
+        if (!cancelled) {
+          setMessages(response.messages);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMessages(task.result?.messages ?? []);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task?.id, task?.result?.messages]);
 
   useEffect(() => {
     if (!task || task.status !== "completed") {
@@ -135,6 +174,45 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: T
     }
   }
 
+  async function handleSubmitMessage() {
+    if (!task || !messageContent.trim()) {
+      return;
+    }
+    try {
+      setMessageBusy(true);
+      setMessageError(null);
+      const response = await submitTaskMessage(task.id, {
+        content: messageContent.trim(),
+        replan: messageReplan
+      });
+      setMessages(response.messages);
+      setMessageContent("");
+      await onTaskChanged?.();
+    } catch (error) {
+      setMessageError(error instanceof Error ? error.message : "发送对话失败");
+    } finally {
+      setMessageBusy(false);
+    }
+  }
+
+  async function handleSaveBadCase() {
+    if (!task) {
+      return;
+    }
+    try {
+      setGitError(null);
+      await createBadCase({
+        task_id: task.id,
+        tags: task.status === "failed" ? ["测试失败未恢复"] : [],
+        note: task.result?.summary ?? ""
+      });
+      setGitMessage("已保存为 Bad Case。");
+      await onBadCasesChanged?.();
+    } catch (error) {
+      setGitError(error instanceof Error ? error.message : "保存 Bad Case 失败");
+    }
+  }
+
   if (!task) {
     return (
       <section className="card">
@@ -161,6 +239,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: T
           <button
             className="secondary-button"
             type="button"
+            onClick={() => void handleSaveBadCase()}
+            disabled={isBusy}
+          >
+            保存 Bad Case
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
             onClick={() => void onRunTask(task.id, "step")}
             disabled={isBusy}
           >
@@ -176,6 +262,61 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged }: T
           </button>
         </div>
       </div>
+
+      <section className="conversation-panel">
+        <div className="section-header compact">
+          <div>
+            <h3>多轮对话</h3>
+            <p>补充约束后，再点击继续单步或自动执行。</p>
+          </div>
+        </div>
+
+        <div className="conversation-list">
+          {messages.map((message) => (
+            <article key={message.id} className={`conversation-message ${message.role}`}>
+              <span>{message.role === "user" ? "用户" : message.role === "assistant" ? "Agent" : "系统"}</span>
+              <p>{message.content}</p>
+              {message.replan ? <small>触发重新规划</small> : null}
+            </article>
+          ))}
+          {!messages.length ? <p className="muted-copy">暂无对话消息。</p> : null}
+        </div>
+
+        {snapshot ? (
+          <div className="context-summary">
+            <strong>当前上下文</strong>
+            <p>状态：{snapshot.status}，轮数：{snapshot.iteration_count}/{snapshot.max_iterations}</p>
+            <p>当前计划：{snapshot.plan.length ? snapshot.plan.join(" / ") : "暂无计划"}</p>
+          </div>
+        ) : null}
+
+        {messageError ? <p className="error-copy">{messageError}</p> : null}
+        <div className="conversation-composer">
+          <textarea
+            rows={3}
+            value={messageContent}
+            onChange={(event) => setMessageContent(event.target.value)}
+            placeholder="例如：不要修改前端，只修后端；根据刚才的测试失败继续修。"
+            disabled={messageBusy}
+          />
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={messageReplan}
+              onChange={(event) => setMessageReplan(event.target.checked)}
+            />
+            <span>触发重新规划</span>
+          </label>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => void handleSubmitMessage()}
+            disabled={messageBusy || !messageContent.trim()}
+          >
+            发送补充要求
+          </button>
+        </div>
+      </section>
 
       <div className="score-grid">
         {(result?.metrics ?? []).map((metric) => (
