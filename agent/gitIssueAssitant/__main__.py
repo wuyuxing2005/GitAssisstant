@@ -4,6 +4,7 @@ from contextlib import suppress
 import os
 import shlex
 import sys
+import time
 from  .agent import Agent,LLM_factory
 from .cli_utils.commit import get_commit_plan_from_agent
 from .cli_utils.git import run_git_capture, working_tree_diff_for_commit
@@ -12,6 +13,9 @@ from .github_pr import create_github_pr
 from  .orchestrator import AgentOrchestrator, MAX_ITERATIONS_REACHED_STATUS
 from  .session_manager import SessionManager
 from  .skills import SkillRegistry
+from .tools.tools import AGENT_TOOLS_ALL, clear_active_sandbox  # 迭代三第二组
+from .tools.registry import setup_default_registry  # 迭代三第二组
+from .tools.sandbox_manager import SandboxManager  # 迭代三第二组
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -285,6 +289,11 @@ class CLI:
                     self.solve_active = False
                     await self._stop_injection_reader()
 
+                # 求解循环结束后清除沙箱，使后续 CLI 发起的 git 操作
+                #（add/commit/push）在宿主机执行（需要宿主机的 GitHub 凭证）
+                clear_active_sandbox()
+                self.orchestrator._sandbox_activated = False
+
                 final_state = self.manager.get_current_state()
                 # 求解完成后，展示 diff 并询问是否推送
                 if final_state.get("status") == "SUCCESS":
@@ -347,7 +356,7 @@ class CLI:
                                     ["rev-parse", "--abbrev-ref", "HEAD"],
                                 ).strip()
                                 session = self.manager._current_session()
-                                branch_name = f"agent-fix-{session.session_id if session else 'session'}"
+                                branch_name = f"agent-fix-{session.session_id if session else 'session'}-{int(time.time())}"
                                 checkout_result = run_git_capture(repo_path, ["checkout", "-B", branch_name])
                                 print(f"🌿 分支结果:\n{checkout_result}")
                                 add_result = _git_add_impl(commit_plan['files'])
@@ -475,12 +484,48 @@ def main():
     loaded_skills = skill_registry.load()
     if loaded_skills:
         print(f"🎯 已加载 {len(loaded_skills)} 个 Skill: {', '.join(loaded_skills.keys())}")
-    orchestrator = AgentOrchestrator(agent, skill_registry=skill_registry)
-    manager = SessionManager(orchestrator, workspace_root=os.getcwd())
+
+    # ---- 工具注册表（迭代三第二组新增）----
+    print("🔧 初始化 ToolRegistry...")
+    registry = setup_default_registry(AGENT_TOOLS_ALL)
+    # git_push 硬禁用 — Agent 不可调用，仅 CLI 在用户确认后直接调用
+    registry.hard_disable("git_push")
+    print("   ✅ 已注册 {} 个工具，硬禁用: git_push".format(
+        len(registry._tools)
+    ))
+
+    # ---- 沙箱管理器（迭代三第二组新增）----
+    enable_sandbox = os.getenv("GIT_ISSUE_ASSISTANT_DISABLE_SANDBOX", "").lower() not in ("1", "true", "yes")
+    sandbox_manager = SandboxManager(workspace_root=os.getcwd()) if enable_sandbox else None
+    if enable_sandbox:
+        print(f"🐳 沙箱模式已启用（工作区: {os.getcwd()}/workspaces）")
+    else:
+        print("⚠️ 沙箱模式已禁用（本地执行），可通过环境变量 GIT_ISSUE_ASSISTANT_DISABLE_SANDBOX=1 控制")
+
+    # ---- 编排器与会话管理器（注入 registry + sandbox_manager）----
+    orchestrator = AgentOrchestrator(
+        agent,
+        skill_registry=skill_registry,
+        registry=registry,
+        sandbox_manager=sandbox_manager,
+    )
+    manager = SessionManager(
+        orchestrator,
+        workspace_root=os.getcwd(),
+        sandbox_manager=sandbox_manager,
+    )
 
     cli = CLI(orchestrator, manager)
 
-    asyncio.run(run_repl(cli))
+    try:
+        asyncio.run(run_repl(cli))
+    finally:
+        # 退出前清理沙箱
+        clear_active_sandbox()
+        if sandbox_manager:
+            print("\n🐳 清理沙箱容器...")
+            sandbox_manager.stop_all()
+            print("✅ 沙箱清理完成。")
 
 if __name__ == "__main__":
     main()

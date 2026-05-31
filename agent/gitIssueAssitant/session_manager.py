@@ -31,7 +31,8 @@ class Session:
 
 
 class SessionManager:
-    def __init__(self, orchestrator, workspace_root: str | Path | None = None):
+    def __init__(self, orchestrator, workspace_root: str | Path | None = None,
+                 sandbox_manager=None):
         self.orchestrator: AgentOrchestrator = orchestrator
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
         self.repos_root = (self.workspace_root / "repos").resolve()
@@ -39,6 +40,7 @@ class SessionManager:
         # session_id -> Session
         self.sessions: Dict[str, Session] = {}
         self.current_session_id: Optional[str] = None
+        self.sandbox_manager = sandbox_manager  # 沙箱管理器（迭代三第二组新增）
 
     def _is_git_url(self, repo_ref: str) -> bool:
         return repo_ref.startswith(("http://", "https://", "git@")) or repo_ref.endswith(".git")
@@ -295,7 +297,11 @@ class SessionManager:
         os.chdir(session.repo_path)
 
     def set_issue(self, issue_desc: str):
-        """为当前会话注入初始 Issue 并初始化状态"""
+        """为当前会话注入初始 Issue 并初始化状态。
+
+        迭代三第二组新增：如果 sandbox_manager 可用，在此处启动 Docker 沙箱，
+        并将 repo_path 指向沙箱内的宿主工作副本。
+        """
         session = self._current_session()
         if not session:
             raise ValueError("当前没有激活的会话，请先创建会话")
@@ -303,6 +309,30 @@ class SessionManager:
         resolved_desc = self.resolve_issue_description(issue_desc)
         session.issue_ref = issue_desc
         session.issue_description = resolved_desc
+
+        # ---- 沙箱启动（迭代三第二组新增）----
+        sandbox_id = ""
+        if self.sandbox_manager is not None:
+            # 保留原始仓库路径（沙箱外），供 cleanup 时参考
+            original_repo_path = session.repo_path
+            try:
+                sandbox = self.sandbox_manager.get_or_create(
+                    session.thread_id, original_repo_path
+                )
+                # 将工作目录切换到沙箱的宿主副本
+                session.repo_path = str(sandbox.host_work_dir)
+                os.environ["GIT_ISSUE_ASSISTANT_REPO_ROOT"] = session.repo_path
+                os.chdir(session.repo_path)
+                sandbox_id = session.thread_id
+                print(
+                    f"[沙箱] 沙箱容器已就绪 (sandbox_id={sandbox_id})\n"
+                    f"       容器名: {sandbox.container_name}\n"
+                    f"       宿主工作目录: {sandbox.host_work_dir}\n"
+                    f"       容器工作目录: /workspace/repo"
+                )
+            except Exception as exc:
+                print(f"[沙箱] 沙箱启动失败，回退到本地执行模式: {exc}")
+                sandbox_id = ""
 
         config = {"configurable": {"thread_id": session.thread_id}}
 
@@ -317,6 +347,8 @@ class SessionManager:
             "plan_version": 0,
             "replan_trigger": "",
             "reflexion_notes": "",
+            "sandbox_id": sandbox_id,  # 迭代三第二组新增
+            "tool_call_events": [],    # 迭代三第二组新增
             "messages": [
                 HumanMessage(
                     content=(
@@ -331,7 +363,15 @@ class SessionManager:
             "trajectory": [],
         }
 
-        self.orchestrator.graph.update_state(config, initial_state)
+        # 检测是否已有历史状态（同一会话中连续解决多个 Issue）
+        # 若有历史 checkpoint（上一个 Issue 已结束），需将图位置重置到入口节点，
+        # 否则 astream(None) 会从 END 出发、立即返回空结果。
+        state_snapshot = self.orchestrator.graph.get_state(config)
+        if state_snapshot and state_snapshot.values and state_snapshot.values.get("status") not in ("", "INIT"):
+            self.orchestrator.graph.update_state(config, initial_state, as_node="__start__")
+            print("[会话] 检测到已有历史状态，已用 as_node='__start__' 重置 graph 位置。")
+        else:
+            self.orchestrator.graph.update_state(config, initial_state)
 
     def set_max_iterations(self, max_iterations: int) -> int:
         """设置当前会话的 ReAct 最大轮数，并同步到已初始化的 graph state。"""
@@ -364,3 +404,25 @@ class SessionManager:
         config = {"configurable": {"thread_id": thread_id}}
         state_snapshot = self.orchestrator.graph.get_state(config)
         return state_snapshot.values if state_snapshot else {}
+
+    def cleanup_current_session(self):
+        """清理当前会话的沙箱资源（停止容器、清理工作目录）。
+
+        在会话结束或切换时调用。"""
+        if self.sandbox_manager is None:
+            return
+        session = self._current_session()
+        if session is None:
+            return
+        # 清理沙箱
+        self.sandbox_manager.stop(session.thread_id)
+        self.sandbox_manager.cleanup(session.thread_id)
+        print(f"[沙箱] 已清理会话 {session.session_id} 的沙箱资源。")
+
+    def cleanup_all_sessions(self):
+        """程序退出时清理所有会话的沙箱资源。"""
+        if self.sandbox_manager is None:
+            return
+        for session in list(self.sessions.values()):
+            self.sandbox_manager.stop(session.thread_id)
+        print("[沙箱] 已清理所有沙箱资源。")

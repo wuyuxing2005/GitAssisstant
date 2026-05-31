@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
-from langchain_core.messages import HumanMessage
+import time
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
-from langgraph.prebuilt import ToolNode
 from .utils.compressor import ContextCompressor
 from .agent import Agent
 from .agent_state import AgentState
 from .skills import SkillRegistry
-from .tools.tools import AGENT_TOOLS, _git_diff_impl
+from .tools.tools import AGENT_TOOLS, _git_diff_impl, set_active_sandbox, clear_active_sandbox
+from .tools.registry import ToolRegistry, ToolCallEvent
+from .tools.sandbox_manager import SandboxManager
 
 
 EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
@@ -24,6 +26,8 @@ class AgentOrchestrator:
         tools: list = AGENT_TOOLS,
         compressor: ContextCompressor | None = None,
         skill_registry: SkillRegistry | None = None,
+        registry: ToolRegistry | None = None,
+        sandbox_manager: SandboxManager | None = None,
     ):
         self.agent = agent
         self.tools = tools
@@ -31,13 +35,16 @@ class AgentOrchestrator:
         self.memory = MemorySaver()
         self.compressor = compressor or ContextCompressor()
         self.skill_registry = skill_registry or SkillRegistry()
+        self.registry = registry  # 工具注册表（迭代三第二组新增）
+        self.sandbox_manager = sandbox_manager  # 沙箱管理器（迭代三第二组新增）
+        self._sandbox_activated = False  # 标记沙箱是否已激活
         self.graph = self._build_graph()
 
     def _build_graph(self):
         workflow = StateGraph(AgentState)
         workflow.add_node("h_planner", self._node_h_planner)
         workflow.add_node("react", self._node_react)
-        workflow.add_node("tools", ToolNode(self.tools))
+        workflow.add_node("tools", self._node_tools)
         workflow.add_node("reflect", self._node_reflect)
         workflow.add_node("finish_success", self._node_finish_success)
         workflow.add_node("finish_failed", self._node_finish_failed)
@@ -258,7 +265,16 @@ class AgentOrchestrator:
 
         if node_name == "tools":
             messages = payload.get("messages") or []
+            tool_call_events = payload.get("tool_call_events") or []
             print(f"🛠️ 工具执行完成（{len(messages)} 条结果）")
+
+            # 显示被拒绝的工具调用
+            if tool_call_events:
+                rejected = [e for e in tool_call_events if e.get("status") == "rejected"]
+                if rejected:
+                    for r in rejected:
+                        print(f"   🚫 硬禁用拦截: {r.get('tool_name', '?')}")
+
             if verbose:
                 for idx, message in enumerate(messages, start=1):
                     name = getattr(message, "name", None) or getattr(
@@ -439,6 +455,150 @@ class AgentOrchestrator:
             "compression_stats": compression_stats,
             "token_usage": self._accumulate_token_usage(state),
             "status": "RUNNING",
+        }
+
+    async def _node_tools(self, state: AgentState):
+        """自定义工具执行节点，替代 LangGraph 的 ToolNode（迭代三第二组新增）。
+
+        职责：
+          1. 遍历 AIMessage 中 LLM 请求的 tool_calls
+          2. 通过 ToolRegistry 检查每次调用（硬禁用 + 参数校验）
+          3. 执行工具（沙箱路由在 tools.py 层透明处理）
+          4. 记录 ToolCallEvent 到 state.tool_call_events
+        """
+        last_msg = state["messages"][-1]
+        tool_calls = getattr(last_msg, "tool_calls", []) or []
+
+        if not tool_calls:
+            return {}
+
+        tool_messages: list = []
+        events: list[ToolCallEvent] = []
+        sandbox_id = state.get("sandbox_id", "")
+
+        # 首次调用工具时激活沙箱（如果沙箱已创建但尚未激活）
+        if sandbox_id and not self._sandbox_activated and self.sandbox_manager:
+            sandbox = self.sandbox_manager.get(sandbox_id)
+            if sandbox is not None and sandbox._started:
+                set_active_sandbox(sandbox)
+                self._sandbox_activated = True
+                print(f"[orchestrator] 沙箱已激活，shell 命令将路由到容器: {sandbox.container_name}")
+
+        for tc in tool_calls:
+            tool_name = tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
+            tool_args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
+            call_id = tc.get("id", "") if isinstance(tc, dict) else getattr(tc, "id", "")
+            start_time = time.time()
+
+            # ---- 1. 注册表检查（硬禁用 + 参数校验） ----
+            if self.registry is not None:
+                rejection = self.registry.check_invocation(tool_name, tool_args)
+                if rejection:
+                    # 被拒绝：向 LLM 返回拒绝消息，不执行工具
+                    tool_messages.append(ToolMessage(
+                        content=rejection,
+                        tool_call_id=call_id,
+                        name=tool_name,
+                    ))
+                    events.append(ToolCallEvent(
+                        tool_name=tool_name,
+                        arguments=tool_args,
+                        status="rejected",
+                        error_message=rejection,
+                        latency_ms=int((time.time() - start_time) * 1000),
+                        sandbox_id=sandbox_id,
+                    ))
+                    continue
+
+            # ---- 1.5 requires_confirmation 检查（迭代三第二组） ----
+            # 查询工具是否需要用户确认。CLI 模式下不阻塞执行（Agent 需要修改代码），
+            # 但会打印提醒并记录到事件中，供第三组 Web 界面展示确认弹窗。
+            tool_meta = self.registry.get_meta(tool_name) if self.registry else None
+            if tool_meta and tool_meta.requires_confirmation:
+                print(f"   ⚠️ 工具 '{tool_name}' 需要用户确认（metadata 标记），"
+                      f"风险等级: {tool_meta.risk_level.value}")
+
+            # ---- 2. 查找并执行工具 ----
+            tool_func = None
+            if self.registry is not None:
+                tool_func = self.registry.get_tool(tool_name)
+            if tool_func is None:
+                # 回退：按名称在 self.tools 中查找
+                for t in self.tools:
+                    name = getattr(t, "name", None) or getattr(t, "__name__", "")
+                    if name == tool_name:
+                        tool_func = t
+                        break
+
+            if tool_func is None:
+                error_content = f"工具 '{tool_name}' 未找到，无法执行。"
+                tool_messages.append(ToolMessage(
+                    content=error_content,
+                    tool_call_id=call_id,
+                    name=tool_name,
+                ))
+                events.append(ToolCallEvent(
+                    tool_name=tool_name,
+                    arguments=tool_args,
+                    status="error",
+                    error_message=error_content,
+                    latency_ms=int((time.time() - start_time) * 1000),
+                    sandbox_id=sandbox_id,
+                ))
+                continue
+
+            try:
+                result = await tool_func.ainvoke(tool_args)
+                status = "success"
+                error_msg = ""
+                exit_code_val = 0
+            except Exception as exc:
+                result = f"Error: {exc}"
+                status = "error"
+                error_msg = str(exc)
+                exit_code_val = -1
+
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            # ---- 3. 提取受影响的文件 ----
+            affected_files: list = []
+            if status == "success" and tool_meta and tool_meta.category.value == "file":
+                # 文件修改类工具：获取 git diff 涉及的文件
+                try:
+                    diff = _git_diff_impl(state.get("repo_path", "."))
+                    if diff and diff != "Command finished with exit code 0.":
+                        from .cli_utils.git import extract_modified_files_from_diff
+                        affected_files = extract_modified_files_from_diff(diff)
+                except Exception:
+                    pass
+
+            # ---- 4. 记录事件 ----
+            events.append(ToolCallEvent(
+                tool_name=tool_name,
+                arguments=tool_args,
+                status=status,
+                result_preview=str(result)[:300] if result else "",
+                error_message=error_msg,
+                latency_ms=latency_ms,
+                sandbox_id=sandbox_id,
+                affected_files=affected_files,
+                exit_code=exit_code_val,
+            ))
+
+            tool_messages.append(ToolMessage(
+                content=str(result),
+                tool_call_id=call_id,
+                name=tool_name,
+            ))
+
+        # 将事件写入注册表缓冲区（供第一组和第三组消费）
+        if self.registry is not None:
+            for event in events:
+                self.registry.record_event(event)
+
+        return {
+            "messages": tool_messages,
+            "tool_call_events": [e.to_dict() for e in events],
         }
 
     async def _node_reflect(self, state: AgentState):

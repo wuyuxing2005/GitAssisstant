@@ -37,3 +37,12 @@ class AgentState(TypedDict):
 
     # Token 用量累计
     token_usage: Dict[str, int]  # {"prompt_tokens": int, "completion_tokens": int, "total_tokens": int}
+
+    # 沙箱标识（迭代三新增 — 第二组）
+    sandbox_id: str  # thread_id，在 SandboxManager 中查找对应的 DockerSandbox 实例；空字符串表示未使用沙箱
+
+    # 工具调用事件（迭代三新增 — 第二组，对应分工.md 3.2.6）
+    # 每个元素是 ToolCallEvent.to_dict() 的结果，包含：
+    # tool_name, arguments, status, result_preview, error_message, latency_ms, timestamp, sandbox_id, affected_files, exit_code
+    # 第一组消费这些事件汇总 AgentTrace；第三组消费这些事件展示工具调用记录
+    tool_call_events: Annotated[List[Dict[str, Any]], operator.add]

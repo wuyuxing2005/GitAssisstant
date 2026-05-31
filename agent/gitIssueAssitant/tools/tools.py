@@ -10,6 +10,25 @@ import sys
 
 from langchain_core.tools import tool
 
+# ---------- 沙箱透明路由（迭代三第二组新增）----------
+# 当沙箱激活时，_run_command() 自动将 shell 命令路由到 Docker 容器执行
+_active_sandbox = None  # DockerSandbox | None
+
+
+def set_active_sandbox(sandbox) -> None:
+    """设置当前活跃的 Docker 沙箱。调用后，所有 shell 工具将透明路由到容器。
+
+    由 orchestrator._node_h_planner 在会话首次规划时调用。
+    """
+    global _active_sandbox
+    _active_sandbox = sandbox
+
+
+def clear_active_sandbox() -> None:
+    """清除当前活跃的沙箱引用。工具回退到宿主直接执行。"""
+    global _active_sandbox
+    _active_sandbox = None
+
 
 MAX_TOOL_OUTPUT_CHARS = 12000
 DEFAULT_READ_END_LINE = 200
@@ -95,20 +114,77 @@ def _run_command(
     timeout: int = 60,
     shell: bool = False,
 ) -> str:
-    try:
-        result = subprocess.run(
-            command,
-            shell=shell,
-            capture_output=True,
-            **_text_output_kwargs(),
-            timeout=timeout,
-            cwd=str(cwd or _repo_root()),
-        )
-    except subprocess.TimeoutExpired:
-        return f"Error: command timed out after {timeout} seconds."
-    except Exception as exc:
-        return f"Error executing command: {exc}"
-    return _format_command_result(result)
+    """在仓库中执行命令。当沙箱激活时，透明路由到 Docker 容器执行。
+
+    路由逻辑：
+      - 若 _active_sandbox 存在且容器已启动 → sandbox.exec_command()
+      - 否则 → subprocess.run()（宿主直接执行）
+
+    沙箱模式下，cwd 会被映射为容器内路径；宿主模式下使用原始路径。
+    """
+    # 将命令统一为字符串（shell=True 时 command 已经是字符串）
+    if isinstance(command, list):
+        # 使用 shlex.join() 而非 " ".join()，确保含空格/中文的参数被正确引号
+        # 例如 git commit -m "fix: 修复 bug" → git commit -m 'fix: 修复 bug'
+        command_str = shlex.join(command)
+    else:
+        command_str = str(command)
+
+    sandbox = _active_sandbox
+    if sandbox is not None and sandbox._started:
+        # ---- 沙箱模式 ----
+        # 将宿主机 Python 路径替换为容器内的 python，修复 run_pytest 的 sys.executable 问题
+        # 例如 D:\miniconda\envs\gia\python.exe → python
+        command_str = command_str.replace(sys.executable, "python")
+
+        # 将宿主 cwd 映射为容器内路径，并在命令前添加 cd
+        try:
+            sandbox_cwd = sandbox.path_to_container(str(cwd or _repo_root()))
+        except Exception:
+            # 路径不在沙箱内，回退到容器 /workspace/repo
+            sandbox_cwd = "/workspace/repo"
+
+        # 构造容器内执行的完整命令：cd 到目标目录 → 执行原命令
+        container_command = f"cd {sandbox_cwd} && {command_str}"
+
+        try:
+            output = sandbox.exec_command(container_command, timeout=timeout)
+            # 解析退出码：sandbox.exec_command 在末尾附加了 [EXIT_CODE: N]
+            exit_match = re.search(r"\[EXIT_CODE:\s*(\d+)\]\s*$", output)
+            if exit_match:
+                exit_code = int(exit_match.group(1))
+                # 移除 [EXIT_CODE: ...] 后缀，保持输出整洁
+                output_clean = output[: exit_match.start()].strip()
+            else:
+                exit_code = 0
+                output_clean = output.strip()
+
+            # 模拟 subprocess.CompletedProcess 的格式
+            parts = [output_clean] if output_clean else []
+            if exit_code != 0:
+                parts.append(f"Command finished with exit code {exit_code}.")
+            return _truncate_output("\n".join(parts))
+
+        except Exception as exc:
+            # sandbox 中发生的所有异常（SandboxError, TimeoutExpired 等）
+            return f"Error executing command in sandbox: {exc}"
+
+    else:
+        # ---- 宿主模式 ----
+        try:
+            result = subprocess.run(
+                command_str if shell else command,
+                shell=shell,
+                capture_output=True,
+                **_text_output_kwargs(),
+                timeout=timeout,
+                cwd=str(cwd or _repo_root()),
+            )
+        except subprocess.TimeoutExpired:
+            return f"Error: command timed out after {timeout} seconds."
+        except Exception as exc:
+            return f"Error executing command: {exc}"
+        return _format_command_result(result)
 
 
 def _read_file_impl(file_path: str, start_line: int = 1, end_line: int = DEFAULT_READ_END_LINE) -> str:
@@ -657,4 +733,12 @@ AGENT_TOOLS = [
     git_clone_repo,
     git_status,
     git_diff,
+]
+
+# 全部工具列表（含 git_add/git_commit/git_push），供 ToolRegistry 注册用。
+# Agent 通过 AGENT_TOOLS 使用受限子集；git_add/git_commit/git_push 由 CLI 直接调用。
+AGENT_TOOLS_ALL = AGENT_TOOLS + [
+    git_add,
+    git_commit,
+    git_push,
 ]
