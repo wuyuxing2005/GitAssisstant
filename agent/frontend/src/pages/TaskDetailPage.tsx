@@ -32,6 +32,26 @@ function formatMetric(metric: MetricScore): string {
   return metric.unit ? `${rawValue} ${metric.unit}` : rawValue;
 }
 
+function messageRoleLabel(role: TaskMessage["role"]): string {
+  if (role === "user") {
+    return "用户";
+  }
+  if (role === "assistant") {
+    return "Agent";
+  }
+  return "系统";
+}
+
+function messageRoleHint(role: TaskMessage["role"]): string {
+  if (role === "user") {
+    return "补充要求";
+  }
+  if (role === "assistant") {
+    return "历史回复";
+  }
+  return "系统提示";
+}
+
 export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
   const [expandedEntries, setExpandedEntries] = useState<Record<string, boolean>>({});
   const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
@@ -271,15 +291,28 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
           </div>
         </div>
 
-        <div className="conversation-list">
+        <div className="conversation-list" aria-label="多轮对话历史">
           {messages.map((message) => (
             <article key={message.id} className={`conversation-message ${message.role}`}>
-              <span>{message.role === "user" ? "用户" : message.role === "assistant" ? "Agent" : "系统"}</span>
-              <p>{message.content}</p>
-              {message.replan ? <small>触发重新规划</small> : null}
+              <div className="conversation-avatar" aria-hidden="true">
+                {message.role === "assistant" ? "A" : message.role === "user" ? "U" : "S"}
+              </div>
+              <div className="conversation-bubble">
+                <div className="conversation-meta">
+                  <span>{messageRoleLabel(message.role)}</span>
+                  <small>{messageRoleHint(message.role)}</small>
+                </div>
+                <p>{message.content}</p>
+                {message.replan ? <em>触发重新规划</em> : null}
+              </div>
             </article>
           ))}
-          {!messages.length ? <p className="muted-copy">暂无对话消息。</p> : null}
+          {!messages.length ? (
+            <div className="conversation-empty">
+              <strong>暂无对话历史</strong>
+              <p>发送补充要求后，这里会按双方消息展示完整对话记录。</p>
+            </div>
+          ) : null}
         </div>
 
         {snapshot ? (
@@ -296,7 +329,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
             rows={3}
             value={messageContent}
             onChange={(event) => setMessageContent(event.target.value)}
-            placeholder="例如：不要修改前端，只修后端；根据刚才的测试失败继续修。"
+            placeholder="例如：根据刚才的测试失败继续修。"
             disabled={messageBusy}
           />
           <label className="checkbox-row">
