@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
 import { SettingsModal } from "./components/SettingsModal";
 import { BadCasePanel } from "./components/BadCasePanel";
 import { SkillManager } from "./components/SkillManager";
@@ -30,6 +30,15 @@ import type {
 } from "./types/task";
 
 type PageKey = "new-task" | "detail" | "bad-cases" | "skills" | "compare";
+
+const DEFAULT_SIDEBAR_WIDTH = 386;
+const MIN_SIDEBAR_WIDTH = 260;
+const MAX_SIDEBAR_WIDTH = 560;
+const SIDEBAR_WIDTH_STORAGE_KEY = "agent-console-sidebar-width";
+
+function clampSidebarWidth(value: number): number {
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
+}
 
 function formatTaskStatus(status: TaskStatus): string {
   const labels: Record<TaskStatus, string> = {
@@ -75,6 +84,12 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    const parsed = stored ? Number(stored) : DEFAULT_SIDEBAR_WIDTH;
+    return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : DEFAULT_SIDEBAR_WIDTH;
+  });
+  const [resizingSidebar, setResizingSidebar] = useState(false);
 
   useEffect(() => {
     void refreshData();
@@ -188,15 +203,42 @@ export default function App() {
     }
   }
 
-  function handleNavClick(event: React.MouseEvent<HTMLAnchorElement>, page: PageKey) {
+  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, page: PageKey) {
     event.preventDefault();
     setCurrentPage(page);
   }
 
+  function handleSidebarResizePointerDown(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setResizingSidebar(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+      const nextWidth = clampSidebarWidth(moveEvent.clientX);
+      setSidebarWidth(nextWidth);
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, nextWidth.toString());
+    };
+
+    const handlePointerUp = () => {
+      setResizingSidebar(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+  }
+
   const currentTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const appShellStyle = {
+    "--sidebar-width": `${sidebarWidth}px`
+  } as CSSProperties;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${resizingSidebar ? "resizing-sidebar" : ""}`} style={appShellStyle}>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <span className="app-mark">G</span>
@@ -236,6 +278,17 @@ export default function App() {
 
         <button className="sidebar-settings" type="button" onClick={() => setSettingsOpen(true)}>设置</button>
       </aside>
+
+      <div
+        className={`sidebar-resizer ${resizingSidebar ? "active" : ""}`}
+        role="separator"
+        aria-label="调整左侧导航栏宽度"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_SIDEBAR_WIDTH}
+        aria-valuemax={MAX_SIDEBAR_WIDTH}
+        aria-valuenow={sidebarWidth}
+        onPointerDown={handleSidebarResizePointerDown}
+      />
 
       <main className="content">
         <header className="hero">

@@ -283,6 +283,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         </div>
       </div>
 
+      {snapshot ? (
+        <div className="context-summary">
+          <strong>当前上下文</strong>
+          <p>状态：{snapshot.status}，轮数：{snapshot.iteration_count}/{snapshot.max_iterations}</p>
+          <p>当前计划：{snapshot.plan.length ? snapshot.plan.join(" / ") : "暂无计划"}</p>
+        </div>
+      ) : null}
+
       <section className="conversation-panel">
         <div className="section-header compact">
           <div>
@@ -315,14 +323,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
           ) : null}
         </div>
 
-        {snapshot ? (
-          <div className="context-summary">
-            <strong>当前上下文</strong>
-            <p>状态：{snapshot.status}，轮数：{snapshot.iteration_count}/{snapshot.max_iterations}</p>
-            <p>当前计划：{snapshot.plan.length ? snapshot.plan.join(" / ") : "暂无计划"}</p>
-          </div>
-        ) : null}
-
         {messageError ? <p className="error-copy">{messageError}</p> : null}
         <div className="conversation-composer">
           <textarea
@@ -332,22 +332,25 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
             placeholder="例如：根据刚才的测试失败继续修。"
             disabled={messageBusy}
           />
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={messageReplan}
-              onChange={(event) => setMessageReplan(event.target.checked)}
-            />
-            <span>触发重新规划</span>
-          </label>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => void handleSubmitMessage()}
-            disabled={messageBusy || !messageContent.trim()}
-          >
-            发送补充要求
-          </button>
+          <div className="conversation-composer-actions">
+            <button
+              className={`replan-toggle ${messageReplan ? "active" : ""}`}
+              type="button"
+              aria-pressed={messageReplan}
+              onClick={() => setMessageReplan((current) => !current)}
+            >
+              重新规划
+            </button>
+            <button
+              className="conversation-send-button"
+              type="button"
+              aria-label="发送补充要求"
+              onClick={() => void handleSubmitMessage()}
+              disabled={messageBusy || !messageContent.trim()}
+            >
+              ↑
+            </button>
+          </div>
         </div>
       </section>
 
