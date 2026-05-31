@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createBadCase,
   createTaskPullRequest,
@@ -27,6 +27,29 @@ interface TaskDetailPageProps {
 }
 
 type PublishDialogMode = "push" | "pr" | null;
+type ParsedDiffLineType = "add" | "remove" | "context" | "meta";
+
+interface ParsedDiffLine {
+  type: ParsedDiffLineType;
+  oldLine?: number;
+  newLine?: number;
+  content: string;
+}
+
+interface ParsedDiffHunk {
+  header: string;
+  lines: ParsedDiffLine[];
+}
+
+interface ParsedDiffFile {
+  oldPath: string;
+  newPath: string;
+  displayPath: string;
+  added: number;
+  removed: number;
+  isBinary: boolean;
+  hunks: ParsedDiffHunk[];
+}
 
 function formatMetric(metric: MetricScore): string {
   const rawValue = Number.isInteger(metric.value) ? metric.value.toString() : metric.value.toFixed(2);
@@ -50,6 +73,148 @@ function diffStats(diff: string | undefined): { added: number; removed: number }
   );
 }
 
+function formatRepoSource(source: string): string {
+  const trimmed = source.trim();
+  if (!trimmed) {
+    return "-";
+  }
+
+  const sshMatch = trimmed.match(/^[\w.-]+@[^:]+:(.+)$/);
+  if (sshMatch) {
+    return sshMatch[1].replace(/\.git$/, "");
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const parts = url.pathname
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/\.git$/, "")
+      .split("/")
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      return parts.slice(-2).join("/");
+    }
+  } catch {
+    // Fall through to path handling below.
+  }
+
+  const parts = trimmed
+    .replace(/\\/g, "/")
+    .replace(/\/+$/g, "")
+    .replace(/\.git$/, "")
+    .split("/")
+    .filter(Boolean);
+  return parts.length >= 2 ? parts.slice(-2).join("/") : trimmed.replace(/\.git$/, "");
+}
+
+function parseDiffPath(raw: string): string {
+  if (!raw || raw === "/dev/null") {
+    return raw;
+  }
+  const withoutPrefix = raw.replace(/^"|"$/g, "");
+  return withoutPrefix.replace(/^[ab]\//, "");
+}
+
+function parseHunkStarts(header: string): { oldLine: number; newLine: number } {
+  const match = header.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+  return {
+    oldLine: match ? Number(match[1]) : 0,
+    newLine: match ? Number(match[2]) : 0
+  };
+}
+
+function parseUnifiedDiff(diff: string | undefined): ParsedDiffFile[] {
+  if (!diff?.trim()) {
+    return [];
+  }
+
+  const files: ParsedDiffFile[] = [];
+  let currentFile: ParsedDiffFile | null = null;
+  let currentHunk: ParsedDiffHunk | null = null;
+  let oldLine = 0;
+  let newLine = 0;
+
+  for (const rawLine of diff.split("\n")) {
+    if (rawLine.startsWith("diff --git ")) {
+      const match = rawLine.match(/^diff --git a\/(.+?) b\/(.+)$/);
+      currentFile = {
+        oldPath: match ? match[1] : "",
+        newPath: match ? match[2] : "",
+        displayPath: match ? match[2] : rawLine.replace("diff --git ", ""),
+        added: 0,
+        removed: 0,
+        isBinary: false,
+        hunks: []
+      };
+      files.push(currentFile);
+      currentHunk = null;
+      continue;
+    }
+
+    if (!currentFile) {
+      continue;
+    }
+
+    if (rawLine.startsWith("--- ")) {
+      currentFile.oldPath = parseDiffPath(rawLine.slice(4).trim());
+      continue;
+    }
+
+    if (rawLine.startsWith("+++ ")) {
+      currentFile.newPath = parseDiffPath(rawLine.slice(4).trim());
+      currentFile.displayPath = currentFile.newPath && currentFile.newPath !== "/dev/null"
+        ? currentFile.newPath
+        : currentFile.oldPath;
+      continue;
+    }
+
+    if (rawLine.startsWith("@@ ")) {
+      currentHunk = { header: rawLine, lines: [] };
+      currentFile.hunks.push(currentHunk);
+      const starts = parseHunkStarts(rawLine);
+      oldLine = starts.oldLine;
+      newLine = starts.newLine;
+      continue;
+    }
+
+    if (rawLine.startsWith("Binary files ") || rawLine === "GIT binary patch") {
+      currentFile.isBinary = true;
+      currentHunk = { header: "二进制文件变更", lines: [{ type: "meta", content: rawLine }] };
+      currentFile.hunks.push(currentHunk);
+      continue;
+    }
+
+    if (!currentHunk) {
+      if (rawLine.trim()) {
+        currentHunk = { header: "文件信息", lines: [] };
+        currentFile.hunks.push(currentHunk);
+        currentHunk.lines.push({ type: "meta", content: rawLine });
+      }
+      continue;
+    }
+
+    if (rawLine.startsWith("+")) {
+      currentHunk.lines.push({ type: "add", newLine, content: rawLine.slice(1) });
+      currentFile.added += 1;
+      newLine += 1;
+    } else if (rawLine.startsWith("-")) {
+      currentHunk.lines.push({ type: "remove", oldLine, content: rawLine.slice(1) });
+      currentFile.removed += 1;
+      oldLine += 1;
+    } else if (rawLine.startsWith(" ")) {
+      currentHunk.lines.push({ type: "context", oldLine, newLine, content: rawLine.slice(1) });
+      oldLine += 1;
+      newLine += 1;
+    } else if (rawLine.startsWith("\\ No newline")) {
+      currentHunk.lines.push({ type: "meta", content: rawLine });
+    } else if (rawLine.trim()) {
+      currentHunk.lines.push({ type: "meta", content: rawLine });
+    }
+  }
+
+  return files;
+}
+
 function messageRoleLabel(role: TaskMessage["role"]): string {
   if (role === "user") {
     return "用户";
@@ -70,7 +235,50 @@ function messageRoleHint(role: TaskMessage["role"]): string {
   return "系统提示";
 }
 
+function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
+  const visibleFiles = files.filter((file) => !file.isBinary);
+  const hiddenBinaryCount = files.length - visibleFiles.length;
+
+  if (!visibleFiles.length) {
+    return (
+      <div className="structured-diff-empty">
+        未检测到可展示的 diff。
+      </div>
+    );
+  }
+
+  return (
+    <div className="structured-diff-view">
+      {visibleFiles.map((file, fileIndex) => (
+        <article key={`${file.displayPath}-${fileIndex}`} className="structured-diff-file">
+          <div className="structured-diff-file-header">
+            <strong>{file.displayPath}</strong>
+            <span>
+              <span className="diff-added">+{file.added}</span>
+              <span className="diff-removed">-{file.removed}</span>
+            </span>
+          </div>
+
+          {file.hunks.map((hunk, hunkIndex) => (
+            <div key={`${file.displayPath}-hunk-${hunkIndex}`} className="structured-diff-hunk">
+              <div className="structured-diff-hunk-header">{hunk.header}</div>
+              {hunk.lines.map((line, lineIndex) => (
+                <div key={`${file.displayPath}-${hunkIndex}-${lineIndex}`} className={`structured-diff-line ${line.type}`}>
+                  <span className="diff-line-number old">{line.oldLine ?? ""}</span>
+                  <span className="diff-line-number new">{line.newLine ?? ""}</span>
+                  <code>{line.content || " "}</code>
+                </div>
+              ))}
+            </div>
+          ))}
+        </article>
+      ))}
+    </div>
+  );
+}
+
 export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
+  const conversationListRef = useRef<HTMLDivElement | null>(null);
   const [expandedEntries, setExpandedEntries] = useState<Record<string, boolean>>({});
   const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
   const [messages, setMessages] = useState<TaskMessage[]>([]);
@@ -89,6 +297,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
   const [publishDialogMode, setPublishDialogMode] = useState<PublishDialogMode>(null);
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
+  const [conversationPinnedToBottom, setConversationPinnedToBottom] = useState(true);
 
   useEffect(() => {
     setExpandedEntries({});
@@ -103,9 +312,23 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     setDiffModalOpen(false);
     setPublishDialogMode(null);
     setMessages(task?.result?.messages ?? []);
+    setConversationPinnedToBottom(true);
     setMessageContent("");
     setMessageError(null);
   }, [task?.id]);
+
+  useEffect(() => {
+    if (!conversationPinnedToBottom) {
+      return;
+    }
+    const list = conversationListRef.current;
+    if (!list) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+    });
+  }, [messages, conversationPinnedToBottom]);
 
   useEffect(() => {
     if (!task) {
@@ -227,6 +450,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     try {
       setMessageBusy(true);
       setMessageError(null);
+      setConversationPinnedToBottom(true);
       const response = await submitTaskMessage(task.id, {
         content: messageContent.trim(),
         replan: messageReplan
@@ -239,6 +463,15 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     } finally {
       setMessageBusy(false);
     }
+  }
+
+  function handleConversationScroll() {
+    const list = conversationListRef.current;
+    if (!list) {
+      return;
+    }
+    const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+    setConversationPinnedToBottom(distanceToBottom < 64);
   }
 
   async function handleSaveBadCase() {
@@ -290,53 +523,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
   const canPublish = task.status === "completed";
   const stats = diffStats(diffInfo?.diff);
   const localRepoPath = diffInfo?.repo_path || snapshot?.repo_path || "-";
+  const repoSourceLabel = formatRepoSource(task.config.repo_source);
   const hasChanges = !!diffInfo?.has_changes;
+  const parsedDiffFiles = parseUnifiedDiff(diffInfo?.diff);
 
   return (
     <>
     <div className="task-detail-layout">
     <section className="card task-detail-main">
-      <div className="section-header">
-        <div>
-          <h2>任务详情</h2>
-          <p>{task.name}</p>
-        </div>
-        <div className="action-row">
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void handleSaveBadCase()}
-            disabled={isBusy}
-          >
-            保存 Bad Case
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void onRunTask(task.id, "step")}
-            disabled={isBusy}
-          >
-            继续单步
-          </button>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => void onRunTask(task.id, "auto")}
-            disabled={isBusy}
-          >
-            自动执行
-          </button>
-        </div>
-      </div>
-
-      {snapshot ? (
-        <div className="context-summary">
-          <strong>当前上下文</strong>
-          <p>状态：{snapshot.status}，轮数：{snapshot.iteration_count}/{snapshot.max_iterations}</p>
-          <p>当前计划：{snapshot.plan.length ? snapshot.plan.join(" / ") : "暂无计划"}</p>
-        </div>
-      ) : null}
-
       <section className="conversation-panel">
         <div className="section-header compact">
           <div>
@@ -345,7 +539,12 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
           </div>
         </div>
 
-        <div className="conversation-list" aria-label="多轮对话历史">
+        <div
+          ref={conversationListRef}
+          className="conversation-list"
+          aria-label="多轮对话历史"
+          onScroll={handleConversationScroll}
+        >
           {messages.map((message) => (
             <article key={message.id} className={`conversation-message ${message.role}`}>
               <div className="conversation-avatar" aria-hidden="true">
@@ -553,11 +752,36 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         </button>
       </div>
 
+      <div className="floating-task-actions" aria-label="任务操作">
+        <button
+          type="button"
+          onClick={() => void handleSaveBadCase()}
+          disabled={isBusy}
+        >
+          保存 Bad Case
+        </button>
+        <button
+          type="button"
+          onClick={() => void onRunTask(task.id, "step")}
+          disabled={isBusy}
+        >
+          继续单步
+        </button>
+        <button
+          className="primary"
+          type="button"
+          onClick={() => void onRunTask(task.id, "auto")}
+          disabled={isBusy}
+        >
+          自动执行
+        </button>
+      </div>
+
       <div className="floating-env-list">
         <button className="floating-env-row" type="button" onClick={() => void openDiffModal()} disabled={!canPublish}>
           <span className="floating-env-icon">±</span>
           <span>变更</span>
-          <strong>
+          <strong className="floating-diff-stats">
             {diffLoading ? "加载中" : hasChanges ? (
               <>
                 <span className="diff-added">+{stats.added}</span>
@@ -568,15 +792,15 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         </button>
 
         <div className="floating-env-row static">
-          <span className="floating-env-icon">⌂</span>
-          <span>本地</span>
-          <strong title={localRepoPath}>{localRepoPath}</strong>
+          <span className="floating-env-icon">#</span>
+          <span>轮数</span>
+          <strong>{snapshot ? `${snapshot.iteration_count}/${snapshot.max_iterations}` : "-"}</strong>
         </div>
 
         <div className="floating-env-row static">
           <span className="floating-env-icon">⑂</span>
           <span>来源</span>
-          <strong title={task.config.repo_source}>{task.config.repo_source}</strong>
+          <strong title={task.config.repo_source}>{repoSourceLabel}</strong>
         </div>
 
         <button
@@ -613,14 +837,16 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
           <div className="settings-modal-header">
             <div>
               <h2>代码变更 Diff</h2>
-              <p>{localRepoPath}</p>
+              <p>{diffInfo?.branch ? `分支：${diffInfo.branch}` : "分支：-" } / {localRepoPath}</p>
             </div>
             <button className="modal-close-button" type="button" onClick={() => setDiffModalOpen(false)}>关闭</button>
           </div>
           <div className="task-modal-body">
-            <pre className="diff-viewer modal-diff-viewer">
-              {diffLoading ? "正在加载 diff..." : diffInfo?.diff || "未检测到可展示的 diff。"}
-            </pre>
+            {diffLoading ? (
+              <div className="structured-diff-empty">正在加载 diff...</div>
+            ) : (
+              <StructuredDiffView files={parsedDiffFiles} />
+            )}
           </div>
         </section>
       </div>

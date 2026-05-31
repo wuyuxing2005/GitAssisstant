@@ -110,6 +110,7 @@ export interface EvaluationTask {
 export interface GitDiffResponse {
   task_id: string;
   repo_path: string;
+  branch: string;
   status: string;
   diff: string;
   has_changes: boolean;

@@ -930,6 +930,9 @@ class EvaluationService:
 
         repo_path = self._repo_path_for_task(task)
         status = _run_git_command(repo_path, ["status", "--short"], timeout=30)
+        branch = _run_git_command(
+            repo_path, ["rev-parse", "--abbrev-ref", "HEAD"], timeout=10
+        ).strip()
         diff_parts = [
             _run_git_command(
                 repo_path, ["diff", "--no-ext-diff", "--binary"], timeout=60),
@@ -945,6 +948,7 @@ class EvaluationService:
         return GitDiffResponse(
             task_id=task.id,
             repo_path=str(repo_path),
+            branch=branch,
             status=status,
             diff=diff,
             has_changes=bool(status.strip()),

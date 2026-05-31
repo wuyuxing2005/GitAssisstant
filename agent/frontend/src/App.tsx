@@ -292,8 +292,10 @@ export default function App() {
 
       <main className="content">
         <header className="hero">
-          <div>
-            <h2>{pageTitle(currentPage, currentTask)}</h2>
+          <div className="hero-title-block">
+            <div className="hero-title-row">
+              <h2>{pageTitle(currentPage, currentTask)}</h2>
+            </div>
           </div>
 
           <div className="hero-actions">

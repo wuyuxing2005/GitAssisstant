@@ -140,6 +140,7 @@ class EvaluationTaskResponse(EvaluationTaskBase):
 class GitDiffResponse(BaseModel):
     task_id: str
     repo_path: str
+    branch: str = ""
     status: str = ""
     diff: str = ""
     has_changes: bool = False
