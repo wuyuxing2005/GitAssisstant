@@ -235,6 +235,26 @@ function messageRoleHint(role: TaskMessage["role"]): string {
   return "系统提示";
 }
 
+function mergeConversationMessages(remoteMessages: TaskMessage[], localMessages: TaskMessage[]): TaskMessage[] {
+  const byId = new Map<string, TaskMessage>();
+  for (const message of [...remoteMessages, ...localMessages]) {
+    byId.set(message.id, message);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+}
+
+function continuePromptMessage(taskId: string): TaskMessage {
+  return {
+    id: `${taskId}-local-continue-prompt-${Date.now()}`,
+    role: "system",
+    content: "补充要求已收到。请选择右侧环境栏中的“继续单步”或“自动执行”来让 Agent 继续处理。",
+    created_at: new Date().toISOString(),
+    replan: false
+  };
+}
+
 function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
   const visibleFiles = files.filter((file) => !file.isBinary);
   const hiddenBinaryCount = files.length - visibleFiles.length;
@@ -282,6 +302,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
   const [expandedEntries, setExpandedEntries] = useState<Record<string, boolean>>({});
   const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
   const [messages, setMessages] = useState<TaskMessage[]>([]);
+  const [localMessages, setLocalMessages] = useState<TaskMessage[]>([]);
   const [messageContent, setMessageContent] = useState("");
   const [messageReplan, setMessageReplan] = useState(true);
   const [messageBusy, setMessageBusy] = useState(false);
@@ -312,6 +333,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     setDiffModalOpen(false);
     setPublishDialogMode(null);
     setMessages(task?.result?.messages ?? []);
+    setLocalMessages([]);
     setConversationPinnedToBottom(true);
     setMessageContent("");
     setMessageError(null);
@@ -328,7 +350,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     window.requestAnimationFrame(() => {
       list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
     });
-  }, [messages, conversationPinnedToBottom]);
+  }, [messages, localMessages, conversationPinnedToBottom]);
 
   useEffect(() => {
     if (!task) {
@@ -456,6 +478,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         replan: messageReplan
       });
       setMessages(response.messages);
+      setLocalMessages((current) => [...current, continuePromptMessage(task.id)]);
       setMessageContent("");
       await onTaskChanged?.();
     } catch (error) {
@@ -492,6 +515,25 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     }
   }
 
+  async function handleRunWithConversationChoice(mode: RunMode) {
+    if (!task) {
+      return;
+    }
+    const label = mode === "step" ? "继续单步" : "自动执行";
+    setConversationPinnedToBottom(true);
+    setLocalMessages((current) => [
+      ...current,
+      {
+        id: `${task.id}-local-run-choice-${mode}-${Date.now()}`,
+        role: "user",
+        content: `选择：${label}`,
+        created_at: new Date().toISOString(),
+        replan: false
+      }
+    ]);
+    await onRunTask(task.id, mode);
+  }
+
   async function openDiffModal() {
     setDiffModalOpen(true);
     if (task && task.status === "completed" && !diffInfo && !diffLoading) {
@@ -526,6 +568,15 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
   const repoSourceLabel = formatRepoSource(task.config.repo_source);
   const hasChanges = !!diffInfo?.has_changes;
   const parsedDiffFiles = parseUnifiedDiff(diffInfo?.diff);
+  const displayedMessages = mergeConversationMessages(messages, localMessages);
+  const publishStateLabel =
+    task.status === "failed"
+      ? "失败"
+      : task.status !== "completed"
+        ? "运行中"
+        : hasChanges
+          ? "等待发布"
+          : "已完成";
 
   return (
     <>
@@ -545,7 +596,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
           aria-label="多轮对话历史"
           onScroll={handleConversationScroll}
         >
-          {messages.map((message) => (
+          {displayedMessages.map((message) => (
             <article key={message.id} className={`conversation-message ${message.role}`}>
               <div className="conversation-avatar" aria-hidden="true">
                 {message.role === "assistant" ? "A" : message.role === "user" ? "U" : "S"}
@@ -560,7 +611,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
               </div>
             </article>
           ))}
-          {!messages.length ? (
+          {!displayedMessages.length ? (
             <div className="conversation-empty">
               <strong>暂无对话历史</strong>
               <p>发送补充要求后，这里会按双方消息展示完整对话记录。</p>
@@ -745,7 +796,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
       <div className="floating-env-header">
         <div>
           <span>环境信息</span>
-          <strong>{canPublish ? "任务已成功" : "等待成功后发布"}</strong>
+          <strong>{publishStateLabel}</strong>
         </div>
         <button type="button" onClick={() => void handleRefreshDiff()} disabled={!canPublish || diffLoading}>
           刷新
@@ -762,7 +813,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         </button>
         <button
           type="button"
-          onClick={() => void onRunTask(task.id, "step")}
+          onClick={() => void handleRunWithConversationChoice("step")}
           disabled={isBusy}
         >
           继续单步
@@ -770,7 +821,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         <button
           className="primary"
           type="button"
-          onClick={() => void onRunTask(task.id, "auto")}
+          onClick={() => void handleRunWithConversationChoice("auto")}
           disabled={isBusy}
         >
           自动执行
@@ -896,11 +947,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
                 </label>
               </>
             ) : null}
-
-            <div className="publish-diff-summary">
-              <span>变更统计</span>
-              <strong><span className="diff-added">+{stats.added}</span> <span className="diff-removed">-{stats.removed}</span></strong>
-            </div>
 
             {pushResult?.output && publishDialogMode === "push" ? <pre className="git-output-viewer">{pushResult.output}</pre> : null}
             {pullRequestResult?.output && publishDialogMode === "pr" ? <pre className="git-output-viewer">{pullRequestResult.output}</pre> : null}

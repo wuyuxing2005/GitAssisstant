@@ -1476,8 +1476,7 @@ body {
 }
 
 .floating-env-header span,
-.floating-env-row span,
-.publish-diff-summary span {
+.floating-env-row span {
   color: #7a838b;
   font-size: 14px;
   font-weight: 700;
@@ -1941,16 +1940,6 @@ button.floating-env-row:hover:not(:disabled) {
   background: #fbfcfc;
   color: #647077;
   text-align: center;
-}
-
-.publish-diff-summary {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid #e6eaed;
-  border-radius: 14px;
-  background: #fbfcfc;
 }
 
 .conversation-message {

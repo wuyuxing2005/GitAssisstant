@@ -77,7 +77,6 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<PageKey>("new-task");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [backendStatus, setBackendStatus] = useState<"loading" | "online" | "offline">("loading");
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -108,7 +107,7 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [tasks]);
 
-  async function refreshData(keepBanner = false) {
+  async function refreshData(_keepBanner = false) {
     try {
       setErrorMessage(null);
       const [health, taskList, settingsResponse, badCaseResponse, skillResponse] = await Promise.all([
@@ -139,9 +138,6 @@ export default function App() {
         setComparison(null);
       }
 
-      if (!keepBanner) {
-        setBanner(null);
-      }
     } catch (error) {
       setBackendStatus("offline");
       setErrorMessage(error instanceof Error ? error.message : "加载数据失败");
@@ -154,7 +150,6 @@ export default function App() {
       const task = await createTask(payload);
       setSelectedTaskId(task.id);
       setCurrentPage("detail");
-      setBanner(payload.auto_start ? "任务已创建并开始执行。" : "任务创建成功。");
       await refreshData(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "创建任务失败");
@@ -170,7 +165,6 @@ export default function App() {
       setSelectedTaskId(taskId);
       setCurrentPage("detail");
       await runTask(taskId, { mode, reset });
-      setBanner(reset ? "任务已重置并重新调度。" : `任务已按 ${mode} 模式触发。`);
       await refreshData(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "执行任务失败");
@@ -182,7 +176,6 @@ export default function App() {
   async function handleSaveSettings(payload: AppSettingsUpdate) {
     const updated = await updateSettings(payload);
     setSettings(updated);
-    setBanner("设置已保存到 backend/.env。");
     if (payload.model_name !== undefined) {
       await refreshData(true);
     }
@@ -193,7 +186,6 @@ export default function App() {
       setLoadingModels(true);
       const response = await fetchOpenAIModels();
       setModels(response.models);
-      setBanner(`已获取 ${response.models.length} 个模型。`);
       return response.models;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "获取模型列表失败");
@@ -250,7 +242,6 @@ export default function App() {
 
         <nav>
           <a href="#dashboard" onClick={(event) => handleNavClick(event, "new-task")}>新任务</a>
-          <a href="#detail" onClick={(event) => handleNavClick(event, "detail")}>本地变更</a>
           <a href="#bad-cases" onClick={(event) => handleNavClick(event, "bad-cases")}>Bad Case</a>
           <a href="#skills" onClick={(event) => handleNavClick(event, "skills")}>Skill</a>
           <a href="#compare" onClick={(event) => handleNavClick(event, "compare")}>对比结果</a>
@@ -306,7 +297,6 @@ export default function App() {
           </div>
         </header>
 
-        {banner ? <div className="banner success">{banner}</div> : null}
         {errorMessage ? <div className="banner error">{errorMessage}</div> : null}
 
         {currentPage === "new-task" ? (
