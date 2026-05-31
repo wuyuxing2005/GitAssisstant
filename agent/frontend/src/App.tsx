@@ -2,16 +2,15 @@ import { useEffect, useState } from "react";
 import { SettingsModal } from "./components/SettingsModal";
 import { BadCasePanel } from "./components/BadCasePanel";
 import { SkillManager } from "./components/SkillManager";
+import { ComparePage } from "./pages/ComparePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import {
   compareTasks,
   createTask,
-  deleteTask,
   fetchBadCases,
   fetchOpenAIModels,
   fetchHealth,
-  fetchMetadata,
   fetchSettings,
   fetchSkills,
   fetchTasks,
@@ -24,12 +23,13 @@ import type {
   BadCaseRecord,
   ComparisonResponse,
   CreateTaskPayload,
-  EvaluationMetadataResponse,
   EvaluationTask,
   SkillRecord,
   TaskStatus,
   RunMode
 } from "./types/task";
+
+type PageKey = "new-task" | "detail" | "bad-cases" | "skills" | "compare";
 
 function formatTaskStatus(status: TaskStatus): string {
   const labels: Record<TaskStatus, string> = {
@@ -43,13 +43,29 @@ function formatTaskStatus(status: TaskStatus): string {
   return labels[status];
 }
 
+function pageTitle(page: PageKey, task: EvaluationTask | null): string {
+  if (page === "new-task") {
+    return "创建新任务";
+  }
+  if (page === "detail") {
+    return task?.name ?? "任务详情";
+  }
+  if (page === "bad-cases") {
+    return "Bad Case";
+  }
+  if (page === "skills") {
+    return "Skill 管理";
+  }
+  return "对比结果";
+}
+
 export default function App() {
   const [tasks, setTasks] = useState<EvaluationTask[]>([]);
-  const [metadata, setMetadata] = useState<EvaluationMetadataResponse | null>(null);
   const [comparison, setComparison] = useState<ComparisonResponse | null>(null);
   const [badCases, setBadCases] = useState<BadCaseRecord[]>([]);
   const [badCaseTags, setBadCaseTags] = useState<string[]>([]);
   const [skills, setSkills] = useState<SkillRecord[]>([]);
+  const [currentPage, setCurrentPage] = useState<PageKey>("new-task");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -80,10 +96,9 @@ export default function App() {
   async function refreshData(keepBanner = false) {
     try {
       setErrorMessage(null);
-      const [health, taskList, metadataResponse, settingsResponse, badCaseResponse, skillResponse] = await Promise.all([
+      const [health, taskList, settingsResponse, badCaseResponse, skillResponse] = await Promise.all([
         fetchHealth(),
         fetchTasks(),
-        fetchMetadata(),
         fetchSettings(),
         fetchBadCases(),
         fetchSkills()
@@ -91,7 +106,6 @@ export default function App() {
 
       setBackendStatus(health.status === "ok" ? "online" : "offline");
       setTasks(taskList);
-      setMetadata(metadataResponse);
       setSettings(settingsResponse);
       setBadCases(badCaseResponse.items);
       setBadCaseTags(badCaseResponse.default_tags);
@@ -124,6 +138,7 @@ export default function App() {
       setBusyTaskId("create");
       const task = await createTask(payload);
       setSelectedTaskId(task.id);
+      setCurrentPage("detail");
       setBanner(payload.auto_start ? "任务已创建并开始执行。" : "任务创建成功。");
       await refreshData(true);
     } catch (error) {
@@ -138,28 +153,12 @@ export default function App() {
     try {
       setBusyTaskId(taskId);
       setSelectedTaskId(taskId);
+      setCurrentPage("detail");
       await runTask(taskId, { mode, reset });
       setBanner(reset ? "任务已重置并重新调度。" : `任务已按 ${mode} 模式触发。`);
       await refreshData(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "执行任务失败");
-    } finally {
-      setBusyTaskId(null);
-    }
-  }
-
-  async function handleDeleteTask(taskId: string) {
-    if (!window.confirm("确认删除该任务吗？")) {
-      return;
-    }
-
-    try {
-      setBusyTaskId(taskId);
-      await deleteTask(taskId);
-      setBanner("任务已删除。");
-      await refreshData(true);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "删除任务失败");
     } finally {
       setBusyTaskId(null);
     }
@@ -189,16 +188,12 @@ export default function App() {
     }
   }
 
+  function handleNavClick(event: React.MouseEvent<HTMLAnchorElement>, page: PageKey) {
+    event.preventDefault();
+    setCurrentPage(page);
+  }
+
   const currentTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const completedCount = tasks.filter((task) => task.status === "completed").length;
-  const runningCount = tasks.filter((task) => task.status === "running" || task.status === "scheduled").length;
-  const failedCount = tasks.filter((task) => task.status === "failed").length;
-  const successRate = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
-  const currentSnapshot = currentTask?.result?.current_state;
-  const repoPath = currentSnapshot?.repo_path ?? "暂无本地仓库";
-  const currentIteration = currentSnapshot
-    ? `${currentSnapshot.iteration_count}/${currentSnapshot.max_iterations}`
-    : "-";
 
   return (
     <div className="app-shell">
@@ -212,12 +207,11 @@ export default function App() {
         </div>
 
         <nav>
-          <a href="#dashboard">新任务</a>
-          <a href="#dashboard">搜索</a>
-          <a href="#detail">本地变更</a>
-          <a href="#bad-cases">Bad Case</a>
-          <a href="#skills">Skill</a>
-          <a href="#compare">对比结果</a>
+          <a href="#dashboard" onClick={(event) => handleNavClick(event, "new-task")}>新任务</a>
+          <a href="#detail" onClick={(event) => handleNavClick(event, "detail")}>本地变更</a>
+          <a href="#bad-cases" onClick={(event) => handleNavClick(event, "bad-cases")}>Bad Case</a>
+          <a href="#skills" onClick={(event) => handleNavClick(event, "skills")}>Skill</a>
+          <a href="#compare" onClick={(event) => handleNavClick(event, "compare")}>对比结果</a>
         </nav>
 
         <div className="sidebar-task-list">
@@ -226,7 +220,10 @@ export default function App() {
               key={task.id}
               className={`sidebar-task-item ${task.id === selectedTaskId ? "active" : ""}`}
               type="button"
-              onClick={() => setSelectedTaskId(task.id)}
+              onClick={() => {
+                setSelectedTaskId(task.id);
+                setCurrentPage("detail");
+              }}
             >
               <span>{task.name}</span>
               <small>{formatTaskStatus(task.status)}</small>
@@ -243,8 +240,7 @@ export default function App() {
       <main className="content">
         <header className="hero">
           <div>
-            <h2>{currentTask?.name ?? "Agent 运行与评估台"}</h2>
-            <p>{currentTask?.description || "创建任务、查看执行轨迹，确认本地 diff 后再决定是否 push。"}</p>
+            <h2>{pageTitle(currentPage, currentTask)}</h2>
           </div>
 
           <div className="hero-actions">
@@ -258,21 +254,17 @@ export default function App() {
         {banner ? <div className="banner success">{banner}</div> : null}
         {errorMessage ? <div className="banner error">{errorMessage}</div> : null}
 
-        <section id="dashboard">
+        {currentPage === "new-task" ? (
           <DashboardPage
-            tasks={tasks}
-            badCases={badCases}
-            comparison={comparison}
-            selectedTaskId={selectedTaskId}
             busyTaskId={busyTaskId}
             settings={settings}
             models={models}
             skills={skills}
             onCreateTask={handleCreateTask}
           />
-        </section>
+        ) : null}
 
-        <section id="detail">
+        {currentPage === "detail" ? (
           <TaskDetailPage
             task={currentTask}
             busyTaskId={busyTaskId}
@@ -280,83 +272,28 @@ export default function App() {
             onTaskChanged={() => refreshData(true)}
             onBadCasesChanged={() => refreshData(true)}
           />
-        </section>
+        ) : null}
 
-        <BadCasePanel
-          badCases={badCases}
-          defaultTags={badCaseTags}
-          onChanged={() => refreshData(true)}
-          onTaskCreated={() => refreshData(true)}
-        />
+        {currentPage === "bad-cases" ? (
+          <BadCasePanel
+            badCases={badCases}
+            defaultTags={badCaseTags}
+            onChanged={() => refreshData(true)}
+            onTaskCreated={() => refreshData(true)}
+          />
+        ) : null}
 
-        <SkillManager
-          skills={skills}
-          onChanged={() => refreshData(true)}
-        />
+        {currentPage === "skills" ? (
+          <SkillManager
+            skills={skills}
+            onChanged={() => refreshData(true)}
+          />
+        ) : null}
+
+        {currentPage === "compare" ? (
+          <ComparePage tasks={tasks} badCases={badCases} comparison={comparison} />
+        ) : null}
       </main>
-
-      <aside className="inspector">
-        <div className="inspector-card">
-          <div className="inspector-header">
-            <h2>环境信息</h2>
-            <button type="button" onClick={() => void refreshData()}>刷新</button>
-          </div>
-
-          <dl className="inspector-list">
-            <div>
-              <dt>变更</dt>
-              <dd>
-                <strong>{tasks.length}</strong>
-                <span>任务</span>
-              </dd>
-            </div>
-            <div>
-              <dt>本地</dt>
-              <dd>{repoPath}</dd>
-            </div>
-            <div>
-              <dt>当前状态</dt>
-              <dd>{currentTask ? formatTaskStatus(currentTask.status) : "未选择"}</dd>
-            </div>
-            <div>
-              <dt>执行轮数</dt>
-              <dd>{currentIteration}</dd>
-            </div>
-          </dl>
-
-          <div className="inspector-divider" />
-
-          <dl className="inspector-list compact">
-            <div>
-              <dt>运行中</dt>
-              <dd>{runningCount}</dd>
-            </div>
-            <div>
-              <dt>已完成</dt>
-              <dd>{completedCount}</dd>
-            </div>
-            <div>
-              <dt>失败</dt>
-              <dd>{failedCount}</dd>
-            </div>
-            <div>
-              <dt>完成率</dt>
-              <dd>{successRate}%</dd>
-            </div>
-            <div>
-              <dt>工具数</dt>
-              <dd>{metadata?.builtin_tools.length ?? 0}</dd>
-            </div>
-          </dl>
-
-          <div className="inspector-divider" />
-
-          <div className="inspector-source">
-            <span>来源</span>
-            <strong>{currentTask?.config.repo_source ?? "暂无来源"}</strong>
-          </div>
-        </div>
-      </aside>
 
       <SettingsModal
         open={settingsOpen}
