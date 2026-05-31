@@ -1393,6 +1393,160 @@ body {
   word-break: break-word;
 }
 
+.task-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(292px, 330px);
+  gap: 18px;
+  align-items: start;
+  margin: 18px 22px;
+}
+
+.task-detail-main {
+  min-width: 0;
+}
+
+.task-floating-env {
+  position: sticky;
+  top: 86px;
+  z-index: 5;
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-height: calc(100vh - 110px);
+  overflow: auto;
+  padding: 18px 18px 20px;
+  border: 1px solid #e6e9ec;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+.floating-env-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.floating-env-header div {
+  display: grid;
+  gap: 4px;
+}
+
+.floating-env-header span,
+.floating-env-row span,
+.publish-diff-summary span {
+  color: #7a838b;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.floating-env-header strong {
+  color: #1f5f5a;
+  font-size: 13px;
+}
+
+.floating-env-header button {
+  border: 1px solid #e2e7ea;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #344448;
+  cursor: pointer;
+  padding: 7px 10px;
+  font-weight: 700;
+}
+
+.floating-env-header button:disabled {
+  cursor: not-allowed;
+  color: #a0aab0;
+}
+
+.floating-env-list {
+  display: grid;
+  gap: 4px;
+}
+
+.floating-env-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  width: 100%;
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: #253438;
+  text-align: left;
+}
+
+button.floating-env-row {
+  cursor: pointer;
+}
+
+button.floating-env-row:hover:not(:disabled) {
+  color: #1f5f5a;
+}
+
+.floating-env-row:disabled {
+  cursor: not-allowed;
+  color: #99a4aa;
+}
+
+.floating-env-row strong {
+  min-width: 0;
+  max-width: 150px;
+  overflow: hidden;
+  color: #344448;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floating-env-row.static strong {
+  color: #6d7880;
+}
+
+.floating-env-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #e3e8eb;
+  border-radius: 7px;
+  background: #fbfcfc;
+  color: #253438 !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+}
+
+.diff-added {
+  color: #009b4e;
+}
+
+.diff-removed {
+  color: #cf222e;
+}
+
+.floating-env-error,
+.floating-env-success {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f2;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.floating-env-error {
+  color: var(--danger);
+}
+
+.floating-env-success {
+  color: #147151;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1557,6 +1711,32 @@ body {
   border: 1px solid #e2e8ec;
   border-radius: 18px;
   background: linear-gradient(180deg, #fbfcfd 0%, #f6f8f9 100%);
+}
+
+.task-diff-modal {
+  width: min(1040px, 100%);
+}
+
+.publish-modal {
+  width: min(680px, 100%);
+}
+
+.task-modal-body {
+  padding: 18px 24px 24px;
+}
+
+.modal-diff-viewer {
+  max-height: min(620px, calc(100vh - 190px));
+}
+
+.publish-diff-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e6eaed;
+  border-radius: 14px;
+  background: #fbfcfc;
 }
 
 .conversation-message {
@@ -1893,6 +2073,11 @@ body {
     grid-template-columns: var(--sidebar-width) 8px minmax(0, 1fr);
   }
 
+  .task-detail-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 310px);
+    gap: 14px;
+  }
+
   .inspector {
     padding-left: 18px;
     padding-right: 18px;
@@ -1927,6 +2112,15 @@ body {
   .hero {
     position: static;
   }
+
+  .task-detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .task-floating-env {
+    position: static;
+    max-height: none;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1938,6 +2132,11 @@ body {
 
   .hero {
     padding: 14px;
+  }
+
+  .task-detail-layout {
+    margin-left: 14px;
+    margin-right: 14px;
   }
 
   .sidebar {

@@ -5,8 +5,7 @@ import {
   fetchTaskDiff,
   fetchTaskMessages,
   pushTaskChanges,
-  submitTaskMessage,
-  taskReportDownloadUrl
+  submitTaskMessage
 } from "../services/api";
 import type {
   EvaluationTask,
@@ -27,9 +26,28 @@ interface TaskDetailPageProps {
   onBadCasesChanged?: () => Promise<void>;
 }
 
+type PublishDialogMode = "push" | "pr" | null;
+
 function formatMetric(metric: MetricScore): string {
   const rawValue = Number.isInteger(metric.value) ? metric.value.toString() : metric.value.toFixed(2);
   return metric.unit ? `${rawValue} ${metric.unit}` : rawValue;
+}
+
+function diffStats(diff: string | undefined): { added: number; removed: number } {
+  if (!diff) {
+    return { added: 0, removed: 0 };
+  }
+  return diff.split("\n").reduce(
+    (stats, line) => {
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        stats.added += 1;
+      } else if (line.startsWith("-") && !line.startsWith("---")) {
+        stats.removed += 1;
+      }
+      return stats;
+    },
+    { added: 0, removed: 0 }
+  );
 }
 
 function messageRoleLabel(role: TaskMessage["role"]): string {
@@ -67,6 +85,10 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
   const [pushResult, setPushResult] = useState<GitPushResponse | null>(null);
   const [pullRequestResult, setPullRequestResult] = useState<GitPullRequestResponse | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
+  const [diffModalOpen, setDiffModalOpen] = useState(false);
+  const [publishDialogMode, setPublishDialogMode] = useState<PublishDialogMode>(null);
+  const [prTitle, setPrTitle] = useState("");
+  const [prBody, setPrBody] = useState("");
 
   useEffect(() => {
     setExpandedEntries({});
@@ -76,6 +98,10 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     setPushResult(null);
     setPullRequestResult(null);
     setCommitMessage(task ? `fix: ${task.name}` : "");
+    setPrTitle(task ? `fix: ${task.name}` : "");
+    setPrBody(task?.result?.fix_report?.suggested_pr_description || task?.result?.fix_report?.markdown || "");
+    setDiffModalOpen(false);
+    setPublishDialogMode(null);
     setMessages(task?.result?.messages ?? []);
     setMessageContent("");
     setMessageError(null);
@@ -180,8 +206,8 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
       setGitMessage(null);
       const result = await createTaskPullRequest(task.id, {
         commit_message: commitMessage.trim() || `fix: ${task.name}`,
-        title: task.result?.fix_report?.suggested_pr_title || `fix: ${task.name}`,
-        body: task.result?.fix_report?.suggested_pr_description || task.result?.fix_report?.markdown || ""
+        title: prTitle.trim() || task.result?.fix_report?.suggested_pr_title || `fix: ${task.name}`,
+        body: prBody.trim() || task.result?.fix_report?.suggested_pr_description || task.result?.fix_report?.markdown || ""
       });
       setPullRequestResult(result);
       setGitMessage(result.pr_url ? `已创建 PR：${result.pr_url}` : "已创建 PR");
@@ -233,6 +259,20 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     }
   }
 
+  async function openDiffModal() {
+    setDiffModalOpen(true);
+    if (task && task.status === "completed" && !diffInfo && !diffLoading) {
+      await handleRefreshDiff();
+    }
+  }
+
+  async function openPublishDialog(mode: Exclude<PublishDialogMode, null>) {
+    setPublishDialogMode(mode);
+    if (task && task.status === "completed" && !diffInfo && !diffLoading) {
+      await handleRefreshDiff();
+    }
+  }
+
   if (!task) {
     return (
       <section className="card">
@@ -247,9 +287,15 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
   const result = task.result;
   const snapshot = result?.current_state;
   const isBusy = busyTaskId === task.id;
+  const canPublish = task.status === "completed";
+  const stats = diffStats(diffInfo?.diff);
+  const localRepoPath = diffInfo?.repo_path || snapshot?.repo_path || "-";
+  const hasChanges = !!diffInfo?.has_changes;
 
   return (
-    <section className="card">
+    <>
+    <div className="task-detail-layout">
+    <section className="card task-detail-main">
       <div className="section-header">
         <div>
           <h2>任务详情</h2>
@@ -431,106 +477,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         </article>
       </div>
 
-      {task.status === "completed" ? (
-        <section className="git-review-panel">
-          <div className="section-header">
-            <div>
-              <h3>本地修改 Diff</h3>
-              <p>Agent 只修改本地 clone。确认 diff 后，可由后端提交并 push 到仓库。</p>
-            </div>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => void handleRefreshDiff()}
-              disabled={diffLoading || gitActionBusy}
-            >
-              刷新 diff
-            </button>
-          </div>
-
-          {result?.fix_report ? (
-            <div className="git-review-meta">
-              <div className="section-header compact">
-                <div>
-                  <h3>修复报告</h3>
-                  <p>{result.fix_report.file_name}</p>
-                </div>
-                <a
-                  className="secondary-button"
-                  href={taskReportDownloadUrl(task.id)}
-                  download={result.fix_report.file_name}
-                >
-                  下载报告
-                </a>
-              </div>
-              <pre className="git-output-viewer">{result.fix_report.markdown}</pre>
-            </div>
-          ) : null}
-
-          {gitError ? <p className="error-copy">{gitError}</p> : null}
-          {gitMessage ? <p className="success-copy">{gitMessage}</p> : null}
-
-          {diffInfo ? (
-            <div className="git-review-meta">
-              <dl className="detail-list">
-                <div>
-                  <dt>本地仓库</dt>
-                  <dd>{diffInfo.repo_path}</dd>
-                </div>
-                <div>
-                  <dt>Git status</dt>
-                  <dd>{diffInfo.status || "工作区干净"}</dd>
-                </div>
-              </dl>
-            </div>
-          ) : null}
-
-          <pre className="diff-viewer">
-            {diffLoading
-              ? "正在加载 diff..."
-              : diffInfo?.diff || "未检测到可展示的 diff。"}
-          </pre>
-
-          <div className="git-push-controls">
-            <label>
-              <span>Commit message</span>
-              <input
-                value={commitMessage}
-                onChange={(event) => setCommitMessage(event.target.value)}
-                placeholder={`fix: ${task.name}`}
-                disabled={gitActionBusy}
-              />
-            </label>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => void handlePushChanges()}
-              disabled={gitActionBusy || diffLoading || !diffInfo?.has_changes}
-            >
-              确认提交并 Push
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => void handleCreatePullRequest()}
-              disabled={gitActionBusy || diffLoading || !diffInfo?.has_changes}
-            >
-              创建 PR
-            </button>
-          </div>
-
-          {pushResult?.output ? <pre className="git-output-viewer">{pushResult.output}</pre> : null}
-          {pullRequestResult?.output ? <pre className="git-output-viewer">{pullRequestResult.output}</pre> : null}
-          {pullRequestResult?.pr_url ? (
-            <p className="success-copy">
-              <a href={pullRequestResult.pr_url} target="_blank" rel="noreferrer">
-                打开 PR
-              </a>
-            </p>
-          ) : null}
-        </section>
-      ) : null}
-
       <section className="timeline-panel">
         <div className="section-header">
           <div>
@@ -596,5 +542,165 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         </div>
       </section>
     </section>
+    <aside className="task-floating-env" aria-label="当前任务环境信息">
+      <div className="floating-env-header">
+        <div>
+          <span>环境信息</span>
+          <strong>{canPublish ? "任务已成功" : "等待成功后发布"}</strong>
+        </div>
+        <button type="button" onClick={() => void handleRefreshDiff()} disabled={!canPublish || diffLoading}>
+          刷新
+        </button>
+      </div>
+
+      <div className="floating-env-list">
+        <button className="floating-env-row" type="button" onClick={() => void openDiffModal()} disabled={!canPublish}>
+          <span className="floating-env-icon">±</span>
+          <span>变更</span>
+          <strong>
+            {diffLoading ? "加载中" : hasChanges ? (
+              <>
+                <span className="diff-added">+{stats.added}</span>
+                <span className="diff-removed">-{stats.removed}</span>
+              </>
+            ) : "无变更"}
+          </strong>
+        </button>
+
+        <div className="floating-env-row static">
+          <span className="floating-env-icon">⌂</span>
+          <span>本地</span>
+          <strong title={localRepoPath}>{localRepoPath}</strong>
+        </div>
+
+        <div className="floating-env-row static">
+          <span className="floating-env-icon">⑂</span>
+          <span>来源</span>
+          <strong title={task.config.repo_source}>{task.config.repo_source}</strong>
+        </div>
+
+        <button
+          className="floating-env-row"
+          type="button"
+          onClick={() => void openPublishDialog("push")}
+          disabled={!canPublish || diffLoading || !hasChanges}
+        >
+          <span className="floating-env-icon">↗</span>
+          <span>提交或推送</span>
+          <strong>{canPublish ? "Push" : "未就绪"}</strong>
+        </button>
+
+        <button
+          className="floating-env-row"
+          type="button"
+          onClick={() => void openPublishDialog("pr")}
+          disabled={!canPublish || diffLoading || !hasChanges}
+        >
+          <span className="floating-env-icon">⌁</span>
+          <span>Pull Request</span>
+          <strong>{pullRequestResult?.pr_url ? "已创建" : "创建 PR"}</strong>
+        </button>
+      </div>
+
+      {gitError ? <p className="floating-env-error">{gitError}</p> : null}
+      {gitMessage ? <p className="floating-env-success">{gitMessage}</p> : null}
+    </aside>
+    </div>
+
+    {diffModalOpen ? (
+      <div className="modal-backdrop" role="presentation" onMouseDown={() => setDiffModalOpen(false)}>
+        <section className="settings-modal task-diff-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="settings-modal-header">
+            <div>
+              <h2>代码变更 Diff</h2>
+              <p>{localRepoPath}</p>
+            </div>
+            <button className="modal-close-button" type="button" onClick={() => setDiffModalOpen(false)}>关闭</button>
+          </div>
+          <div className="task-modal-body">
+            <pre className="diff-viewer modal-diff-viewer">
+              {diffLoading ? "正在加载 diff..." : diffInfo?.diff || "未检测到可展示的 diff。"}
+            </pre>
+          </div>
+        </section>
+      </div>
+    ) : null}
+
+    {publishDialogMode ? (
+      <div className="modal-backdrop" role="presentation" onMouseDown={() => setPublishDialogMode(null)}>
+        <section className="settings-modal publish-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="settings-modal-header">
+            <div>
+              <h2>{publishDialogMode === "push" ? "提交并 Push" : "创建 Pull Request"}</h2>
+              <p>确认本地变更后再执行发布操作。</p>
+            </div>
+            <button className="modal-close-button" type="button" onClick={() => setPublishDialogMode(null)}>关闭</button>
+          </div>
+
+          <div className="settings-form">
+            <label>
+              <span>Commit message</span>
+              <input
+                value={commitMessage}
+                onChange={(event) => setCommitMessage(event.target.value)}
+                placeholder={`fix: ${task.name}`}
+                disabled={gitActionBusy}
+              />
+            </label>
+
+            {publishDialogMode === "pr" ? (
+              <>
+                <label>
+                  <span>PR 标题</span>
+                  <input
+                    value={prTitle}
+                    onChange={(event) => setPrTitle(event.target.value)}
+                    placeholder={`fix: ${task.name}`}
+                    disabled={gitActionBusy}
+                  />
+                </label>
+                <label>
+                  <span>PR 描述</span>
+                  <textarea
+                    rows={7}
+                    value={prBody}
+                    onChange={(event) => setPrBody(event.target.value)}
+                    disabled={gitActionBusy}
+                  />
+                </label>
+              </>
+            ) : null}
+
+            <div className="publish-diff-summary">
+              <span>变更统计</span>
+              <strong><span className="diff-added">+{stats.added}</span> <span className="diff-removed">-{stats.removed}</span></strong>
+            </div>
+
+            {pushResult?.output && publishDialogMode === "push" ? <pre className="git-output-viewer">{pushResult.output}</pre> : null}
+            {pullRequestResult?.output && publishDialogMode === "pr" ? <pre className="git-output-viewer">{pullRequestResult.output}</pre> : null}
+            {pullRequestResult?.pr_url && publishDialogMode === "pr" ? (
+              <p className="success-copy">
+                <a href={pullRequestResult.pr_url} target="_blank" rel="noreferrer">打开 PR</a>
+              </p>
+            ) : null}
+
+            <div className="settings-actions">
+              <button className="secondary-button" type="button" onClick={() => setPublishDialogMode(null)} disabled={gitActionBusy}>
+                取消
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void (publishDialogMode === "push" ? handlePushChanges() : handleCreatePullRequest())}
+                disabled={gitActionBusy || diffLoading || !hasChanges}
+              >
+                {publishDialogMode === "push" ? "确认 Push" : "确认创建 PR"}
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    ) : null}
+    </>
   );
 }
