@@ -9,9 +9,7 @@ from __future__ import annotations
 
 
 import os
-import shlex
 import subprocess
-import time
 import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -123,7 +121,7 @@ class DockerSandbox:
         # 如果 image 已经是带域名的完整地址，则不再添加前缀
         if "/" in image:
             print("[sandbox.py] 镜像名已含域名，不再尝试其他源")
-            raise e
+            
 
         for prefix in fallback_prefixes:
             fallback_image = f"{prefix}{image}"
@@ -174,7 +172,6 @@ class DockerSandbox:
 
         image = self.config["image"]
         allow_network = self.config.get("allow_network", False)
-        timeout = self.config.get("timeout_seconds", 300)
 
         # 1. 确保镜像存在
         # self._run_docker_command(["pull", image], timeout=120)
@@ -187,7 +184,7 @@ class DockerSandbox:
             "run", "-d",                     # 后台运行
             "--name", self.container_name,
             "-v", f"{mount_src}:{mount_dst}",
-            "-w", f"/workspace/repo",        # 工作目录为仓库根
+            "-w", "/workspace/repo",        # 工作目录为仓库根
             "--cpus", "2",                   # CPU 限制
             "--memory", "2g",                # 内存限制
             "--network", "none" if not allow_network else "bridge",

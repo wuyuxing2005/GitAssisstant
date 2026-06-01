@@ -9,7 +9,7 @@ from .utils.compressor import ContextCompressor
 from .agent import Agent
 from .agent_state import AgentState
 from .skills import SkillRegistry
-from .tools.tools import AGENT_TOOLS, _git_diff_impl, set_active_sandbox, clear_active_sandbox
+from .tools.tools import AGENT_TOOLS, _git_diff_impl, set_active_sandbox
 from .tools.registry import ToolRegistry, ToolCallEvent
 from .tools.sandbox_manager import SandboxManager
 
