@@ -91,6 +91,8 @@ class SettingsService:
         return AppSettingsResponse(
             openai_api_key_set=bool(values.get("OPENAI_API_KEY")),
             github_token_set=bool(values.get("GITHUB_TOKEN")),
+            openai_api_key=values.get("OPENAI_API_KEY", ""),
+            github_token=values.get("GITHUB_TOKEN", ""),
             openai_base_url=values.get("OPENAI_BASE_URL", ""),
             model_name=values.get("MODEL_NAME", ""),
             clone_root=clone_root,

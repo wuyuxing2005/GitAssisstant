@@ -6,6 +6,13 @@ from app.schemas.task import (
     EvaluationTaskResponse,
     EvaluationTaskUpdate,
     GitDiffResponse,
+    GitHubIssueCommentRequest,
+    GitHubIssueCommentResponse,
+    GitHubIssueInfo,
+    GitHubIssueLabelsRequest,
+    GitHubIssueLabelsResponse,
+    GitHubIssueStateRequest,
+    GitHubIssueStateResponse,
     GitPullRequestRequest,
     GitPullRequestResponse,
     GitPushRequest,
@@ -15,6 +22,7 @@ from app.schemas.task import (
     TaskRunRequest,
 )
 from app.services.evaluation_service import evaluation_service
+from app.services.github_issue_service import GitHubIssueError, github_issue_service
 from app.services.task_service import task_service
 
 router = APIRouter()
@@ -146,6 +154,67 @@ def download_task_report(task_id: str) -> Response:
             "Content-Disposition": f'attachment; filename="{report.file_name}"',
         },
     )
+
+
+@router.get("/{task_id}/issue", response_model=GitHubIssueInfo)
+def get_task_issue(task_id: str) -> GitHubIssueInfo:
+    try:
+        issue = github_issue_service.get_issue(task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GitHubIssueError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return issue
+
+
+@router.post("/{task_id}/issue/comment", response_model=GitHubIssueCommentResponse)
+def create_task_issue_comment(
+    task_id: str,
+    payload: GitHubIssueCommentRequest,
+) -> GitHubIssueCommentResponse:
+    try:
+        response = github_issue_service.create_comment(task_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GitHubIssueError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if response is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return response
+
+
+@router.patch("/{task_id}/issue/state", response_model=GitHubIssueStateResponse)
+def update_task_issue_state(
+    task_id: str,
+    payload: GitHubIssueStateRequest,
+) -> GitHubIssueStateResponse:
+    try:
+        response = github_issue_service.update_state(task_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GitHubIssueError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if response is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return response
+
+
+@router.patch("/{task_id}/issue/labels", response_model=GitHubIssueLabelsResponse)
+def update_task_issue_labels(
+    task_id: str,
+    payload: GitHubIssueLabelsRequest,
+) -> GitHubIssueLabelsResponse:
+    try:
+        response = github_issue_service.update_labels(task_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GitHubIssueError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if response is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return response
 
 
 @router.post("/{task_id}/push", response_model=GitPushResponse)

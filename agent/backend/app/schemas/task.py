@@ -127,6 +127,8 @@ class EvaluationResult(BaseModel):
     finished_at: datetime | None = None
     error_message: str | None = None
     fix_report: FixReport | None = None
+    last_commit_hash: str | None = None
+    pull_request_url: str | None = None
 
 
 class EvaluationTaskResponse(EvaluationTaskBase):
@@ -177,6 +179,60 @@ class GitPullRequestResponse(BaseModel):
     commit_hash: str | None = None
     pr_url: str | None = None
     output: str = ""
+
+
+class GitHubIssueComment(BaseModel):
+    id: int
+    user: str = ""
+    body: str = ""
+    html_url: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class GitHubIssueInfo(BaseModel):
+    task_id: str
+    owner: str
+    repo: str
+    number: int
+    title: str = ""
+    body: str = ""
+    state: Literal["open", "closed"] | str = ""
+    state_reason: str | None = None
+    labels: list[str] = Field(default_factory=list)
+    html_url: str = ""
+    comments_count: int = 0
+    comments: list[GitHubIssueComment] = Field(default_factory=list)
+    default_comment: str = ""
+
+
+class GitHubIssueCommentRequest(BaseModel):
+    body: str = Field(..., min_length=1)
+
+
+class GitHubIssueCommentResponse(BaseModel):
+    id: int
+    html_url: str = ""
+    body: str = ""
+
+
+class GitHubIssueStateRequest(BaseModel):
+    state: Literal["open", "closed"]
+    state_reason: Literal["completed", "not_planned"] | None = None
+
+
+class GitHubIssueStateResponse(BaseModel):
+    state: str
+    state_reason: str | None = None
+    html_url: str = ""
+
+
+class GitHubIssueLabelsRequest(BaseModel):
+    labels: list[str] = Field(default_factory=list)
+
+
+class GitHubIssueLabelsResponse(BaseModel):
+    labels: list[str] = Field(default_factory=list)
 
 
 class ComparisonAggregate(BaseModel):

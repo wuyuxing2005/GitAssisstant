@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
 import { SettingsModal } from "./components/SettingsModal";
 import { BadCasePanel } from "./components/BadCasePanel";
 import { SkillManager } from "./components/SkillManager";
@@ -181,7 +181,7 @@ export default function App() {
     }
   }
 
-  async function handleLoadModels(): Promise<string[]> {
+  const handleLoadModels = useCallback(async (): Promise<string[]> => {
     try {
       setLoadingModels(true);
       const response = await fetchOpenAIModels();
@@ -192,6 +192,17 @@ export default function App() {
       throw error;
     } finally {
       setLoadingModels(false);
+    }
+  }, []);
+
+  async function handleOpenSettings() {
+    try {
+      setErrorMessage(null);
+      const latestSettings = await fetchSettings();
+      setSettings(latestSettings);
+      setSettingsOpen(true);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "加载设置失败");
     }
   }
 
@@ -235,8 +246,7 @@ export default function App() {
         <div className="sidebar-brand">
           <span className="app-mark">G</span>
           <div>
-            <p className="eyebrow">GitIssueAssitant</p>
-            <h1>Agent Console</h1>
+            <h1>GitIssueAssitant</h1>
           </div>
         </div>
 
@@ -267,7 +277,7 @@ export default function App() {
           ) : null}
         </div>
 
-        <button className="sidebar-settings" type="button" onClick={() => setSettingsOpen(true)}>设置</button>
+        <button className="sidebar-settings" type="button" onClick={() => void handleOpenSettings()}>设置</button>
       </aside>
 
       <div

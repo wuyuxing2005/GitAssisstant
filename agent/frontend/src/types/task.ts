@@ -86,6 +86,8 @@ export interface EvaluationResult {
   finished_at?: string | null;
   error_message?: string | null;
   fix_report?: FixReport | null;
+  last_commit_hash?: string | null;
+  pull_request_url?: string | null;
 }
 
 export interface FixReport {
@@ -147,6 +149,60 @@ export interface GitPullRequestResponse {
   commit_hash?: string | null;
   pr_url?: string | null;
   output: string;
+}
+
+export interface GitHubIssueComment {
+  id: number;
+  user: string;
+  body: string;
+  html_url: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface GitHubIssueInfo {
+  task_id: string;
+  owner: string;
+  repo: string;
+  number: number;
+  title: string;
+  body: string;
+  state: "open" | "closed" | string;
+  state_reason?: string | null;
+  labels: string[];
+  html_url: string;
+  comments_count: number;
+  comments: GitHubIssueComment[];
+  default_comment: string;
+}
+
+export interface GitHubIssueCommentRequest {
+  body: string;
+}
+
+export interface GitHubIssueCommentResponse {
+  id: number;
+  html_url: string;
+  body: string;
+}
+
+export interface GitHubIssueStateRequest {
+  state: "open" | "closed";
+  state_reason?: "completed" | "not_planned" | null;
+}
+
+export interface GitHubIssueStateResponse {
+  state: string;
+  state_reason?: string | null;
+  html_url: string;
+}
+
+export interface GitHubIssueLabelsRequest {
+  labels: string[];
+}
+
+export interface GitHubIssueLabelsResponse {
+  labels: string[];
 }
 
 export interface ComparisonItem {
@@ -253,6 +309,8 @@ export interface TaskRunRequest {
 export interface AppSettings {
   openai_api_key_set: boolean;
   github_token_set: boolean;
+  openai_api_key: string;
+  github_token: string;
   openai_base_url: string;
   model_name: string;
   clone_root: string;

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { AppSettings, AppSettingsUpdate } from "../types/task";
 
 interface SettingsModalProps {
@@ -29,20 +29,70 @@ export function SettingsModal({
   });
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [autoLoadingModels, setAutoLoadingModels] = useState(false);
+  const autoLoadAttemptKeyRef = useRef("");
 
   useEffect(() => {
     if (!settings || !open) {
       return;
     }
     setFormState({
-      openai_api_key: "",
-      github_token: "",
+      openai_api_key: settings.openai_api_key,
+      github_token: settings.github_token,
       openai_base_url: settings.openai_base_url,
       model_name: settings.model_name,
       clone_root: settings.clone_root
     });
     setErrorMessage(null);
   }, [settings, open]);
+
+  useEffect(() => {
+    const configKey = `${settings?.openai_api_key ?? ""}|${settings?.openai_base_url ?? ""}`;
+    if (
+      !open ||
+      !settings?.openai_api_key_set ||
+      !configKey ||
+      autoLoadAttemptKeyRef.current === configKey ||
+      loadingModels ||
+      autoLoadingModels
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    async function loadModelsFromEnv() {
+      try {
+        autoLoadAttemptKeyRef.current = configKey;
+        setAutoLoadingModels(true);
+        setErrorMessage(null);
+        const loadedModels = await onLoadModels();
+        if (!cancelled && loadedModels.length > 0) {
+          setFormState((current) => ({
+            ...current,
+            model_name: current.model_name || loadedModels[0]
+          }));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(error instanceof Error ? error.message : "自动获取模型列表失败");
+        }
+      } finally {
+        setAutoLoadingModels(false);
+      }
+    }
+
+    void loadModelsFromEnv();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    settings?.openai_api_key_set,
+    settings?.openai_api_key,
+    settings?.openai_base_url,
+    loadingModels,
+    onLoadModels
+  ]);
 
   if (!open) {
     return null;
@@ -107,7 +157,7 @@ export function SettingsModal({
               type="password"
               value={formState.openai_api_key}
               onChange={(event) => setFormState((current) => ({ ...current, openai_api_key: event.target.value }))}
-              placeholder={settings?.openai_api_key_set ? "已设置，留空则保持不变" : "sk-..."}
+              placeholder="sk-..."
             />
           </label>
 
@@ -135,8 +185,8 @@ export function SettingsModal({
                   <option value={formState.model_name}>{formState.model_name}</option>
                 ) : null}
               </select>
-              <button className="secondary-button" type="button" onClick={() => void handleLoadModels()} disabled={loadingModels}>
-                {loadingModels ? "加载中" : "从 API 获取"}
+              <button className="secondary-button" type="button" onClick={() => void handleLoadModels()} disabled={loadingModels || autoLoadingModels}>
+                {loadingModels || autoLoadingModels ? "加载中" : "从 API 获取"}
               </button>
             </div>
           </label>
@@ -147,7 +197,7 @@ export function SettingsModal({
               type="password"
               value={formState.github_token}
               onChange={(event) => setFormState((current) => ({ ...current, github_token: event.target.value }))}
-              placeholder={settings?.github_token_set ? "已设置，留空则保持不变" : "github_pat_..."}
+              placeholder="github_pat_..."
             />
           </label>
 

@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 class AppSettingsResponse(BaseModel):
     openai_api_key_set: bool = False
     github_token_set: bool = False
+    openai_api_key: str = ""
+    github_token: str = ""
     openai_base_url: str = ""
     model_name: str = ""
     clone_root: str = ""

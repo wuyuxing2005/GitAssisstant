@@ -1011,6 +1011,8 @@ class EvaluationService:
             )
         )
 
+        result = self._ensure_result(task)
+        result.last_commit_hash = commit_hash
         task_service.save_task_record(task)
         return GitPushResponse(
             task_id=task.id,
@@ -1086,6 +1088,9 @@ class EvaluationService:
         }
         pr_payload = _github_json_request(
             f"/repos/{owner}/{repo}/pulls", payload)
+        result = self._ensure_result(task)
+        result.last_commit_hash = commit_hash
+        result.pull_request_url = pr_payload.get("html_url")
         task_service.save_task_record(task)
         return GitPullRequestResponse(
             task_id=task.id,
@@ -1093,7 +1098,7 @@ class EvaluationService:
             branch=branch,
             base_branch=base_branch,
             commit_hash=commit_hash,
-            pr_url=pr_payload.get("html_url"),
+            pr_url=result.pull_request_url,
             output="\n".join(output for output in outputs if output.strip()),
         )
 

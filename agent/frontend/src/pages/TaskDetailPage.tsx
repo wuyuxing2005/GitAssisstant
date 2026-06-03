@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  commentTaskIssue,
   createBadCase,
   createTaskPullRequest,
   fetchTaskDiff,
+  fetchTaskIssue,
   fetchTaskMessages,
   pushTaskChanges,
-  submitTaskMessage
+  submitTaskMessage,
+  updateTaskIssueLabels,
+  updateTaskIssueState
 } from "../services/api";
 import type {
   EvaluationTask,
   GitDiffResponse,
+  GitHubIssueInfo,
   GitPullRequestResponse,
   GitPushResponse,
   MetricScore,
@@ -27,6 +32,7 @@ interface TaskDetailPageProps {
 }
 
 type PublishDialogMode = "push" | "pr" | null;
+type IssueStateDialogMode = "close" | "reopen" | null;
 type ParsedDiffLineType = "add" | "remove" | "context" | "meta";
 
 interface ParsedDiffLine {
@@ -319,6 +325,17 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
   const [conversationPinnedToBottom, setConversationPinnedToBottom] = useState(true);
+  const [issueInfo, setIssueInfo] = useState<GitHubIssueInfo | null>(null);
+  const [issueLoading, setIssueLoading] = useState(false);
+  const [issueBusy, setIssueBusy] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [issueMessage, setIssueMessage] = useState<string | null>(null);
+  const [issueCommentDialogOpen, setIssueCommentDialogOpen] = useState(false);
+  const [issueStateDialogMode, setIssueStateDialogMode] = useState<IssueStateDialogMode>(null);
+  const [issueLabelsDialogOpen, setIssueLabelsDialogOpen] = useState(false);
+  const [issueCommentBody, setIssueCommentBody] = useState("");
+  const [issueCloseReason, setIssueCloseReason] = useState<"completed" | "not_planned">("completed");
+  const [issueLabelsText, setIssueLabelsText] = useState("");
 
   useEffect(() => {
     setExpandedEntries({});
@@ -337,6 +354,17 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     setConversationPinnedToBottom(true);
     setMessageContent("");
     setMessageError(null);
+    setIssueInfo(null);
+    setIssueLoading(false);
+    setIssueBusy(false);
+    setIssueError(null);
+    setIssueMessage(null);
+    setIssueCommentDialogOpen(false);
+    setIssueStateDialogMode(null);
+    setIssueLabelsDialogOpen(false);
+    setIssueCommentBody("");
+    setIssueCloseReason("completed");
+    setIssueLabelsText("");
   }, [task?.id]);
 
   useEffect(() => {
@@ -403,6 +431,145 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
       cancelled = true;
     };
   }, [task?.id, task?.status]);
+
+  useEffect(() => {
+    if (!task) {
+      return undefined;
+    }
+    let cancelled = false;
+    setIssueLoading(true);
+    setIssueError(null);
+
+    fetchTaskIssue(task.id)
+      .then((response) => {
+        if (!cancelled) {
+          setIssueInfo(response);
+          setIssueCommentBody(response.default_comment);
+          setIssueLabelsText(response.labels.join(", "));
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setIssueInfo(null);
+          setIssueError(error instanceof Error ? error.message : "加载 Issue 失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIssueLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [task?.id]);
+
+  async function handleRefreshIssue() {
+    if (!task) {
+      return;
+    }
+    try {
+      setIssueLoading(true);
+      setIssueError(null);
+      const response = await fetchTaskIssue(task.id);
+      setIssueInfo(response);
+      setIssueLabelsText(response.labels.join(", "));
+      if (!issueCommentDialogOpen) {
+        setIssueCommentBody(response.default_comment);
+      }
+    } catch (error) {
+      setIssueInfo(null);
+      setIssueError(error instanceof Error ? error.message : "刷新 Issue 失败");
+    } finally {
+      setIssueLoading(false);
+    }
+  }
+
+  function buildIssueCommentBody(): string {
+    const base = issueInfo?.default_comment || task?.result?.fix_report?.markdown || "";
+    const publishLines: string[] = [];
+    const prUrl = pullRequestResult?.pr_url || task?.result?.pull_request_url;
+    const commitHash = pushResult?.commit_hash || pullRequestResult?.commit_hash || task?.result?.last_commit_hash;
+    if (prUrl && !base.includes(prUrl)) {
+      publishLines.push(`- PR：${prUrl}`);
+    }
+    if (commitHash && !base.includes(commitHash)) {
+      publishLines.push(`- Commit：${commitHash}`);
+    }
+    if (!publishLines.length) {
+      return base;
+    }
+    return `${base}\n\n### 发布信息\n${publishLines.join("\n")}`;
+  }
+
+  function openIssueCommentDialog() {
+    setIssueCommentBody(buildIssueCommentBody());
+    setIssueMessage(null);
+    setIssueError(null);
+    setIssueCommentDialogOpen(true);
+  }
+
+  async function handleSubmitIssueComment() {
+    if (!task || !issueCommentBody.trim()) {
+      return;
+    }
+    try {
+      setIssueBusy(true);
+      setIssueError(null);
+      const response = await commentTaskIssue(task.id, { body: issueCommentBody.trim() });
+      setIssueMessage(response.html_url ? `评论已写回：${response.html_url}` : "评论已写回");
+      setIssueCommentDialogOpen(false);
+      await handleRefreshIssue();
+    } catch (error) {
+      setIssueError(error instanceof Error ? error.message : "写回 Issue 评论失败");
+    } finally {
+      setIssueBusy(false);
+    }
+  }
+
+  async function handleSubmitIssueState() {
+    if (!task || !issueStateDialogMode) {
+      return;
+    }
+    try {
+      setIssueBusy(true);
+      setIssueError(null);
+      const response = await updateTaskIssueState(task.id, {
+        state: issueStateDialogMode === "close" ? "closed" : "open",
+        state_reason: issueStateDialogMode === "close" ? issueCloseReason : null
+      });
+      setIssueMessage(response.html_url ? `Issue 状态已更新：${response.state} ${response.html_url}` : `Issue 状态已更新：${response.state}`);
+      setIssueStateDialogMode(null);
+      await handleRefreshIssue();
+    } catch (error) {
+      setIssueError(error instanceof Error ? error.message : "更新 Issue 状态失败");
+    } finally {
+      setIssueBusy(false);
+    }
+  }
+
+  async function handleSubmitIssueLabels() {
+    if (!task) {
+      return;
+    }
+    const labels = issueLabelsText
+      .split(/[\n,]/)
+      .map((label) => label.trim())
+      .filter(Boolean);
+    try {
+      setIssueBusy(true);
+      setIssueError(null);
+      await updateTaskIssueLabels(task.id, { labels });
+      setIssueMessage("Issue 标签已更新");
+      setIssueLabelsDialogOpen(false);
+      await handleRefreshIssue();
+    } catch (error) {
+      setIssueError(error instanceof Error ? error.message : "更新 Issue 标签失败");
+    } finally {
+      setIssueBusy(false);
+    }
+  }
 
   async function handleRefreshDiff() {
     if (!task) {
@@ -569,6 +736,15 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
   const hasChanges = !!diffInfo?.has_changes;
   const parsedDiffFiles = parseUnifiedDiff(diffInfo?.diff);
   const displayedMessages = mergeConversationMessages(messages, localMessages);
+  const issueStateLabel = issueLoading
+    ? "加载中"
+    : issueInfo
+      ? issueInfo.state === "closed"
+        ? "已关闭"
+        : "进行中"
+      : "未关联";
+  const canCloseIssue = !!issueInfo && issueInfo.state !== "closed" && task.status === "completed";
+  const canReopenIssue = !!issueInfo && issueInfo.state === "closed";
   const publishStateLabel =
     task.status === "failed"
       ? "失败"
@@ -877,8 +1053,58 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         </button>
       </div>
 
+      <section className="floating-issue-card" aria-label="Issue 状态">
+        <div className="floating-issue-header">
+          <div>
+            <span>Issue 状态</span>
+            <strong>{issueStateLabel}</strong>
+          </div>
+          <button type="button" onClick={() => void handleRefreshIssue()} disabled={issueLoading}>
+            更新
+          </button>
+        </div>
+
+        {issueInfo ? (
+          <>
+            <a className="floating-issue-title" href={issueInfo.html_url} target="_blank" rel="noreferrer">
+              #{issueInfo.number} {issueInfo.title}
+            </a>
+            <div className="floating-issue-meta">
+              <span className={`issue-state-pill ${issueInfo.state}`}>{issueInfo.state}</span>
+              <span>{issueInfo.comments_count} 条评论</span>
+            </div>
+            <div className="issue-label-list">
+              {issueInfo.labels.length ? issueInfo.labels.map((label) => (
+                <span key={label}>{label}</span>
+              )) : <span>无标签</span>}
+            </div>
+            <div className="issue-action-grid">
+              <button type="button" onClick={openIssueCommentDialog} disabled={issueBusy}>
+                写回评论
+              </button>
+              <button type="button" onClick={() => setIssueStateDialogMode("close")} disabled={issueBusy || !canCloseIssue}>
+                关闭 Issue
+              </button>
+              <button type="button" onClick={() => setIssueStateDialogMode("reopen")} disabled={issueBusy || !canReopenIssue}>
+                重新打开
+              </button>
+              <button type="button" onClick={() => setIssueLabelsDialogOpen(true)} disabled={issueBusy}>
+                更新标签
+              </button>
+            </div>
+            {task.status !== "completed" && issueInfo.state !== "closed" ? (
+              <p className="floating-issue-hint">任务 completed 后才允许关闭 Issue。</p>
+            ) : null}
+          </>
+        ) : (
+          <p className="floating-issue-hint">{issueLoading ? "正在加载 Issue..." : "未关联 GitHub Issue。"}</p>
+        )}
+      </section>
+
       {gitError ? <p className="floating-env-error">{gitError}</p> : null}
       {gitMessage ? <p className="floating-env-success">{gitMessage}</p> : null}
+      {issueError ? <p className="floating-env-error">{issueError}</p> : null}
+      {issueMessage ? <p className="floating-env-success">{issueMessage}</p> : null}
     </aside>
     </div>
 
@@ -967,6 +1193,112 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
                 disabled={gitActionBusy || diffLoading || !hasChanges}
               >
                 {publishDialogMode === "push" ? "确认 Push" : "确认创建 PR"}
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    ) : null}
+
+    {issueCommentDialogOpen ? (
+      <div className="modal-backdrop" role="presentation" onMouseDown={() => setIssueCommentDialogOpen(false)}>
+        <section className="settings-modal issue-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="settings-modal-header">
+            <div>
+              <h2>写回 Issue 评论</h2>
+              <p>确认后才会向 GitHub Issue 写入评论。</p>
+            </div>
+            <button className="modal-close-button" type="button" onClick={() => setIssueCommentDialogOpen(false)}>关闭</button>
+          </div>
+          <div className="settings-form">
+            <label>
+              <span>评论内容</span>
+              <textarea
+                className="issue-comment-textarea"
+                rows={14}
+                value={issueCommentBody}
+                onChange={(event) => setIssueCommentBody(event.target.value)}
+                disabled={issueBusy}
+              />
+            </label>
+            <div className="settings-actions">
+              <button className="secondary-button" type="button" onClick={() => setIssueCommentDialogOpen(false)} disabled={issueBusy}>
+                取消
+              </button>
+              <button className="primary-button" type="button" onClick={() => void handleSubmitIssueComment()} disabled={issueBusy || !issueCommentBody.trim()}>
+                确认写回
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    ) : null}
+
+    {issueStateDialogMode ? (
+      <div className="modal-backdrop" role="presentation" onMouseDown={() => setIssueStateDialogMode(null)}>
+        <section className="settings-modal issue-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="settings-modal-header">
+            <div>
+              <h2>{issueStateDialogMode === "close" ? "关闭 Issue" : "重新打开 Issue"}</h2>
+              <p>确认后才会修改 GitHub Issue 状态。</p>
+            </div>
+            <button className="modal-close-button" type="button" onClick={() => setIssueStateDialogMode(null)}>关闭</button>
+          </div>
+          <div className="settings-form">
+            {issueStateDialogMode === "close" ? (
+              <label>
+                <span>关闭原因</span>
+                <select
+                  value={issueCloseReason}
+                  onChange={(event) => setIssueCloseReason(event.target.value as "completed" | "not_planned")}
+                  disabled={issueBusy}
+                >
+                  <option value="completed">completed</option>
+                  <option value="not_planned">not_planned</option>
+                </select>
+              </label>
+            ) : (
+              <p className="muted-copy">将 Issue 状态改为 open。</p>
+            )}
+            <div className="settings-actions">
+              <button className="secondary-button" type="button" onClick={() => setIssueStateDialogMode(null)} disabled={issueBusy}>
+                取消
+              </button>
+              <button className="primary-button" type="button" onClick={() => void handleSubmitIssueState()} disabled={issueBusy}>
+                确认更新
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    ) : null}
+
+    {issueLabelsDialogOpen ? (
+      <div className="modal-backdrop" role="presentation" onMouseDown={() => setIssueLabelsDialogOpen(false)}>
+        <section className="settings-modal issue-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="settings-modal-header">
+            <div>
+              <h2>更新 Issue 标签</h2>
+              <p>确认后会替换当前 Issue labels，多个标签用逗号或换行分隔。</p>
+            </div>
+            <button className="modal-close-button" type="button" onClick={() => setIssueLabelsDialogOpen(false)}>关闭</button>
+          </div>
+          <div className="settings-form">
+            <label>
+              <span>Labels</span>
+              <textarea
+                rows={5}
+                value={issueLabelsText}
+                onChange={(event) => setIssueLabelsText(event.target.value)}
+                disabled={issueBusy}
+              />
+            </label>
+            <div className="settings-actions">
+              <button className="secondary-button" type="button" onClick={() => setIssueLabelsDialogOpen(false)} disabled={issueBusy}>
+                取消
+              </button>
+              <button className="primary-button" type="button" onClick={() => void handleSubmitIssueLabels()} disabled={issueBusy}>
+                确认更新
               </button>
             </div>
           </div>

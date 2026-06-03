@@ -11,6 +11,13 @@ import type {
   EvaluationMetadataResponse,
   EvaluationTask,
   GitDiffResponse,
+  GitHubIssueCommentRequest,
+  GitHubIssueCommentResponse,
+  GitHubIssueInfo,
+  GitHubIssueLabelsRequest,
+  GitHubIssueLabelsResponse,
+  GitHubIssueStateRequest,
+  GitHubIssueStateResponse,
   GitPullRequestRequest,
   GitPullRequestResponse,
   GitPushRequest,
@@ -117,6 +124,40 @@ export async function createTaskPullRequest(
 ): Promise<GitPullRequestResponse> {
   return request<GitPullRequestResponse>(`/tasks/${taskId}/pull-request`, {
     method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function fetchTaskIssue(taskId: string): Promise<GitHubIssueInfo> {
+  return request<GitHubIssueInfo>(`/tasks/${taskId}/issue`);
+}
+
+export async function commentTaskIssue(
+  taskId: string,
+  payload: GitHubIssueCommentRequest
+): Promise<GitHubIssueCommentResponse> {
+  return request<GitHubIssueCommentResponse>(`/tasks/${taskId}/issue/comment`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateTaskIssueState(
+  taskId: string,
+  payload: GitHubIssueStateRequest
+): Promise<GitHubIssueStateResponse> {
+  return request<GitHubIssueStateResponse>(`/tasks/${taskId}/issue/state`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateTaskIssueLabels(
+  taskId: string,
+  payload: GitHubIssueLabelsRequest
+): Promise<GitHubIssueLabelsResponse> {
+  return request<GitHubIssueLabelsResponse>(`/tasks/${taskId}/issue/labels`, {
+    method: "PATCH",
     body: JSON.stringify(payload)
   });
 }

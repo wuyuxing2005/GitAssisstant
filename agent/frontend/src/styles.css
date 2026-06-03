@@ -1632,6 +1632,128 @@ button.floating-env-row:hover:not(:disabled) {
   color: #147151;
 }
 
+.floating-issue-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px 0;
+  border-top: 1px solid #edf0f2;
+  border-bottom: 1px solid #edf0f2;
+}
+
+.floating-issue-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.floating-issue-header div {
+  display: grid;
+  gap: 4px;
+}
+
+.floating-issue-header span {
+  color: #7a838b;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.floating-issue-header strong {
+  color: #1f5f5a;
+  font-size: 13px;
+}
+
+.floating-issue-header button {
+  border: 1px solid #e2e7ea;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #344448;
+  cursor: pointer;
+  padding: 7px 10px;
+  font-weight: 700;
+}
+
+.floating-issue-header button:disabled {
+  cursor: not-allowed;
+  color: #a0aab0;
+}
+
+.floating-issue-title {
+  color: #253438;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.4;
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.floating-issue-title:hover {
+  color: #1f5f5a;
+}
+
+.floating-issue-meta,
+.issue-label-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.floating-issue-meta span,
+.issue-label-list span {
+  border-radius: 999px;
+  background: #f3f5f6;
+  color: #526067;
+  font-size: 12px;
+  font-weight: 750;
+  padding: 4px 8px;
+}
+
+.floating-issue-meta .issue-state-pill.open {
+  background: #ddf4e9;
+  color: #147151;
+}
+
+.floating-issue-meta .issue-state-pill.closed {
+  background: #f1e8ff;
+  color: #6e3ab2;
+}
+
+.issue-action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.issue-action-grid button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: #f3f5f6;
+  color: #253438;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.issue-action-grid button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.floating-issue-hint {
+  margin: 0;
+  color: #7a838b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.issue-modal {
+  width: min(760px, 100%);
+}
+
+.issue-comment-textarea {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
