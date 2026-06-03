@@ -539,7 +539,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         state: issueStateDialogMode === "close" ? "closed" : "open",
         state_reason: issueStateDialogMode === "close" ? issueCloseReason : null
       });
-      setIssueMessage(response.html_url ? `Issue 状态已更新：${response.state} ${response.html_url}` : `Issue 状态已更新：${response.state}`);
+      setIssueMessage(`Issue 状态已更新：${response.state}`);
       setIssueStateDialogMode(null);
       await handleRefreshIssue();
     } catch (error) {
@@ -598,7 +598,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
         commit_message: commitMessage.trim() || `fix: ${task.name}`
       });
       setPushResult(result);
-      setGitMessage(result.commit_hash ? `已提交并推送：${result.commit_hash}` : "已推送");
+      setGitMessage(null);
       await handleRefreshDiff();
       await onTaskChanged?.();
     } catch (error) {
@@ -758,6 +758,16 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     <>
     <div className="task-detail-layout">
     <section className="card task-detail-main">
+      {issueInfo ? (
+        <section className="task-issue-summary" aria-label="Issue 标题和内容">
+          <div className="task-issue-summary-header">
+            <span>Issue #{issueInfo.number}</span>
+            <a href={issueInfo.html_url} target="_blank" rel="noreferrer">打开 GitHub</a>
+          </div>
+          <h3>{issueInfo.title}</h3>
+        </section>
+      ) : null}
+
       <section className="conversation-panel">
         <div className="section-header compact">
           <div>
@@ -1059,46 +1069,34 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
             <span>Issue 状态</span>
             <strong>{issueStateLabel}</strong>
           </div>
-          <button type="button" onClick={() => void handleRefreshIssue()} disabled={issueLoading}>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleRefreshIssue();
+            }}
+            disabled={issueLoading}
+          >
             更新
           </button>
         </div>
 
         {issueInfo ? (
-          <>
-            <a className="floating-issue-title" href={issueInfo.html_url} target="_blank" rel="noreferrer">
-              #{issueInfo.number} {issueInfo.title}
-            </a>
-            <div className="floating-issue-meta">
-              <span className={`issue-state-pill ${issueInfo.state}`}>{issueInfo.state}</span>
-              <span>{issueInfo.comments_count} 条评论</span>
-            </div>
-            <div className="issue-label-list">
-              {issueInfo.labels.length ? issueInfo.labels.map((label) => (
-                <span key={label}>{label}</span>
-              )) : <span>无标签</span>}
-            </div>
-            <div className="issue-action-grid">
-              <button type="button" onClick={openIssueCommentDialog} disabled={issueBusy}>
-                写回评论
-              </button>
-              <button type="button" onClick={() => setIssueStateDialogMode("close")} disabled={issueBusy || !canCloseIssue}>
-                关闭 Issue
-              </button>
-              <button type="button" onClick={() => setIssueStateDialogMode("reopen")} disabled={issueBusy || !canReopenIssue}>
-                重新打开
-              </button>
-              <button type="button" onClick={() => setIssueLabelsDialogOpen(true)} disabled={issueBusy}>
-                更新标签
-              </button>
-            </div>
-            {task.status !== "completed" && issueInfo.state !== "closed" ? (
-              <p className="floating-issue-hint">任务 completed 后才允许关闭 Issue。</p>
-            ) : null}
-          </>
-        ) : (
-          <p className="floating-issue-hint">{issueLoading ? "正在加载 Issue..." : "未关联 GitHub Issue。"}</p>
-        )}
+          <div className="issue-action-grid">
+            <button type="button" onClick={openIssueCommentDialog} disabled={issueBusy}>
+              写回评论
+            </button>
+            <button type="button" onClick={() => setIssueStateDialogMode("close")} disabled={issueBusy || !canCloseIssue}>
+              关闭 Issue
+            </button>
+            <button type="button" onClick={() => setIssueStateDialogMode("reopen")} disabled={issueBusy || !canReopenIssue}>
+              重新打开
+            </button>
+            <button type="button" onClick={() => setIssueLabelsDialogOpen(true)} disabled={issueBusy}>
+              更新标签
+            </button>
+          </div>
+        ) : null}
       </section>
 
       {gitError ? <p className="floating-env-error">{gitError}</p> : null}

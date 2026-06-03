@@ -204,7 +204,7 @@ class GitHubIssueService:
                 lines.extend(["", "### 修复报告", task.result.fix_report.markdown])
         return "\n".join(lines).strip()
 
-    def get_issue(self, task_id: str) -> GitHubIssueInfo | None:
+    def get_issue(self, task_id: str, *, include_comments: bool = False) -> GitHubIssueInfo | None:
         task = task_service.get_task_record(task_id)
         if task is None:
             return None
@@ -213,27 +213,29 @@ class GitHubIssueService:
             f"/repos/{owner}/{repo}/issues/{number}",
             operation="GitHub issue fetch",
         )
-        comments_payload = _github_json_request(
-            f"/repos/{owner}/{repo}/issues/{number}/comments?per_page=20",
-            operation="GitHub issue comments fetch",
-        )
         labels = [
             str(label.get("name"))
             for label in issue_payload.get("labels", [])
             if isinstance(label, dict) and label.get("name")
         ]
-        comments = [
-            GitHubIssueComment(
-                id=int(comment.get("id", 0)),
-                user=str((comment.get("user") or {}).get("login", "")),
-                body=str(comment.get("body", "")),
-                html_url=str(comment.get("html_url", "")),
-                created_at=comment.get("created_at"),
-                updated_at=comment.get("updated_at"),
+        comments: list[GitHubIssueComment] = []
+        if include_comments:
+            comments_payload = _github_json_request(
+                f"/repos/{owner}/{repo}/issues/{number}/comments?per_page=20",
+                operation="GitHub issue comments fetch",
             )
-            for comment in comments_payload
-            if isinstance(comment, dict)
-        ]
+            comments = [
+                GitHubIssueComment(
+                    id=int(comment.get("id", 0)),
+                    user=str((comment.get("user") or {}).get("login", "")),
+                    body=str(comment.get("body", "")),
+                    html_url=str(comment.get("html_url", "")),
+                    created_at=comment.get("created_at"),
+                    updated_at=comment.get("updated_at"),
+                )
+                for comment in comments_payload
+                if isinstance(comment, dict)
+            ]
         return GitHubIssueInfo(
             task_id=task.id,
             owner=owner,

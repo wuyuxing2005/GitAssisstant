@@ -157,9 +157,9 @@ def download_task_report(task_id: str) -> Response:
 
 
 @router.get("/{task_id}/issue", response_model=GitHubIssueInfo)
-def get_task_issue(task_id: str) -> GitHubIssueInfo:
+def get_task_issue(task_id: str, include_comments: bool = False) -> GitHubIssueInfo:
     try:
-        issue = github_issue_service.get_issue(task_id)
+        issue = github_issue_service.get_issue(task_id, include_comments=include_comments)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except GitHubIssueError as exc:
