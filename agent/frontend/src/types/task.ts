@@ -181,6 +181,17 @@ export interface GitHubIssueCommentRequest {
   body: string;
 }
 
+export interface GitHubIssueSummary {
+  number: number;
+  title: string;
+  body: string;
+  state: string;
+  labels: string[];
+  html_url: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface GitHubIssueCommentResponse {
   id: number;
   html_url: string;

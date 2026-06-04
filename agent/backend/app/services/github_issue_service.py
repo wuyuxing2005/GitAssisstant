@@ -18,6 +18,7 @@ from app.schemas.task import (
     GitHubIssueLabelsResponse,
     GitHubIssueStateRequest,
     GitHubIssueStateResponse,
+    GitHubIssueSummary,
 )
 from app.services.settings_service import settings_service
 from app.services.task_service import task_service
@@ -147,6 +148,44 @@ def _github_json_request(
 
 
 class GitHubIssueService:
+    def list_issues(
+        self,
+        owner: str,
+        repo: str,
+        state: str = "open",
+        per_page: int = 30,
+    ) -> list[GitHubIssueSummary]:
+        payload = _github_json_request(
+            f"/repos/{owner}/{repo}/issues?state={state}&per_page={per_page}&sort=updated&direction=desc",
+            operation="GitHub issues list",
+        )
+        if not isinstance(payload, list):
+            return []
+        results: list[GitHubIssueSummary] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            if item.get("pull_request"):
+                continue
+            labels = [
+                str(label.get("name"))
+                for label in item.get("labels", [])
+                if isinstance(label, dict) and label.get("name")
+            ]
+            results.append(
+                GitHubIssueSummary(
+                    number=int(item.get("number", 0)),
+                    title=str(item.get("title", "")),
+                    body=str(item.get("body", "")),
+                    state=str(item.get("state", "")),
+                    labels=labels,
+                    html_url=str(item.get("html_url", "")),
+                    created_at=item.get("created_at"),
+                    updated_at=item.get("updated_at"),
+                )
+            )
+        return results
+
     def _repo_path_for_task(self, task: EvaluationTaskRecord) -> Path | None:
         repo_path = task.repo_path
         if not repo_path and task.result and task.result.current_state:

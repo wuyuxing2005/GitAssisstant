@@ -18,6 +18,7 @@ import type {
   GitHubIssueLabelsResponse,
   GitHubIssueStateRequest,
   GitHubIssueStateResponse,
+  GitHubIssueSummary,
   GitPullRequestRequest,
   GitPullRequestResponse,
   GitPushRequest,
@@ -247,4 +248,13 @@ export async function updateSettings(payload: AppSettingsUpdate): Promise<AppSet
 
 export async function fetchOpenAIModels(): Promise<ModelListResponse> {
   return request<ModelListResponse>("/settings/models");
+}
+
+export async function fetchRepoIssues(
+  url: string,
+  state: string = "open",
+  perPage: number = 30
+): Promise<GitHubIssueSummary[]> {
+  const query = new URLSearchParams({ url, state, per_page: String(perPage) });
+  return request<GitHubIssueSummary[]>(`/repos/issues?${query.toString()}`);
 }

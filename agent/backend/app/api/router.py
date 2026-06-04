@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, bad_cases, metadata, settings, skills, tasks
+from app.api.routes import analytics, bad_cases, github, metadata, settings, skills, tasks
 
 api_router = APIRouter()
+api_router.include_router(github.router, prefix="", tags=["github"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(bad_cases.router, prefix="/bad-cases", tags=["bad-cases"])
