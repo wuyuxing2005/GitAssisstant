@@ -6,7 +6,7 @@ import subprocess
 import sys
 import json
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -50,6 +50,7 @@ TEST_TOOL_NAMES = {"run_pytest"}
 TERMINAL_TASK_STATUSES = {"completed", "failed"}
 AGENT_DISABLED_GIT_TOOL_NAMES = {"git_add", "git_commit", "git_push"}
 MAX_ITERATIONS_REACHED_STATUS = "MAX_ITERATIONS_REACHED"
+SANDBOX_UNAVAILABLE_STATUS = "SANDBOX_UNAVAILABLE"
 
 
 @dataclass
@@ -57,6 +58,8 @@ class AssistantRuntimeHandle:
     orchestrator: Any
     manager: Any
     thread_id: str
+    initial_state: dict[str, Any] = field(default_factory=dict)
+    sandbox_error: str = ""
 
 
 def _utcnow() -> datetime:
@@ -239,14 +242,15 @@ def _github_json_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @lru_cache
-def _assistant_components() -> tuple[Any, Any, Any, Any, list[Any]]:
+def _assistant_components() -> tuple[Any, Any, Any, Any, list[Any], Any, Any, Any]:
     if str(WORKSPACE_ROOT) not in sys.path:
         sys.path.insert(0, str(WORKSPACE_ROOT))
 
     from gitIssueAssitant.agent import Agent, LLM_factory
     from gitIssueAssitant.orchestrator import AgentOrchestrator
     from gitIssueAssitant.session_manager import SessionManager
-    from gitIssueAssitant.tools.tools import AGENT_TOOLS
+    from gitIssueAssitant.tools.sandbox_manager import SandboxManager
+    from gitIssueAssitant.tools.tools import AGENT_TOOLS, clear_active_sandbox, set_active_sandbox
 
     web_safe_tools = [
         tool
@@ -254,7 +258,7 @@ def _assistant_components() -> tuple[Any, Any, Any, Any, list[Any]]:
         if getattr(tool, "name", "") not in AGENT_DISABLED_GIT_TOOL_NAMES
     ]
 
-    return Agent, AgentOrchestrator, SessionManager, LLM_factory, web_safe_tools
+    return Agent, AgentOrchestrator, SessionManager, LLM_factory, web_safe_tools, SandboxManager, clear_active_sandbox, set_active_sandbox
 
 
 class EvaluationService:
@@ -262,6 +266,18 @@ class EvaluationService:
         self._runtime_handles: dict[str, AssistantRuntimeHandle] = {}
         self._background_jobs: dict[str, asyncio.Task[None]] = {}
         self._execution_lock = asyncio.Lock()
+        self._sandbox_manager: Any | None = None
+
+    def _get_sandbox_manager(self, SandboxManager: Any) -> Any | None:
+        disabled = os.getenv("GIT_ISSUE_ASSISTANT_DISABLE_SANDBOX", "").lower() in ("1", "true", "yes")
+        if disabled:
+            if self._sandbox_manager is not None:
+                self._sandbox_manager.stop_all()
+                self._sandbox_manager = None
+            return None
+        if self._sandbox_manager is None:
+            self._sandbox_manager = SandboxManager(workspace_root=WORKSPACE_ROOT / "workspaces")
+        return self._sandbox_manager
 
     def _blank_result(self, task: EvaluationTaskRecord) -> EvaluationResult:
         return EvaluationResult(
@@ -311,15 +327,31 @@ class EvaluationService:
         result.messages.append(message)
         return message
 
+    def _append_progress_message(self, task: EvaluationTaskRecord, content: str) -> None:
+        self._append_task_message(task, "system", content)
+        task_service.save_task_record(task)
+
     def _activate_runtime(self, handle: AssistantRuntimeHandle) -> None:
+        _Agent, _AgentOrchestrator, _SessionManager, _LLM_factory, _web_safe_tools, _SandboxManager, clear_active_sandbox, set_active_sandbox = _assistant_components()
         os.environ["GIT_ISSUE_ASSISTANT_HOME"] = str(WORKSPACE_ROOT)
         if handle.manager.current_repo:
             os.environ["GIT_ISSUE_ASSISTANT_REPO_ROOT"] = handle.manager.current_repo
             os.chdir(handle.manager.current_repo)
+        clear_active_sandbox()
+        config = {"configurable": {"thread_id": handle.thread_id}}
+        state = handle.orchestrator.graph.get_state(config).values or {}
+        sandbox_id = str(state.get("sandbox_id") or "")
+        sandbox = handle.manager.sandbox_manager.get(sandbox_id) if sandbox_id and handle.manager.sandbox_manager else None
+        if sandbox is not None and getattr(sandbox, "_started", False):
+            set_active_sandbox(sandbox)
+            handle.orchestrator._sandbox_activated = True
+        else:
+            handle.orchestrator._sandbox_activated = False
 
-    def _build_runtime_sync(self, task: EvaluationTaskRecord) -> AssistantRuntimeHandle:
+    def _build_runtime_sync(self, task: EvaluationTaskRecord, *, allow_local_fallback: bool = False) -> AssistantRuntimeHandle:
         _load_runtime_env()
-        Agent, AgentOrchestrator, SessionManager, LLM_factory, web_safe_tools = _assistant_components()
+        Agent, AgentOrchestrator, SessionManager, LLM_factory, web_safe_tools, SandboxManager, _clear_active_sandbox, _set_active_sandbox = _assistant_components()
+        self._append_progress_message(task, "正在加载运行环境配置。")
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -332,6 +364,7 @@ class EvaluationService:
 
         os.environ["GIT_ISSUE_ASSISTANT_HOME"] = str(WORKSPACE_ROOT)
         original_model_name = os.getenv("MODEL_NAME")
+        self._append_progress_message(task, "正在初始化模型与 Agent。")
         try:
             if task.config.model_name:
                 os.environ["MODEL_NAME"] = task.config.model_name
@@ -358,28 +391,65 @@ class EvaluationService:
             for name, skill in skill_registry._skills.items()
             if name in enabled_skill_set
         }
+        sandbox_manager = self._get_sandbox_manager(SandboxManager)
+        if sandbox_manager is None:
+            self._append_progress_message(task, "Docker 沙箱已禁用，当前任务将使用本地执行环境。")
+        else:
+            self._append_progress_message(
+                task,
+                "准备启用 Docker 沙箱。后续会复制仓库、检查或拉取镜像、启动容器并执行 .agent-sandbox.yml 中的安装命令。",
+            )
         orchestrator = AgentOrchestrator(
             agent,
             tools=web_safe_tools,
             skill_registry=skill_registry,
+            sandbox_manager=sandbox_manager,
         )
-        manager = SessionManager(orchestrator, workspace_root=WORKSPACE_ROOT)
+        manager = SessionManager(
+            orchestrator,
+            workspace_root=WORKSPACE_ROOT,
+            sandbox_manager=sandbox_manager,
+        )
         manager.repos_root = _configured_clone_root()
+        self._append_progress_message(task, "正在准备仓库：clone 远程仓库或复用本地仓库目录。")
         manager.create_session(
             task.config.repo_source,
             target_dir=task.config.target_dir,
             force=True,
         )
+        self._append_progress_message(task, f"仓库已准备：{manager.current_repo}")
+        if sandbox_manager is not None:
+            self._append_progress_message(task, "正在启动 Docker 沙箱，请等待镜像拉取、容器启动和依赖安装完成。")
         manager.set_issue(task.config.issue_input)
         thread_id = manager.get_current_thread_id()
         config = {"configurable": {"thread_id": thread_id}}
         orchestrator.graph.update_state(
             config, {"max_iterations": task.config.max_iterations})
+        initial_state = orchestrator.graph.get_state(config).values or {}
+        sandbox_id = str(initial_state.get("sandbox_id") or "")
+        session = manager._current_session()
+        sandbox_error = getattr(session, "sandbox_error", "") if session is not None else ""
+        if sandbox_id:
+            self._append_progress_message(task, f"Docker 沙箱已就绪：sandbox_id={sandbox_id}，执行目录为 {manager.current_repo}")
+        elif sandbox_manager is not None and sandbox_error and not allow_local_fallback:
+            detail = f"详细原因：{sandbox_error}" if sandbox_error else "未获取到详细原因。"
+            self._append_progress_message(task, f"Docker 沙箱不可用，已暂停任务。请选择在本地执行或终止任务。{detail}")
+            orchestrator.graph.update_state(config, {"status": SANDBOX_UNAVAILABLE_STATUS})
+            initial_state = orchestrator.graph.get_state(config).values or {}
+        elif sandbox_manager is not None and sandbox_error:
+            detail = f"详细原因：{sandbox_error}" if sandbox_error else "未获取到详细原因。"
+            self._append_progress_message(task, f"用户已选择本地执行，Docker 沙箱不可用，继续使用本地执行环境。{detail}")
+        elif sandbox_manager is not None:
+            self._append_progress_message(task, "Docker 沙箱未启用成功，已按配置回退到本地执行环境。未获取到详细原因。")
+        else:
+            self._append_progress_message(task, "本地执行环境已就绪。")
 
         return AssistantRuntimeHandle(
             orchestrator=orchestrator,
             manager=manager,
             thread_id=thread_id,
+            initial_state=initial_state,
+            sandbox_error=str(sandbox_error or ""),
         )
 
     async def _ensure_runtime(
@@ -387,14 +457,24 @@ class EvaluationService:
         task: EvaluationTaskRecord,
         *,
         reset: bool,
+        allow_local_fallback: bool = False,
     ) -> AssistantRuntimeHandle:
         needs_rebuild = reset or task.id not in self._runtime_handles or task.status in TERMINAL_TASK_STATUSES
         if needs_rebuild:
-            handle = await asyncio.to_thread(self._build_runtime_sync, task)
+            previous_handle = self._runtime_handles.pop(task.id, None)
+            if previous_handle is not None:
+                previous_handle.manager.cleanup_current_session()
+            handle = await asyncio.to_thread(
+                self._build_runtime_sync,
+                task,
+                allow_local_fallback=allow_local_fallback,
+            )
             self._runtime_handles[task.id] = handle
             task.thread_id = handle.thread_id
             task.repo_path = handle.manager.current_repo
-            result = self._blank_result(task)
+            result = self._ensure_result(task)
+            if handle.initial_state:
+                result.current_state = self._state_snapshot(task, handle.initial_state)
             result.summary = "任务上下文已初始化，等待执行。"
             task.result = result
             task.status = "scheduled"
@@ -426,6 +506,7 @@ class EvaluationService:
             plan=[str(item) for item in (state.get("plan") or [])],
             reflexion_notes=str(state.get("reflexion_notes") or ""),
             last_message=last_message,
+            sandbox_id=str(state.get("sandbox_id") or ""),
         )
 
     def _map_task_status(self, runtime_status: str) -> str:
@@ -434,6 +515,8 @@ class EvaluationService:
         if runtime_status == "FAILED":
             return "failed"
         if runtime_status == MAX_ITERATIONS_REACHED_STATUS:
+            return "scheduled"
+        if runtime_status == SANDBOX_UNAVAILABLE_STATUS:
             return "scheduled"
         if runtime_status == "INIT":
             return "scheduled"
@@ -812,7 +895,16 @@ class EvaluationService:
                 return
 
             try:
-                handle = await self._ensure_runtime(task, reset=request.reset)
+                handle = await self._ensure_runtime(
+                    task,
+                    reset=request.reset,
+                    allow_local_fallback=request.allow_local_fallback,
+                )
+                if handle.sandbox_error and not request.allow_local_fallback:
+                    task.status = "scheduled"
+                    self._refresh_result(task)
+                    task_service.save_task_record(task)
+                    return
                 await self._run_graph(task, handle, mode=request.mode or task.config.run_mode)
             except Exception as exc:
                 self._mark_failed(task, str(exc))
@@ -831,7 +923,11 @@ class EvaluationService:
             return task
 
         request_mode = request.mode or task.config.run_mode
-        run_request = TaskRunRequest(mode=request_mode, reset=request.reset)
+        run_request = TaskRunRequest(
+            mode=request_mode,
+            reset=request.reset,
+            allow_local_fallback=request.allow_local_fallback,
+        )
 
         if request_mode == "auto":
             if any(not background_job.done() for task_key, background_job in self._background_jobs.items() if task_key != task_id):
@@ -905,7 +1001,25 @@ class EvaluationService:
         job = self._background_jobs.pop(task_id, None)
         if job is not None and not job.done():
             job.cancel()
-        self._runtime_handles.pop(task_id, None)
+        handle = self._runtime_handles.pop(task_id, None)
+        if handle is not None:
+            handle.manager.cleanup_current_session()
+
+    def shutdown(self) -> None:
+        for task_id in list(self._runtime_handles.keys()):
+            self.clear_task_state(task_id)
+        if self._sandbox_manager is not None:
+            self._sandbox_manager.stop_all()
+            self._sandbox_manager = None
+
+    def terminate_after_sandbox_unavailable(self, task_id: str) -> EvaluationTaskRecord | None:
+        task = task_service.get_task_record(task_id)
+        if task is None:
+            return None
+        self.clear_task_state(task_id)
+        self._append_task_message(task, "system", "用户选择终止任务：Docker 沙箱不可用，未继续本地执行。")
+        self._mark_failed(task, "用户选择终止任务：Docker 沙箱不可用，未继续本地执行。")
+        return task
 
     def _repo_path_for_task(self, task: EvaluationTaskRecord) -> Path:
         repo_path = task.repo_path

@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import subprocess
 import uuid
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -30,6 +31,14 @@ DEFAULT_SANDBOX_CONFIG = {
 # ---------- 自定义异常 ----------
 class SandboxError(Exception):
     """沙箱相关错误"""
+
+
+def _docker_not_found_message() -> str:
+    return (
+        "未找到 Docker 命令：后端进程的 PATH 中没有 docker.exe。"
+        "请确认 Docker Desktop 已安装并启动；如果已安装，请把 Docker CLI 目录加入 PATH，例如 "
+        r"C:\Program Files\Docker\Docker\resources\bin，然后重启后端服务。"
+    )
 
 
 # ---------- 沙箱配置加载 ----------
@@ -87,6 +96,8 @@ class DockerSandbox:
 
     def _image_exists(self, image: str) -> bool:
         """检查本地是否已有镜像"""
+        if shutil.which("docker") is None:
+            raise SandboxError(_docker_not_found_message())
         result = subprocess.run(
             ["docker", "images", "-q", image],
             capture_output=True, text=True
@@ -397,7 +408,7 @@ class DockerSandbox:
         except subprocess.TimeoutExpired:
             raise SandboxError(f"Docker 命令超时 ({timeout}s): {' '.join(cmd)}")
         except FileNotFoundError:
-            raise SandboxError("未找到 Docker 命令，请确认 Docker 已安装并在 PATH 中。")
+            raise SandboxError(_docker_not_found_message())
 
     # ---------- 路径映射 ----------
 

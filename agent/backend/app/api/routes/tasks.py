@@ -100,6 +100,17 @@ async def run_task(
     return refreshed
 
 
+@router.post("/{task_id}/sandbox/terminate", response_model=EvaluationTaskResponse)
+def terminate_sandbox_unavailable_task(task_id: str) -> EvaluationTaskResponse:
+    task = evaluation_service.terminate_after_sandbox_unavailable(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    refreshed = task_service.get_task(task.id)
+    if refreshed is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return refreshed
+
+
 @router.get("/{task_id}/results", response_model=EvaluationResult)
 def get_task_result(task_id: str) -> EvaluationResult:
     result = evaluation_service.get_result(task_id)

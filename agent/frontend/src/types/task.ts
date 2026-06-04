@@ -63,6 +63,7 @@ export interface MetricScore {
 export interface RuntimeSnapshot {
   thread_id?: string | null;
   repo_path?: string | null;
+  sandbox_id: string;
   issue_description?: string | null;
   status: string;
   iteration_count: number;
@@ -304,6 +305,7 @@ export interface CreateTaskPayload {
 export interface TaskRunRequest {
   mode?: RunMode;
   reset: boolean;
+  allow_local_fallback?: boolean;
 }
 
 export interface AppSettings {

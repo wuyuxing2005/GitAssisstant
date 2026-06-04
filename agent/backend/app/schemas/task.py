@@ -96,6 +96,7 @@ class MetricScore(BaseModel):
 class RuntimeSnapshot(BaseModel):
     thread_id: str | None = None
     repo_path: str | None = None
+    sandbox_id: str = ""
     issue_description: str | None = None
     status: str = "INIT"
     iteration_count: int = 0
@@ -344,3 +345,4 @@ class EvaluationMetadataResponse(BaseModel):
 class TaskRunRequest(BaseModel):
     mode: RunMode | None = None
     reset: bool = False
+    allow_local_fallback: bool = False

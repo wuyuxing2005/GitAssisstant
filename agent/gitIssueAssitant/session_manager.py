@@ -26,6 +26,7 @@ class Session:
     repo_path: str
     issue_ref: Optional[str] = None
     issue_description: Optional[str] = None
+    sandbox_error: Optional[str] = None
     max_iterations: int = 25
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -309,6 +310,7 @@ class SessionManager:
         resolved_desc = self.resolve_issue_description(issue_desc)
         session.issue_ref = issue_desc
         session.issue_description = resolved_desc
+        session.sandbox_error = None
 
         # ---- 沙箱启动（迭代三第二组新增）----
         sandbox_id = ""
@@ -331,6 +333,7 @@ class SessionManager:
                     f"       容器工作目录: /workspace/repo"
                 )
             except Exception as exc:
+                session.sandbox_error = str(exc)
                 print(f"[沙箱] 沙箱启动失败，回退到本地执行模式: {exc}")
                 sandbox_id = ""
 

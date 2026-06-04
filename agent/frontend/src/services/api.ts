@@ -86,6 +86,12 @@ export async function runTask(taskId: string, payload: TaskRunRequest): Promise<
   });
 }
 
+export async function terminateSandboxTask(taskId: string): Promise<EvaluationTask> {
+  return request<EvaluationTask>(`/tasks/${taskId}/sandbox/terminate`, {
+    method: "POST"
+  });
+}
+
 export async function deleteTask(taskId: string): Promise<void> {
   await request(`/tasks/${taskId}`, { method: "DELETE" });
 }

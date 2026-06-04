@@ -26,7 +26,8 @@ import { formatDisplayTime } from "../utils/time";
 interface TaskDetailPageProps {
   task: EvaluationTask | null;
   busyTaskId: string | null;
-  onRunTask: (taskId: string, mode: RunMode, reset?: boolean) => Promise<void>;
+  onRunTask: (taskId: string, mode: RunMode, reset?: boolean, allowLocalFallback?: boolean) => Promise<void>;
+  onTerminateSandboxTask?: (taskId: string) => Promise<void>;
   onTaskChanged?: () => Promise<void>;
   onBadCasesChanged?: () => Promise<void>;
 }
@@ -303,7 +304,7 @@ function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
   );
 }
 
-export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
+export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandboxTask, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
   const conversationListRef = useRef<HTMLDivElement | null>(null);
   const [expandedEntries, setExpandedEntries] = useState<Record<string, boolean>>({});
   const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
@@ -701,6 +702,32 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
     await onRunTask(task.id, mode);
   }
 
+  async function handleRunLocallyAfterSandboxFailure() {
+    if (!task) {
+      return;
+    }
+    setConversationPinnedToBottom(true);
+    setLocalMessages((current) => [
+      ...current,
+      {
+        id: `${task.id}-local-run-local-${Date.now()}`,
+        role: "user",
+        content: "选择：Docker 不可用，改为本地执行",
+        created_at: new Date().toISOString(),
+        replan: false
+      }
+    ]);
+    await onRunTask(task.id, task.config.run_mode, true, true);
+  }
+
+  async function handleTerminateAfterSandboxFailure() {
+    if (!task || !onTerminateSandboxTask) {
+      return;
+    }
+    setConversationPinnedToBottom(true);
+    await onTerminateSandboxTask(task.id);
+  }
+
   async function openDiffModal() {
     setDiffModalOpen(true);
     if (task && task.status === "completed" && !diffInfo && !diffLoading) {
@@ -728,6 +755,8 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
 
   const result = task.result;
   const snapshot = result?.current_state;
+  const executionEnvLabel = snapshot?.sandbox_id ? "Docker 沙箱" : "本地执行";
+  const waitingForSandboxDecision = snapshot?.status === "SANDBOX_UNAVAILABLE";
   const isBusy = busyTaskId === task.id;
   const canPublish = task.status === "completed";
   const stats = diffStats(diffInfo?.diff);
@@ -804,6 +833,21 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
             </div>
           ) : null}
         </div>
+
+        {waitingForSandboxDecision ? (
+          <div className="sandbox-decision-card" role="status">
+            <strong>Docker 沙箱不可用</strong>
+            <p>请选择继续在本地环境执行，或直接终止该任务。</p>
+            <div>
+              <button type="button" onClick={() => void handleRunLocallyAfterSandboxFailure()} disabled={isBusy}>
+                本地执行
+              </button>
+              <button type="button" onClick={() => void handleTerminateAfterSandboxFailure()} disabled={isBusy || !onTerminateSandboxTask}>
+                终止任务
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {messageError ? <p className="error-copy">{messageError}</p> : null}
         <div className="conversation-composer">
@@ -896,6 +940,10 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
             <div>
               <dt>仓库路径</dt>
               <dd>{snapshot?.repo_path ?? "-"}</dd>
+            </div>
+            <div>
+              <dt>执行环境</dt>
+              <dd>{executionEnvLabel}</dd>
             </div>
             <div>
               <dt>当前轮数</dt>
@@ -1038,6 +1086,12 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTaskChanged, onB
           <span className="floating-env-icon">⑂</span>
           <span>来源</span>
           <strong title={task.config.repo_source}>{repoSourceLabel}</strong>
+        </div>
+
+        <div className="floating-env-row static">
+          <span className="floating-env-icon">□</span>
+          <span>环境</span>
+          <strong>{executionEnvLabel}</strong>
         </div>
 
         <button

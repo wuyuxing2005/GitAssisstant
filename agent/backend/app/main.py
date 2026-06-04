@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.services.evaluation_service import evaluation_service
 
 app = FastAPI(
     title="Agent 应用评估平台 API",
@@ -26,6 +27,11 @@ app.add_middleware(
 @app.get("/health", tags=["health"])
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.on_event("shutdown")
+def shutdown_runtime_resources() -> None:
+    evaluation_service.shutdown()
 
 
 app.include_router(api_router, prefix="/api")

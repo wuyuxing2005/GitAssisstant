@@ -15,6 +15,7 @@ import {
   fetchSkills,
   fetchTasks,
   runTask,
+  terminateSandboxTask,
   updateSettings
 } from "./services/api";
 import type {
@@ -159,15 +160,29 @@ export default function App() {
     }
   }
 
-  async function handleRunTask(taskId: string, mode: RunMode, reset = false) {
+  async function handleRunTask(taskId: string, mode: RunMode, reset = false, allowLocalFallback = false) {
     try {
       setBusyTaskId(taskId);
       setSelectedTaskId(taskId);
       setCurrentPage("detail");
-      await runTask(taskId, { mode, reset });
+      await runTask(taskId, { mode, reset, allow_local_fallback: allowLocalFallback });
       await refreshData(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "执行任务失败");
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  async function handleTerminateSandboxTask(taskId: string) {
+    try {
+      setBusyTaskId(taskId);
+      setSelectedTaskId(taskId);
+      setCurrentPage("detail");
+      await terminateSandboxTask(taskId);
+      await refreshData(true);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "终止任务失败");
     } finally {
       setBusyTaskId(null);
     }
@@ -324,6 +339,7 @@ export default function App() {
             task={currentTask}
             busyTaskId={busyTaskId}
             onRunTask={handleRunTask}
+            onTerminateSandboxTask={handleTerminateSandboxTask}
             onTaskChanged={() => refreshData(true)}
             onBadCasesChanged={() => refreshData(true)}
           />
