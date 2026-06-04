@@ -13,6 +13,7 @@ import {
   fetchHealth,
   fetchSettings,
   fetchSkills,
+  fetchTaskIssue,
   fetchTasks,
   runTask,
   terminateSandboxTask,
@@ -37,6 +38,12 @@ const DEFAULT_SIDEBAR_WIDTH = 386;
 const MIN_SIDEBAR_WIDTH = 260;
 const MAX_SIDEBAR_WIDTH = 560;
 const SIDEBAR_WIDTH_STORAGE_KEY = "agent-console-sidebar-width";
+const CURRENT_PAGE_STORAGE_KEY = "agent-console-current-page";
+const SELECTED_TASK_STORAGE_KEY = "agent-console-selected-task-id";
+
+function isPageKey(value: string | null): value is PageKey {
+  return value === "new-task" || value === "detail" || value === "bad-cases" || value === "skills" || value === "compare";
+}
 
 function clampSidebarWidth(value: number): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
@@ -76,9 +83,12 @@ export default function App() {
   const [badCases, setBadCases] = useState<BadCaseRecord[]>([]);
   const [badCaseTags, setBadCaseTags] = useState<string[]>([]);
   const [skills, setSkills] = useState<SkillRecord[]>([]);
-  const [currentPage, setCurrentPage] = useState<PageKey>("new-task");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [currentIssueInfo, setCurrentIssueInfo] = useState<GitHubIssueInfo | null>(null);
+  const [currentPage, setCurrentPage] = useState<PageKey>(() => {
+    const stored = window.localStorage.getItem(CURRENT_PAGE_STORAGE_KEY);
+    return isPageKey(stored) ? stored : "new-task";
+  });
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => window.localStorage.getItem(SELECTED_TASK_STORAGE_KEY));
+  const [issueInfoCache, setIssueInfoCache] = useState<Record<string, GitHubIssueInfo>>({});
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [backendStatus, setBackendStatus] = useState<"loading" | "online" | "offline">("loading");
@@ -96,6 +106,18 @@ export default function App() {
   useEffect(() => {
     void refreshData();
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(CURRENT_PAGE_STORAGE_KEY, currentPage);
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (selectedTaskId) {
+      window.localStorage.setItem(SELECTED_TASK_STORAGE_KEY, selectedTaskId);
+    } else {
+      window.localStorage.removeItem(SELECTED_TASK_STORAGE_KEY);
+    }
+  }, [selectedTaskId]);
 
   useEffect(() => {
     const hasActiveTask = tasks.some((task) => task.status === "running" || task.status === "scheduled");
@@ -131,6 +153,10 @@ export default function App() {
         if (current && taskList.some((task) => task.id === current)) {
           return current;
         }
+        const stored = window.localStorage.getItem(SELECTED_TASK_STORAGE_KEY);
+        if (stored && taskList.some((task) => task.id === stored)) {
+          return stored;
+        }
         return taskList[0]?.id ?? null;
       });
 
@@ -151,6 +177,10 @@ export default function App() {
     try {
       setBusyTaskId("create");
       const task = await createTask(payload);
+      const issueInfo = await fetchTaskIssue(task.id).catch(() => null);
+      if (issueInfo) {
+        setIssueInfoCache((current) => ({ ...current, [task.id]: issueInfo }));
+      }
       setSelectedTaskId(task.id);
       setCurrentPage("detail");
       await refreshData(true);
@@ -253,20 +283,24 @@ export default function App() {
   }
 
   const currentTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
-  const handleIssueInfoChanged = useCallback((issueInfo: GitHubIssueInfo | null) => {
-    setCurrentIssueInfo(issueInfo);
+  const currentIssueInfo = currentTask ? issueInfoCache[currentTask.id] ?? null : null;
+  const handleIssueInfoChanged = useCallback((taskId: string, issueInfo: GitHubIssueInfo | null) => {
+    setIssueInfoCache((current) => {
+      if (issueInfo) {
+        return { ...current, [taskId]: issueInfo };
+      }
+      const next = { ...current };
+      delete next[taskId];
+      return next;
+    });
   }, []);
-
-  useEffect(() => {
-    setCurrentIssueInfo(null);
-  }, [currentPage, selectedTaskId]);
 
   const appShellStyle = {
     "--sidebar-width": `${sidebarWidth}px`
   } as CSSProperties;
 
   return (
-    <div className={`app-shell ${resizingSidebar ? "resizing-sidebar" : ""}`} style={appShellStyle}>
+    <div className={`app-shell ${currentPage === "detail" ? "detail-shell" : ""} ${resizingSidebar ? "resizing-sidebar" : ""}`} style={appShellStyle}>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <span className="app-mark">G</span>
@@ -357,6 +391,7 @@ export default function App() {
             busyTaskId={busyTaskId}
             onRunTask={handleRunTask}
             onTerminateSandboxTask={handleTerminateSandboxTask}
+            cachedIssueInfo={currentIssueInfo}
             onIssueInfoChanged={handleIssueInfoChanged}
             onTaskChanged={() => refreshData(true)}
             onBadCasesChanged={() => refreshData(true)}

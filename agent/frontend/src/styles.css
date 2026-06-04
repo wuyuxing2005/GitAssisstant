@@ -21,6 +21,12 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -57,6 +63,12 @@ ul {
   display: grid;
   grid-template-columns: var(--sidebar-width) 8px minmax(0, 1fr);
   min-height: 100vh;
+}
+
+.app-shell.detail-shell {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -1147,13 +1159,20 @@ body {
   background: #ffffff;
 }
 
+.detail-shell .content {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
 .content > section,
 .content > .banner {
   margin: 0 calc(22px + var(--task-env-rail-width) + var(--task-env-rail-gap)) 18px 22px;
 }
 
 .content > section:first-of-type {
-  margin-top: 18px;
+  margin-top: 8px;
 }
 
 .hero {
@@ -1161,8 +1180,8 @@ body {
   top: 0;
   z-index: 10;
   align-items: center;
-  min-height: 68px;
-  padding: 14px 22px;
+  min-height: 48px;
+  padding: 8px 22px;
   border-bottom: 1px solid #eceef0;
   background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(16px);
@@ -1186,7 +1205,7 @@ body {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -1194,9 +1213,9 @@ body {
   display: inline-grid;
   grid-template-columns: auto minmax(160px, min(46vw, 620px)) auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  padding: 6px 10px;
+  padding: 4px 10px;
   border: 1px solid #e2e8ec;
   border-radius: 12px;
   background: #fbfcfc;
@@ -1332,7 +1351,7 @@ body {
 }
 
 .section-header {
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .section-header h2 {
@@ -1476,21 +1495,30 @@ body {
   grid-template-columns: minmax(0, 1fr) var(--task-env-rail-width);
   gap: var(--task-env-rail-gap);
   align-items: start;
-  margin: 18px 22px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  margin: 8px 22px;
 }
 
 .task-detail-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 1px 18px 14px;
 }
 
 .task-floating-env {
   position: sticky;
-  top: 86px;
+  top: 16px;
   z-index: 5;
   display: grid;
   gap: 16px;
   width: 100%;
-  max-height: calc(100vh - 110px);
+  max-height: 100%;
   overflow: auto;
   padding: 18px 18px 20px;
   border: 1px solid #e6e9ec;
@@ -1522,6 +1550,10 @@ body {
 .floating-env-header strong {
   color: #1f5f5a;
   font-size: 13px;
+}
+
+.floating-env-header strong.failed {
+  color: #dc2626;
 }
 
 .floating-env-header button {
@@ -1915,7 +1947,27 @@ button.floating-env-row:hover:not(:disabled) {
 .bad-case-panel,
 .skill-manager-panel {
   display: grid;
-  gap: 14px;
+  gap: 10px;
+}
+
+.conversation-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.conversation-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e8ec;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fbfcfd 0%, #f6f8f9 100%);
 }
 
 .skill-picker-grid,
@@ -1949,13 +2001,11 @@ button.floating-env-row:hover:not(:disabled) {
 .conversation-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  max-height: 420px;
+  flex: 1;
+  gap: 10px;
+  min-height: 0;
   overflow: auto;
-  padding: 14px;
-  border: 1px solid #e2e8ec;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #fbfcfd 0%, #f6f8f9 100%);
+  padding: 0 2px 0 0;
 }
 
 .task-diff-modal {
@@ -2104,13 +2154,13 @@ button.floating-env-row:hover:not(:disabled) {
 
 .conversation-message {
   display: grid;
-  grid-template-columns: 34px minmax(0, 78%);
+  grid-template-columns: 28px minmax(0, 74%);
   align-items: end;
-  gap: 10px;
+  gap: 8px;
 }
 
 .conversation-message.user {
-  grid-template-columns: minmax(0, 78%) 34px;
+  grid-template-columns: minmax(0, 74%) 28px;
   justify-content: end;
 }
 
@@ -2151,37 +2201,37 @@ button.floating-env-row:hover:not(:disabled) {
 .conversation-avatar {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 900;
 }
 
 .conversation-bubble {
   display: grid;
-  gap: 8px;
-  padding: 12px 14px;
+  gap: 6px;
+  padding: 9px 11px;
   border: 1px solid #e6eaed;
-  border-radius: 16px;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+  border-radius: 12px;
+  box-shadow: 0 5px 12px rgba(15, 23, 42, 0.035);
 }
 
 .conversation-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .conversation-meta span {
   color: #647077;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .conversation-meta small {
   color: #8a969b;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -2189,7 +2239,8 @@ button.floating-env-row:hover:not(:disabled) {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.65;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .conversation-bubble em {
@@ -2235,13 +2286,14 @@ button.floating-env-row:hover:not(:disabled) {
 
 .conversation-composer {
   display: grid;
-  gap: 10px;
-  min-height: 150px;
-  padding: 16px;
+  flex: none;
+  gap: 6px;
+  min-height: 68px;
+  padding: 8px 10px;
   border: 1px solid #dde2e6;
-  border-radius: 24px;
+  border-radius: 14px;
   background: #ffffff;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
 .sandbox-decision-card {
@@ -2295,14 +2347,16 @@ button.floating-env-row:hover:not(:disabled) {
 
 .conversation-composer textarea {
   width: 100%;
-  min-height: 82px;
+  min-height: 30px;
+  max-height: 160px;
   border: 0;
   background: transparent;
   color: #0f172a;
   padding: 0;
-  font-size: 16px;
-  line-height: 1.6;
-  resize: vertical;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-y: auto;
+  resize: none;
 }
 
 .conversation-composer textarea:focus {
@@ -2317,12 +2371,13 @@ button.floating-env-row:hover:not(:disabled) {
 }
 
 .replan-toggle {
-  min-height: 36px;
-  padding: 8px 13px;
+  min-height: 28px;
+  padding: 5px 9px;
   border: 1px solid #e5e9ec;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #f3f4f6;
   color: #4b5563;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -2336,13 +2391,13 @@ button.floating-env-row:hover:not(:disabled) {
 .conversation-send-button {
   display: inline-grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 30px;
+  height: 30px;
   border: 0;
   border-radius: 50%;
   background: #17212b;
   color: #ffffff;
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 800;
   line-height: 1;
   cursor: pointer;

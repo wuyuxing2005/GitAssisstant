@@ -27,7 +27,8 @@ interface TaskDetailPageProps {
   busyTaskId: string | null;
   onRunTask: (taskId: string, mode: RunMode, reset?: boolean, allowLocalFallback?: boolean) => Promise<void>;
   onTerminateSandboxTask?: (taskId: string) => Promise<void>;
-  onIssueInfoChanged?: (issueInfo: GitHubIssueInfo | null) => void;
+  cachedIssueInfo?: GitHubIssueInfo | null;
+  onIssueInfoChanged?: (taskId: string, issueInfo: GitHubIssueInfo | null) => void;
   onTaskChanged?: () => Promise<void>;
   onBadCasesChanged?: () => Promise<void>;
 }
@@ -299,8 +300,9 @@ function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
   );
 }
 
-export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandboxTask, onIssueInfoChanged, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
+export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandboxTask, cachedIssueInfo, onIssueInfoChanged, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
   const conversationListRef = useRef<HTMLDivElement | null>(null);
+  const messageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
   const [messages, setMessages] = useState<TaskMessage[]>([]);
   const [localMessages, setLocalMessages] = useState<TaskMessage[]>([]);
@@ -348,8 +350,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     setConversationPinnedToBottom(true);
     setMessageContent("");
     setMessageError(null);
-    setIssueInfo(null);
-    onIssueInfoChanged?.(null);
+    setIssueInfo(cachedIssueInfo ?? null);
     setIssueLoading(false);
     setIssueBusy(false);
     setIssueError(null);
@@ -357,9 +358,9 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     setIssueCommentDialogOpen(false);
     setIssueStateDialogMode(null);
     setIssueLabelsDialogOpen(false);
-    setIssueCommentBody("");
+    setIssueCommentBody(cachedIssueInfo?.default_comment ?? "");
     setIssueCloseReason("completed");
-    setIssueLabelsText("");
+    setIssueLabelsText(cachedIssueInfo?.labels.join(", ") ?? "");
   }, [task?.id]);
 
   useEffect(() => {
@@ -374,6 +375,15 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
     });
   }, [messages, localMessages, conversationPinnedToBottom]);
+
+  useEffect(() => {
+    const textarea = messageTextareaRef.current;
+    if (!textarea) {
+      return;
+    }
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  }, [messageContent]);
 
   useEffect(() => {
     if (!task) {
@@ -431,6 +441,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     if (!task) {
       return undefined;
     }
+    if (cachedIssueInfo?.task_id === task.id) {
+      setIssueInfo(cachedIssueInfo);
+      setIssueCommentBody(cachedIssueInfo.default_comment);
+      setIssueLabelsText(cachedIssueInfo.labels.join(", "));
+      setIssueLoading(false);
+      setIssueError(null);
+      return undefined;
+    }
     let cancelled = false;
     setIssueLoading(true);
     setIssueError(null);
@@ -439,7 +457,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       .then((response) => {
         if (!cancelled) {
           setIssueInfo(response);
-          onIssueInfoChanged?.(response);
+          onIssueInfoChanged?.(task.id, response);
           setIssueCommentBody(response.default_comment);
           setIssueLabelsText(response.labels.join(", "));
         }
@@ -447,7 +465,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       .catch((error) => {
         if (!cancelled) {
           setIssueInfo(null);
-          onIssueInfoChanged?.(null);
+          onIssueInfoChanged?.(task.id, null);
           setIssueError(error instanceof Error ? error.message : "加载 Issue 失败");
         }
       })
@@ -460,7 +478,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     return () => {
       cancelled = true;
     };
-  }, [task?.id, onIssueInfoChanged]);
+  }, [task?.id, cachedIssueInfo, onIssueInfoChanged]);
 
   async function handleRefreshIssue() {
     if (!task) {
@@ -471,14 +489,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       setIssueError(null);
       const response = await fetchTaskIssue(task.id);
       setIssueInfo(response);
-      onIssueInfoChanged?.(response);
+      onIssueInfoChanged?.(task.id, response);
       setIssueLabelsText(response.labels.join(", "));
       if (!issueCommentDialogOpen) {
         setIssueCommentBody(response.default_comment);
       }
     } catch (error) {
       setIssueInfo(null);
-      onIssueInfoChanged?.(null);
+      onIssueInfoChanged?.(task.id, null);
       setIssueError(error instanceof Error ? error.message : "刷新 Issue 失败");
     } finally {
       setIssueLoading(false);
@@ -793,77 +811,80 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
           </div>
         </div>
 
-        <div
-          ref={conversationListRef}
-          className="conversation-list"
-          aria-label="多轮对话历史"
-          onScroll={handleConversationScroll}
-        >
-          {displayedMessages.map((message) => (
-            <article key={message.id} className={`conversation-message ${message.role}`}>
-              <div className="conversation-avatar" aria-hidden="true">
-                {message.role === "assistant" ? "A" : message.role === "user" ? "U" : "S"}
-              </div>
-              <div className="conversation-bubble">
-                <div className="conversation-meta">
-                  <span>{messageRoleLabel(message.role)}</span>
-                  <small>{messageRoleHint(message.role)}</small>
+        <div className="conversation-body">
+          <div
+            ref={conversationListRef}
+            className="conversation-list"
+            aria-label="多轮对话历史"
+            onScroll={handleConversationScroll}
+          >
+            {displayedMessages.map((message) => (
+              <article key={message.id} className={`conversation-message ${message.role}`}>
+                <div className="conversation-avatar" aria-hidden="true">
+                  {message.role === "assistant" ? "A" : message.role === "user" ? "U" : "S"}
                 </div>
-                <p>{message.content}</p>
-                {message.replan ? <em>触发重新规划</em> : null}
+                <div className="conversation-bubble">
+                  <div className="conversation-meta">
+                    <span>{messageRoleLabel(message.role)}</span>
+                    <small>{messageRoleHint(message.role)}</small>
+                  </div>
+                  <p>{message.content}</p>
+                  {message.replan ? <em>触发重新规划</em> : null}
+                </div>
+              </article>
+            ))}
+            {!displayedMessages.length ? (
+              <div className="conversation-empty">
+                <strong>暂无对话历史</strong>
+                <p>发送补充要求后，这里会按双方消息展示完整对话记录。</p>
               </div>
-            </article>
-          ))}
-          {!displayedMessages.length ? (
-            <div className="conversation-empty">
-              <strong>暂无对话历史</strong>
-              <p>发送补充要求后，这里会按双方消息展示完整对话记录。</p>
+            ) : null}
+          </div>
+
+          {waitingForSandboxDecision ? (
+            <div className="sandbox-decision-card" role="status">
+              <strong>Docker 沙箱不可用</strong>
+              <p>请选择继续在本地环境执行，或直接终止该任务。</p>
+              <div>
+                <button type="button" onClick={() => void handleRunLocallyAfterSandboxFailure()} disabled={isBusy}>
+                  本地执行
+                </button>
+                <button type="button" onClick={() => void handleTerminateAfterSandboxFailure()} disabled={isBusy || !onTerminateSandboxTask}>
+                  终止任务
+                </button>
+              </div>
             </div>
           ) : null}
-        </div>
 
-        {waitingForSandboxDecision ? (
-          <div className="sandbox-decision-card" role="status">
-            <strong>Docker 沙箱不可用</strong>
-            <p>请选择继续在本地环境执行，或直接终止该任务。</p>
-            <div>
-              <button type="button" onClick={() => void handleRunLocallyAfterSandboxFailure()} disabled={isBusy}>
-                本地执行
+          {messageError ? <p className="error-copy">{messageError}</p> : null}
+          <div className="conversation-composer">
+            <textarea
+              ref={messageTextareaRef}
+              rows={1}
+              value={messageContent}
+              onChange={(event) => setMessageContent(event.target.value)}
+              placeholder="例如：根据刚才的测试失败继续修。"
+              disabled={messageBusy}
+            />
+            <div className="conversation-composer-actions">
+              <button
+                className={`replan-toggle ${messageReplan ? "active" : ""}`}
+                type="button"
+                aria-pressed={messageReplan}
+                onClick={() => setMessageReplan((current) => !current)}
+              >
+                重新规划
               </button>
-              <button type="button" onClick={() => void handleTerminateAfterSandboxFailure()} disabled={isBusy || !onTerminateSandboxTask}>
-                终止任务
+              <button
+                className="conversation-send-button"
+                type="button"
+                aria-label="发送补充要求"
+                onClick={() => void handleSubmitMessage()}
+                disabled={messageBusy || !messageContent.trim()}
+              >
+                ↑
               </button>
             </div>
-          </div>
-        ) : null}
-
-        {messageError ? <p className="error-copy">{messageError}</p> : null}
-        <div className="conversation-composer">
-          <textarea
-            rows={3}
-            value={messageContent}
-            onChange={(event) => setMessageContent(event.target.value)}
-            placeholder="例如：根据刚才的测试失败继续修。"
-            disabled={messageBusy}
-          />
-          <div className="conversation-composer-actions">
-            <button
-              className={`replan-toggle ${messageReplan ? "active" : ""}`}
-              type="button"
-              aria-pressed={messageReplan}
-              onClick={() => setMessageReplan((current) => !current)}
-            >
-              重新规划
-            </button>
-            <button
-              className="conversation-send-button"
-              type="button"
-              aria-label="发送补充要求"
-              onClick={() => void handleSubmitMessage()}
-              disabled={messageBusy || !messageContent.trim()}
-            >
-              ↑
-            </button>
           </div>
         </div>
       </section>
@@ -873,7 +894,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       <div className="floating-env-header">
         <div>
           <span>环境信息</span>
-          <strong>{publishStateLabel}</strong>
+          <strong className={task.status === "failed" ? "failed" : ""}>{publishStateLabel}</strong>
         </div>
         <button type="button" onClick={() => void handleRefreshDiff()} disabled={!canPublish || diffLoading}>
           刷新
