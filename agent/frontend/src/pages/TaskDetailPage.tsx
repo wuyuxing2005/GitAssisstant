@@ -27,6 +27,7 @@ interface TaskDetailPageProps {
   busyTaskId: string | null;
   onRunTask: (taskId: string, mode: RunMode, reset?: boolean, allowLocalFallback?: boolean) => Promise<void>;
   onTerminateSandboxTask?: (taskId: string) => Promise<void>;
+  onIssueInfoChanged?: (issueInfo: GitHubIssueInfo | null) => void;
   onTaskChanged?: () => Promise<void>;
   onBadCasesChanged?: () => Promise<void>;
 }
@@ -298,7 +299,7 @@ function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
   );
 }
 
-export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandboxTask, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
+export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandboxTask, onIssueInfoChanged, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
   const conversationListRef = useRef<HTMLDivElement | null>(null);
   const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
   const [messages, setMessages] = useState<TaskMessage[]>([]);
@@ -348,6 +349,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     setMessageContent("");
     setMessageError(null);
     setIssueInfo(null);
+    onIssueInfoChanged?.(null);
     setIssueLoading(false);
     setIssueBusy(false);
     setIssueError(null);
@@ -437,6 +439,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       .then((response) => {
         if (!cancelled) {
           setIssueInfo(response);
+          onIssueInfoChanged?.(response);
           setIssueCommentBody(response.default_comment);
           setIssueLabelsText(response.labels.join(", "));
         }
@@ -444,6 +447,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       .catch((error) => {
         if (!cancelled) {
           setIssueInfo(null);
+          onIssueInfoChanged?.(null);
           setIssueError(error instanceof Error ? error.message : "加载 Issue 失败");
         }
       })
@@ -456,7 +460,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     return () => {
       cancelled = true;
     };
-  }, [task?.id]);
+  }, [task?.id, onIssueInfoChanged]);
 
   async function handleRefreshIssue() {
     if (!task) {
@@ -467,12 +471,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       setIssueError(null);
       const response = await fetchTaskIssue(task.id);
       setIssueInfo(response);
+      onIssueInfoChanged?.(response);
       setIssueLabelsText(response.labels.join(", "));
       if (!issueCommentDialogOpen) {
         setIssueCommentBody(response.default_comment);
       }
     } catch (error) {
       setIssueInfo(null);
+      onIssueInfoChanged?.(null);
       setIssueError(error instanceof Error ? error.message : "刷新 Issue 失败");
     } finally {
       setIssueLoading(false);
@@ -779,16 +785,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     <>
     <div className="task-detail-layout">
     <section className="card task-detail-main">
-      {issueInfo ? (
-        <section className="task-issue-summary" aria-label="Issue 标题和内容">
-          <div className="task-issue-summary-header">
-            <span>Issue #{issueInfo.number}</span>
-            <a href={issueInfo.html_url} target="_blank" rel="noreferrer">打开 GitHub</a>
-          </div>
-          <h3>{issueInfo.title}</h3>
-        </section>
-      ) : null}
-
       <section className="conversation-panel">
         <div className="section-header compact">
           <div>

@@ -1185,8 +1185,45 @@ body {
 .hero-title-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
   min-width: 0;
+}
+
+.hero-issue-summary {
+  display: inline-grid;
+  grid-template-columns: auto minmax(160px, min(46vw, 620px)) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid #e2e8ec;
+  border-radius: 12px;
+  background: #fbfcfc;
+}
+
+.hero-issue-summary span {
+  color: #1f5f5a;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.hero-issue-summary strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #1f2933;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-issue-summary a {
+  color: #344448;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .hero-context-pills {
@@ -1444,42 +1481,6 @@ body {
 
 .task-detail-main {
   min-width: 0;
-}
-
-.task-issue-summary {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 18px;
-  padding: 18px 20px;
-  border: 1px solid #e6e9ec;
-  border-radius: 16px;
-  background: #fbfcfc;
-}
-
-.task-issue-summary-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-}
-
-.task-issue-summary-header span {
-  color: #1f5f5a;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.task-issue-summary-header a {
-  color: #526067;
-  font-size: 13px;
-  font-weight: 750;
-  text-decoration: none;
-}
-
-.task-issue-summary h3 {
-  margin: 0;
-  color: #1f2933;
-  font-size: 20px;
 }
 
 .task-floating-env {

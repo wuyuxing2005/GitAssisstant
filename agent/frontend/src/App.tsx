@@ -25,6 +25,7 @@ import type {
   ComparisonResponse,
   CreateTaskPayload,
   EvaluationTask,
+  GitHubIssueInfo,
   SkillRecord,
   TaskStatus,
   RunMode
@@ -77,6 +78,7 @@ export default function App() {
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [currentPage, setCurrentPage] = useState<PageKey>("new-task");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [currentIssueInfo, setCurrentIssueInfo] = useState<GitHubIssueInfo | null>(null);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [backendStatus, setBackendStatus] = useState<"loading" | "online" | "offline">("loading");
@@ -251,6 +253,14 @@ export default function App() {
   }
 
   const currentTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const handleIssueInfoChanged = useCallback((issueInfo: GitHubIssueInfo | null) => {
+    setCurrentIssueInfo(issueInfo);
+  }, []);
+
+  useEffect(() => {
+    setCurrentIssueInfo(null);
+  }, [currentPage, selectedTaskId]);
+
   const appShellStyle = {
     "--sidebar-width": `${sidebarWidth}px`
   } as CSSProperties;
@@ -311,6 +321,13 @@ export default function App() {
           <div className="hero-title-block">
             <div className="hero-title-row">
               <h2>{pageTitle(currentPage, currentTask)}</h2>
+              {currentPage === "detail" && currentIssueInfo ? (
+                <div className="hero-issue-summary" aria-label="Issue 标题和内容">
+                  <span>Issue #{currentIssueInfo.number}</span>
+                  <strong title={currentIssueInfo.title}>{currentIssueInfo.title}</strong>
+                  <a href={currentIssueInfo.html_url} target="_blank" rel="noreferrer">打开 GitHub</a>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -340,6 +357,7 @@ export default function App() {
             busyTaskId={busyTaskId}
             onRunTask={handleRunTask}
             onTerminateSandboxTask={handleTerminateSandboxTask}
+            onIssueInfoChanged={handleIssueInfoChanged}
             onTaskChanged={() => refreshData(true)}
             onBadCasesChanged={() => refreshData(true)}
           />
