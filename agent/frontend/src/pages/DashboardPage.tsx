@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type {
   AppSettings,
   CreateTaskPayload,
+  GitHubIssueSummary,
   RunMode,
   SkillRecord
 } from "../types/task";
+import { fetchRepoIssues } from "../services/api";
 
 interface DashboardPageProps {
   busyTaskId: string | null;
@@ -12,6 +14,12 @@ interface DashboardPageProps {
   models: string[];
   skills: SkillRecord[];
   onCreateTask: (payload: CreateTaskPayload) => Promise<void>;
+}
+
+function looksLikeGitHubUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return /github\.com[/:][\w.-]+\/[\w.-]+/.test(trimmed);
 }
 
 export function DashboardPage({
@@ -35,6 +43,13 @@ export function DashboardPage({
       enabled_skills: []
     }
   });
+  const [issuesList, setIssuesList] = useState<GitHubIssueSummary[]>([]);
+  const [loadingIssues, setLoadingIssues] = useState(false);
+  const [issuesError, setIssuesError] = useState<string | null>(null);
+  const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | null>(null);
+  const [selectedIssueBody, setSelectedIssueBody] = useState<string>("");
+  const [showIssuesPanel, setShowIssuesPanel] = useState(false);
+  const issuesFetchAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const enabledSkillNames = skills.filter((skill) => skill.enabled).map((skill) => skill.name);
@@ -65,6 +80,74 @@ export function DashboardPage({
     });
   }, [settings?.model_name, models]);
 
+  const handleRepoSourceChange = useCallback((value: string) => {
+    setFormState((current) => ({
+      ...current,
+      config: { ...current.config, repo_source: value }
+    }));
+    // Clear issues when the repo URL changes
+    if (issuesFetchAbortRef.current) {
+      issuesFetchAbortRef.current.abort();
+      issuesFetchAbortRef.current = null;
+    }
+    setIssuesList([]);
+    setIssuesError(null);
+    setSelectedIssueNumber(null);
+    setSelectedIssueBody("");
+    setShowIssuesPanel(false);
+  }, []);
+
+  async function handleFetchIssues() {
+    const repoSource = formState.config.repo_source.trim();
+    if (!repoSource) return;
+
+    if (issuesFetchAbortRef.current) {
+      issuesFetchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    issuesFetchAbortRef.current = controller;
+
+    setLoadingIssues(true);
+    setIssuesError(null);
+    setIssuesList([]);
+    setShowIssuesPanel(true);
+
+    try {
+      const issues = await fetchRepoIssues(repoSource);
+      if (controller.signal.aborted) return;
+      setIssuesList(issues);
+      if (issues.length === 0) {
+        setIssuesError("该仓库没有找到 open 状态的 Issue");
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setIssuesError(error instanceof Error ? error.message : "获取 Issues 失败");
+    } finally {
+      if (!controller.signal.aborted) {
+        setLoadingIssues(false);
+        issuesFetchAbortRef.current = null;
+      }
+    }
+  }
+
+  function handleRepoSourceKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (looksLikeGitHubUrl(formState.config.repo_source)) {
+        void handleFetchIssues();
+      }
+    }
+  }
+
+  function handleSelectIssue(issue: GitHubIssueSummary) {
+    setSelectedIssueNumber(issue.number);
+    setSelectedIssueBody(issue.body);
+    setFormState((current) => ({
+      ...current,
+      config: { ...current.config, issue_input: `#${issue.number}` }
+    }));
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
@@ -92,6 +175,11 @@ export function DashboardPage({
           enabled_skills: skills.filter((skill) => skill.enabled).map((skill) => skill.name)
         }
       });
+      setIssuesList([]);
+      setIssuesError(null);
+      setSelectedIssueNumber(null);
+      setSelectedIssueBody("");
+      setShowIssuesPanel(false);
     } catch {
       // App already surfaces the error banner.
     }
@@ -121,18 +209,89 @@ export function DashboardPage({
 
         <label>
           <span>仓库路径或 Git URL</span>
-          <input
-            required
-            value={formState.config.repo_source}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                config: { ...current.config, repo_source: event.target.value }
-              }))
-            }
-            placeholder="例如：repos/myproject 或 https://github.com/org/repo.git"
-          />
+          <div className="repo-source-row">
+            <input
+              required
+              className="repo-source-input"
+              value={formState.config.repo_source}
+              onChange={(event) => handleRepoSourceChange(event.target.value)}
+              onKeyDown={handleRepoSourceKeyDown}
+              placeholder="例如：repos/myproject 或 https://github.com/org/repo.git"
+            />
+            {looksLikeGitHubUrl(formState.config.repo_source) ? (
+              <button
+                type="button"
+                className="secondary-button fetch-issues-btn"
+                disabled={loadingIssues}
+                onClick={() => void handleFetchIssues()}
+              >
+                {loadingIssues ? "获取中..." : "获取 Issues"}
+              </button>
+            ) : null}
+          </div>
         </label>
+
+        {showIssuesPanel ? (
+          <div className="issues-panel">
+            {loadingIssues ? (
+              <p className="muted-copy issues-loading">正在加载 Issues...</p>
+            ) : issuesError ? (
+              <p className="issues-error">{issuesError}</p>
+            ) : issuesList.length > 0 ? (
+              <>
+                <div className="issues-panel-header">
+                  <span>共 {issuesList.length} 个 Issue</span>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setShowIssuesPanel(false)}
+                  >
+                    收起
+                  </button>
+                </div>
+                <ul className="issues-list">
+                  {issuesList.map((issue) => (
+                    <li key={issue.number}>
+                      <button
+                        type="button"
+                        className={`issue-item ${issue.number === selectedIssueNumber ? "selected" : ""}`}
+                        onClick={() => handleSelectIssue(issue)}
+                      >
+                        <div className="issue-item-top">
+                          <span className="issue-number">#{issue.number}</span>
+                          <span className="issue-title">{issue.title}</span>
+                          <span className={`issue-state issue-state-${issue.state}`}>
+                            {issue.state === "open" ? "Open" : issue.state}
+                          </span>
+                          {issue.labels.length > 0 ? (
+                            <span className="issue-labels">
+                              {issue.labels.map((label) => (
+                                <span key={label} className="issue-label-tag">{label}</span>
+                              ))}
+                            </span>
+                          ) : null}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {selectedIssueBody ? (
+                  <div className="issue-body-section">
+                    <span className="issue-body-label">Issue 内容预览</span>
+                    <textarea
+                      className="issue-body-textarea"
+                      rows={8}
+                      readOnly
+                      value={selectedIssueBody}
+                    />
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p className="muted-copy">暂无 Issues</p>
+            )}
+          </div>
+        ) : null}
 
         <label>
           <span>Issue 描述 / 编号 / 链接</span>

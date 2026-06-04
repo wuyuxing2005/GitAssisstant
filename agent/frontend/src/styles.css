@@ -2605,6 +2605,194 @@ button.floating-env-row:hover:not(:disabled) {
   }
 }
 
+/* ---- Issues list panel (create-task form) ---- */
+
+.repo-source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.repo-source-input {
+  width: 100%;
+}
+
+.fetch-issues-btn {
+  white-space: nowrap;
+}
+
+.issues-panel {
+  display: grid;
+  gap: 8px;
+  margin: -6px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid #e5e9ec;
+  border-radius: 14px;
+  background: #fbfcfd;
+}
+
+.issues-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #647077;
+}
+
+.issues-loading {
+  padding: 10px 0;
+  text-align: center;
+}
+
+.issues-error {
+  padding: 10px 0;
+  color: var(--danger);
+  font-weight: 700;
+  text-align: center;
+}
+
+.issues-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+  list-style: none;
+}
+
+.issue-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e5e9ec;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #253438;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.issue-item:hover {
+  background: #f3f8f7;
+  border-color: rgba(47, 125, 121, 0.28);
+}
+
+.issue-item.selected {
+  background: #e1f4f1;
+  border-color: rgba(47, 125, 121, 0.48);
+}
+
+.issue-item-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.issue-body-section {
+  display: grid;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid #e5e9ec;
+}
+
+.issue-body-label {
+  color: #647077;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.issue-body-textarea {
+  width: 100%;
+  border: 1px solid #dde2e6;
+  border-radius: 10px;
+  background: #f8fafb;
+  color: #344047;
+  padding: 10px 12px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  cursor: default;
+}
+
+.issue-number {
+  font-weight: 800;
+  color: #1f5f5a;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.issue-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.issue-state {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.issue-state-open {
+  background: #ddf4e9;
+  color: #147151;
+}
+
+.issue-state-closed {
+  background: #f1e8ff;
+  color: #6e3ab2;
+}
+
+.issue-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.issue-label-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f0f3f5;
+  color: #526067;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.link-button {
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.link-button:hover {
+  background: rgba(34, 115, 111, 0.08);
+}
+
 @media (max-width: 720px) {
   .content > section,
   .content > .banner {
@@ -2637,5 +2825,9 @@ button.floating-env-row:hover:not(:disabled) {
   .conversation-composer-actions {
     justify-content: space-between;
     flex-wrap: wrap;
+  }
+
+  .repo-source-row {
+    grid-template-columns: 1fr;
   }
 }

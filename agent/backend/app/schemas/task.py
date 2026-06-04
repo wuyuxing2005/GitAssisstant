@@ -207,6 +207,17 @@ class GitHubIssueInfo(BaseModel):
     default_comment: str = ""
 
 
+class GitHubIssueSummary(BaseModel):
+    number: int
+    title: str = ""
+    body: str = ""
+    state: str = ""
+    labels: list[str] = Field(default_factory=list)
+    html_url: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class GitHubIssueCommentRequest(BaseModel):
     body: str = Field(..., min_length=1)
 
