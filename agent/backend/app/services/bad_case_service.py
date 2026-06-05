@@ -75,6 +75,7 @@ class BadCaseService:
             status=task.status,
             tags=[tag for tag in tags if tag in DEFAULT_BAD_CASE_TAGS or tag.strip()],
             note=payload.note,
+            agent_trace=result.agent_trace if result else None,
             timeline=list(result.timeline) if result else [],
             metrics=list(result.metrics) if result else [],
             diff_summary=self._diff_summary(task.id),

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Response
 
 from app.schemas.task import (
+    AgentTrace,
     EvaluationResult,
     EvaluationTaskCreate,
     EvaluationTaskResponse,
@@ -117,6 +118,14 @@ def get_task_result(task_id: str) -> EvaluationResult:
     if result is None:
         raise HTTPException(status_code=404, detail="Result not found")
     return result
+
+
+@router.get("/{task_id}/trace", response_model=AgentTrace)
+def get_task_trace(task_id: str) -> AgentTrace:
+    trace = evaluation_service.get_trace(task_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="Trace not found")
+    return trace
 
 
 @router.get("/{task_id}/messages", response_model=TaskMessageList)

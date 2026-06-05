@@ -1,4 +1,5 @@
 import type {
+  AgentTrace,
   BadCaseCreate,
   BadCaseListResponse,
   BadCaseRecord,
@@ -113,6 +114,10 @@ export async function submitTaskMessage(
 
 export async function fetchTaskDiff(taskId: string): Promise<GitDiffResponse> {
   return request<GitDiffResponse>(`/tasks/${taskId}/diff`);
+}
+
+export async function fetchTaskTrace(taskId: string): Promise<AgentTrace> {
+  return request<AgentTrace>(`/tasks/${taskId}/trace`);
 }
 
 export async function pushTaskChanges(

@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 
 from app.models.task import EvaluationTaskRecord
 from app.schemas.task import (
+    AgentTrace,
     ComparisonAggregate,
     ComparisonItem,
     ComparisonResponse,
@@ -38,6 +39,7 @@ from app.schemas.task import (
 )
 from app.services.skill_service import skill_service
 from app.services.task_service import task_service
+from app.services.trace_service import agent_trace_service
 from app.utils.time import now_local
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
@@ -534,9 +536,13 @@ class EvaluationService:
         def next_id() -> str:
             return f"{task.id}-event-{len(result.timeline) + 1}"
 
-        if node_name == "planner":
-            plan_content = "\n".join(str(item) for item in (
-                payload.get("plan") or []) if item)
+        if node_name in {"h_planner", "planner"}:
+            goals = payload.get("goals") or payload.get("plan") or []
+            plan_content = "\n".join(
+                str(item.get("description", item)) if isinstance(item, dict) else str(item)
+                for item in goals
+                if item
+            )
             result.timeline.append(
                 TimelineEntry(
                     id=next_id(),
@@ -812,6 +818,22 @@ class EvaluationService:
 
         result.started_at = task.started_at
         result.finished_at = task.finished_at
+        self._refresh_agent_trace(task)
+
+    def _refresh_agent_trace(
+        self,
+        task: EvaluationTaskRecord,
+        state: dict[str, Any] | None = None,
+    ) -> None:
+        result = self._ensure_result(task)
+        if state is None and task.id in self._runtime_handles:
+            handle = self._runtime_handles[task.id]
+            try:
+                config = {"configurable": {"thread_id": handle.thread_id}}
+                state = handle.orchestrator.graph.get_state(config).values or {}
+            except Exception:
+                state = None
+        result.agent_trace = agent_trace_service.build_trace(task, result, state or {})
 
     def _sync_state(self, task: EvaluationTaskRecord, state: dict[str, Any]) -> None:
         result = self._ensure_result(task)
@@ -827,6 +849,7 @@ class EvaluationService:
             task.finished_at = task.finished_at or _utcnow()
 
         self._refresh_result(task)
+        self._refresh_agent_trace(task, state)
 
     def _mark_failed(self, task: EvaluationTaskRecord, error_message: str) -> None:
         result = self._ensure_result(task)
@@ -842,6 +865,7 @@ class EvaluationService:
         )
         result.current_state.status = "FAILED"
         self._refresh_result(task)
+        self._refresh_agent_trace(task)
         task_service.save_task_record(task)
 
     async def _run_graph(
@@ -953,6 +977,12 @@ class EvaluationService:
         self._refresh_result(task)
         task_service.save_task_record(task)
         return self._ensure_result(task)
+
+    def get_trace(self, task_id: str) -> AgentTrace | None:
+        result = self.get_result(task_id)
+        if result is None:
+            return None
+        return result.agent_trace
 
     def get_messages(self, task_id: str) -> TaskMessageList | None:
         task = task_service.get_task_record(task_id)

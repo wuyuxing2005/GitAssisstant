@@ -17,6 +17,63 @@ export interface ToolCallRecord {
   args: Record<string, unknown>;
 }
 
+export interface ToolCallInfo {
+  name: string;
+  arguments: Record<string, unknown>;
+  result_preview: string;
+  error_message: string;
+  exit_code?: number | null;
+  latency_ms: number;
+  risk_level: string;
+  sandbox_id: string;
+  affected_files: string[];
+}
+
+export interface TraceEvent {
+  event_id: string;
+  seq: number;
+  parent_event_id?: string | null;
+  timestamp: string;
+  event_type: string;
+  phase: string;
+  actor: "user" | "agent" | "tool" | "system" | string;
+  status: string;
+  title: string;
+  content: string;
+  duration_ms?: number | null;
+  tool_call?: ToolCallInfo | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AgentTraceRepoInfo {
+  repo_url: string;
+  branch: string;
+  commit: string;
+  sandbox_id: string;
+}
+
+export interface AgentTrace {
+  schema_version: string;
+  trace_id: string;
+  task_id: string;
+  conversation_id: string;
+  issue_id: string;
+  agent_version: string;
+  repo: AgentTraceRepoInfo;
+  user_input: string;
+  final_response: string;
+  status: string;
+  started_at?: string | null;
+  ended_at?: string | null;
+  total_latency_ms?: number | null;
+  token_usage: Record<string, number>;
+  events: TraceEvent[];
+  failure_type?: string | null;
+  failure_reason?: string | null;
+  related_event_ids: string[];
+  suggested_fix?: string | null;
+}
+
 export interface TimelineEntry {
   id: string;
   node: string;
@@ -81,6 +138,7 @@ export interface EvaluationResult {
   logs_preview: string[];
   tool_usage: ToolUsageItem[];
   timeline: TimelineEntry[];
+  agent_trace?: AgentTrace | null;
   messages: TaskMessage[];
   current_state?: RuntimeSnapshot | null;
   started_at?: string | null;
@@ -247,6 +305,7 @@ export interface BadCaseRecord {
   status: TaskStatus;
   tags: string[];
   note: string;
+  agent_trace?: AgentTrace | null;
   timeline: TimelineEntry[];
   metrics: MetricScore[];
   diff_summary: string;

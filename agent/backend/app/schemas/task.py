@@ -49,6 +49,63 @@ class ToolCallRecord(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolCallInfo(BaseModel):
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    result_preview: str = ""
+    error_message: str = ""
+    exit_code: int | None = None
+    latency_ms: int = 0
+    risk_level: str = ""
+    sandbox_id: str = ""
+    affected_files: list[str] = Field(default_factory=list)
+
+
+class TraceEvent(BaseModel):
+    event_id: str
+    seq: int
+    parent_event_id: str | None = None
+    timestamp: datetime
+    event_type: str
+    phase: str
+    actor: Literal["user", "agent", "tool", "system"] | str
+    status: str
+    title: str
+    content: str = ""
+    duration_ms: int | None = None
+    tool_call: ToolCallInfo | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentTraceRepoInfo(BaseModel):
+    repo_url: str = ""
+    branch: str = ""
+    commit: str = ""
+    sandbox_id: str = ""
+
+
+class AgentTrace(BaseModel):
+    schema_version: str = "agent-trace-v1"
+    trace_id: str
+    task_id: str
+    conversation_id: str
+    issue_id: str = ""
+    agent_version: str = "agent-v3"
+    repo: AgentTraceRepoInfo = Field(default_factory=AgentTraceRepoInfo)
+    user_input: str = ""
+    final_response: str = ""
+    status: str = "running"
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    total_latency_ms: int | None = None
+    token_usage: dict[str, int] = Field(default_factory=dict)
+    events: list[TraceEvent] = Field(default_factory=list)
+    failure_type: str | None = None
+    failure_reason: str | None = None
+    related_event_ids: list[str] = Field(default_factory=list)
+    suggested_fix: str | None = None
+
+
 class TimelineEntry(BaseModel):
     id: str
     node: str
@@ -122,6 +179,7 @@ class EvaluationResult(BaseModel):
     logs_preview: list[str] = Field(default_factory=list)
     tool_usage: list[ToolUsageItem] = Field(default_factory=list)
     timeline: list[TimelineEntry] = Field(default_factory=list)
+    agent_trace: AgentTrace | None = None
     messages: list[TaskMessage] = Field(default_factory=list)
     current_state: RuntimeSnapshot | None = None
     started_at: datetime | None = None
@@ -301,6 +359,7 @@ class BadCaseRecord(BaseModel):
     status: TaskStatus
     tags: list[str] = Field(default_factory=list)
     note: str = ""
+    agent_trace: AgentTrace | None = None
     timeline: list[TimelineEntry] = Field(default_factory=list)
     metrics: list[MetricScore] = Field(default_factory=list)
     diff_summary: str = ""
