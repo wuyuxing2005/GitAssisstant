@@ -1297,18 +1297,8 @@ class EvaluationService:
     def export_report_markdown(
         self,
         task_ids: list[str],
-        bad_case_ids: list[str],
     ) -> str:
-        from app.services.bad_case_service import bad_case_service
-
         comparison = self.compare(task_ids)
-        selected_bad_case_ids = set(bad_case_ids) if bad_case_ids else None
-        bad_cases = [
-            case
-            for case in bad_case_service.list_cases()
-            if selected_bad_case_ids is None or case.id in selected_bad_case_ids
-        ]
-        tag_counts = bad_case_service.tag_counts(selected_bad_case_ids)
         lines = [
             "# Agent 评测对比报告",
             "",
@@ -1341,40 +1331,14 @@ class EvaluationService:
                 f"{score_value(item, 'duration_seconds'):.2f} |"
             )
 
-        lines.extend(["", "## 失败归因标签统计"])
-        if tag_counts:
-            lines.extend(f"- {tag}: {count}" for tag, count in tag_counts.most_common())
-        else:
-            lines.append("- 无")
-
-        lines.extend(["", "## Bad Case"])
-        if bad_cases:
-            for case in bad_cases:
-                lines.extend(
-                    [
-                        f"### {case.id} - {case.task_name}",
-                        f"- 来源任务: {case.source_task_id}",
-                        f"- 状态: {case.status}",
-                        f"- 标签: {', '.join(case.tags) or '无'}",
-                        f"- 摘要: {case.summary or '无'}",
-                        f"- 备注: {case.note or '无'}",
-                        "- 复测建议: 在 Bad Case 面板点击重新运行。",
-                        "",
-                    ]
-                )
-        else:
-            lines.append("- 无")
-
         return "\n".join(lines)
 
     def export_report_csv(
         self,
         task_ids: list[str],
-        bad_case_ids: list[str],
     ) -> str:
         import csv
         from io import StringIO
-        from app.services.bad_case_service import bad_case_service
 
         comparison = self.compare(task_ids)
         output = StringIO()
@@ -1390,7 +1354,6 @@ class EvaluationService:
                 "tool_call_count",
                 "test_run_count",
                 "duration_seconds",
-                "tags",
                 "summary",
             ]
         )
@@ -1413,28 +1376,7 @@ class EvaluationService:
                     item_score(item, "tool_call_count"),
                     item_score(item, "test_run_count"),
                     item_score(item, "duration_seconds"),
-                    "",
                     item.summary,
-                ]
-            )
-
-        selected_bad_case_ids = set(bad_case_ids) if bad_case_ids else None
-        for case in bad_case_service.list_cases():
-            if selected_bad_case_ids is not None and case.id not in selected_bad_case_ids:
-                continue
-            writer.writerow(
-                [
-                    "bad_case",
-                    case.id,
-                    case.task_name,
-                    case.status,
-                    bad_case_service.metric_value(case, "success"),
-                    bad_case_service.metric_value(case, "iteration_count"),
-                    bad_case_service.metric_value(case, "tool_call_count"),
-                    bad_case_service.metric_value(case, "test_run_count"),
-                    bad_case_service.metric_value(case, "duration_seconds"),
-                    ";".join(case.tags),
-                    case.summary,
                 ]
             )
 

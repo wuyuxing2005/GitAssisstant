@@ -14,9 +14,8 @@ def compare_tasks(task_ids: list[str] = Query(default=[])) -> ComparisonResponse
 @router.get("/report.md")
 def export_markdown_report(
     task_ids: list[str] = Query(default=[]),
-    bad_case_ids: list[str] = Query(default=[]),
 ) -> Response:
-    markdown = evaluation_service.export_report_markdown(task_ids, bad_case_ids)
+    markdown = evaluation_service.export_report_markdown(task_ids)
     return Response(
         content=markdown,
         media_type="text/markdown; charset=utf-8",
@@ -27,9 +26,8 @@ def export_markdown_report(
 @router.get("/report.csv")
 def export_csv_report(
     task_ids: list[str] = Query(default=[]),
-    bad_case_ids: list[str] = Query(default=[]),
 ) -> Response:
-    csv_content = evaluation_service.export_report_csv(task_ids, bad_case_ids)
+    csv_content = evaluation_service.export_report_csv(task_ids)
     return Response(
         content=csv_content,
         media_type="text/csv; charset=utf-8",

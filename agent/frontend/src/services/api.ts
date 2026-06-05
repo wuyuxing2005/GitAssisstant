@@ -1,10 +1,5 @@
 import type {
   AgentTrace,
-  BadCaseCreate,
-  BadCaseListResponse,
-  BadCaseRecord,
-  BadCaseRerunRequest,
-  BadCaseUpdate,
   ComparisonResponse,
   AppSettings,
   AppSettingsUpdate,
@@ -189,44 +184,11 @@ export async function compareTasks(taskIds: string[]): Promise<ComparisonRespons
   return request<ComparisonResponse>(`/analytics/compare${suffix}`);
 }
 
-export function analyticsReportUrl(format: "md" | "csv", taskIds: string[], badCaseIds: string[]): string {
+export function analyticsReportUrl(format: "md" | "csv", taskIds: string[]): string {
   const query = new URLSearchParams();
   taskIds.forEach((taskId) => query.append("task_ids", taskId));
-  badCaseIds.forEach((caseId) => query.append("bad_case_ids", caseId));
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return `${API_ROOT}/analytics/report.${format}${suffix}`;
-}
-
-export async function fetchBadCases(): Promise<BadCaseListResponse> {
-  return request<BadCaseListResponse>("/bad-cases/");
-}
-
-export async function createBadCase(payload: BadCaseCreate): Promise<BadCaseRecord> {
-  return request<BadCaseRecord>("/bad-cases/", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function updateBadCase(caseId: string, payload: BadCaseUpdate): Promise<BadCaseRecord> {
-  return request<BadCaseRecord>(`/bad-cases/${caseId}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function deleteBadCase(caseId: string): Promise<void> {
-  await request(`/bad-cases/${caseId}`, { method: "DELETE" });
-}
-
-export async function rerunBadCase(
-  caseId: string,
-  payload: BadCaseRerunRequest
-): Promise<EvaluationTask> {
-  return request<EvaluationTask>(`/bad-cases/${caseId}/rerun`, {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
 }
 
 export async function fetchSkills(): Promise<SkillListResponse> {

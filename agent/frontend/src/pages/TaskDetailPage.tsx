@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   commentTaskIssue,
-  createBadCase,
   createTaskPullRequest,
   fetchTaskDiff,
   fetchTaskIssue,
@@ -30,7 +29,6 @@ interface TaskDetailPageProps {
   cachedIssueInfo?: GitHubIssueInfo | null;
   onIssueInfoChanged?: (taskId: string, issueInfo: GitHubIssueInfo | null) => void;
   onTaskChanged?: () => Promise<void>;
-  onBadCasesChanged?: () => Promise<void>;
 }
 
 type PublishDialogMode = "push" | "pr" | null;
@@ -300,7 +298,7 @@ function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
   );
 }
 
-export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandboxTask, cachedIssueInfo, onIssueInfoChanged, onTaskChanged, onBadCasesChanged }: TaskDetailPageProps) {
+export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandboxTask, cachedIssueInfo, onIssueInfoChanged, onTaskChanged }: TaskDetailPageProps) {
   const conversationListRef = useRef<HTMLDivElement | null>(null);
   const messageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
@@ -681,24 +679,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     setConversationPinnedToBottom(distanceToBottom < 64);
   }
 
-  async function handleSaveBadCase() {
-    if (!task) {
-      return;
-    }
-    try {
-      setGitError(null);
-      await createBadCase({
-        task_id: task.id,
-        tags: task.status === "failed" ? ["测试失败未恢复"] : [],
-        note: task.result?.summary ?? ""
-      });
-      setGitMessage("已保存为 Bad Case。");
-      await onBadCasesChanged?.();
-    } catch (error) {
-      setGitError(error instanceof Error ? error.message : "保存 Bad Case 失败");
-    }
-  }
-
   async function handleRunWithConversationChoice(mode: RunMode) {
     if (!task) {
       return;
@@ -902,13 +882,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       </div>
 
       <div className="floating-task-actions" aria-label="任务操作">
-        <button
-          type="button"
-          onClick={() => void handleSaveBadCase()}
-          disabled={isBusy}
-        >
-          保存 Bad Case
-        </button>
         <button
           type="button"
           onClick={() => void handleRunWithConversationChoice("step")}

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
 import { SettingsModal } from "./components/SettingsModal";
-import { BadCasePanel } from "./components/BadCasePanel";
 import { SkillManager } from "./components/SkillManager";
 import { ComparePage } from "./pages/ComparePage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -8,7 +7,6 @@ import { TaskDetailPage } from "./pages/TaskDetailPage";
 import {
   compareTasks,
   createTask,
-  fetchBadCases,
   fetchOpenAIModels,
   fetchHealth,
   fetchSettings,
@@ -22,7 +20,6 @@ import {
 import type {
   AppSettings,
   AppSettingsUpdate,
-  BadCaseRecord,
   ComparisonResponse,
   CreateTaskPayload,
   EvaluationTask,
@@ -32,7 +29,7 @@ import type {
   RunMode
 } from "./types/task";
 
-type PageKey = "new-task" | "detail" | "bad-cases" | "skills" | "compare";
+type PageKey = "new-task" | "detail" | "skills" | "compare";
 
 const DEFAULT_SIDEBAR_WIDTH = 386;
 const MIN_SIDEBAR_WIDTH = 260;
@@ -42,7 +39,7 @@ const CURRENT_PAGE_STORAGE_KEY = "agent-console-current-page";
 const SELECTED_TASK_STORAGE_KEY = "agent-console-selected-task-id";
 
 function isPageKey(value: string | null): value is PageKey {
-  return value === "new-task" || value === "detail" || value === "bad-cases" || value === "skills" || value === "compare";
+  return value === "new-task" || value === "detail" || value === "skills" || value === "compare";
 }
 
 function clampSidebarWidth(value: number): number {
@@ -68,9 +65,6 @@ function pageTitle(page: PageKey, task: EvaluationTask | null): string {
   if (page === "detail") {
     return task?.name ?? "任务详情";
   }
-  if (page === "bad-cases") {
-    return "Bad Case";
-  }
   if (page === "skills") {
     return "Skill 管理";
   }
@@ -80,8 +74,6 @@ function pageTitle(page: PageKey, task: EvaluationTask | null): string {
 export default function App() {
   const [tasks, setTasks] = useState<EvaluationTask[]>([]);
   const [comparison, setComparison] = useState<ComparisonResponse | null>(null);
-  const [badCases, setBadCases] = useState<BadCaseRecord[]>([]);
-  const [badCaseTags, setBadCaseTags] = useState<string[]>([]);
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [currentPage, setCurrentPage] = useState<PageKey>(() => {
     const stored = window.localStorage.getItem(CURRENT_PAGE_STORAGE_KEY);
@@ -135,19 +127,16 @@ export default function App() {
   async function refreshData(_keepBanner = false) {
     try {
       setErrorMessage(null);
-      const [health, taskList, settingsResponse, badCaseResponse, skillResponse] = await Promise.all([
+      const [health, taskList, settingsResponse, skillResponse] = await Promise.all([
         fetchHealth(),
         fetchTasks(),
         fetchSettings(),
-        fetchBadCases(),
         fetchSkills()
       ]);
 
       setBackendStatus(health.status === "ok" ? "online" : "offline");
       setTasks(taskList);
       setSettings(settingsResponse);
-      setBadCases(badCaseResponse.items);
-      setBadCaseTags(badCaseResponse.default_tags);
       setSkills(skillResponse.items);
       setSelectedTaskId((current) => {
         if (current && taskList.some((task) => task.id === current)) {
@@ -311,7 +300,6 @@ export default function App() {
 
         <nav>
           <a href="#dashboard" onClick={(event) => handleNavClick(event, "new-task")}>新任务</a>
-          <a href="#bad-cases" onClick={(event) => handleNavClick(event, "bad-cases")}>Bad Case</a>
           <a href="#skills" onClick={(event) => handleNavClick(event, "skills")}>Skill</a>
           <a href="#compare" onClick={(event) => handleNavClick(event, "compare")}>对比结果</a>
         </nav>
@@ -394,16 +382,6 @@ export default function App() {
             cachedIssueInfo={currentIssueInfo}
             onIssueInfoChanged={handleIssueInfoChanged}
             onTaskChanged={() => refreshData(true)}
-            onBadCasesChanged={() => refreshData(true)}
-          />
-        ) : null}
-
-        {currentPage === "bad-cases" ? (
-          <BadCasePanel
-            badCases={badCases}
-            defaultTags={badCaseTags}
-            onChanged={() => refreshData(true)}
-            onTaskCreated={() => refreshData(true)}
           />
         ) : null}
 
@@ -415,7 +393,7 @@ export default function App() {
         ) : null}
 
         {currentPage === "compare" ? (
-          <ComparePage tasks={tasks} badCases={badCases} comparison={comparison} />
+          <ComparePage tasks={tasks} comparison={comparison} />
         ) : null}
       </main>
 

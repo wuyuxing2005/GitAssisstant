@@ -297,45 +297,6 @@ export interface ComparisonResponse {
   aggregate: ComparisonAggregate;
 }
 
-export interface BadCaseRecord {
-  id: string;
-  source_task_id: string;
-  task_name: string;
-  issue_input: string;
-  status: TaskStatus;
-  tags: string[];
-  note: string;
-  agent_trace?: AgentTrace | null;
-  timeline: TimelineEntry[];
-  metrics: MetricScore[];
-  diff_summary: string;
-  test_output_summary: string;
-  summary: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface BadCaseListResponse {
-  items: BadCaseRecord[];
-  default_tags: string[];
-}
-
-export interface BadCaseCreate {
-  task_id: string;
-  tags: string[];
-  note: string;
-}
-
-export interface BadCaseUpdate {
-  tags: string[];
-  note: string;
-}
-
-export interface BadCaseRerunRequest {
-  name?: string | null;
-  auto_start: boolean;
-}
-
 export interface SkillRecord {
   name: string;
   description: string;

@@ -327,58 +327,6 @@ class ComparisonResponse(BaseModel):
     aggregate: ComparisonAggregate = Field(default_factory=ComparisonAggregate)
 
 
-DEFAULT_BAD_CASE_TAGS = [
-    "文件定位错误",
-    "测试失败未恢复",
-    "工具参数错误",
-    "沙箱缺依赖",
-    "过早判定成功",
-    "上下文约束丢失",
-    "环境/凭证问题",
-]
-
-
-class BadCaseBase(BaseModel):
-    tags: list[str] = Field(default_factory=list)
-    note: str = ""
-
-
-class BadCaseCreate(BadCaseBase):
-    task_id: str
-
-
-class BadCaseUpdate(BadCaseBase):
-    pass
-
-
-class BadCaseRecord(BaseModel):
-    id: str
-    source_task_id: str
-    task_name: str
-    issue_input: str
-    status: TaskStatus
-    tags: list[str] = Field(default_factory=list)
-    note: str = ""
-    agent_trace: AgentTrace | None = None
-    timeline: list[TimelineEntry] = Field(default_factory=list)
-    metrics: list[MetricScore] = Field(default_factory=list)
-    diff_summary: str = ""
-    test_output_summary: str = ""
-    summary: str = ""
-    created_at: datetime
-    updated_at: datetime
-
-
-class BadCaseListResponse(BaseModel):
-    items: list[BadCaseRecord] = Field(default_factory=list)
-    default_tags: list[str] = Field(default_factory=lambda: list(DEFAULT_BAD_CASE_TAGS))
-
-
-class BadCaseRerunRequest(BaseModel):
-    name: str | None = None
-    auto_start: bool = False
-
-
 class SkillRecord(BaseModel):
     name: str
     description: str

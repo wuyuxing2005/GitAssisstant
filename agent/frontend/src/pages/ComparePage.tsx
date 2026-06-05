@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { analyticsReportUrl } from "../services/api";
-import type { BadCaseRecord, ComparisonResponse, EvaluationTask } from "../types/task";
+import type { ComparisonResponse, EvaluationTask } from "../types/task";
 
 interface ComparePageProps {
   tasks: EvaluationTask[];
-  badCases: BadCaseRecord[];
   comparison: ComparisonResponse | null;
 }
 
@@ -31,9 +30,8 @@ function scoreByName(item: ComparisonResponse["items"][number], name: string): n
   return item.scores.find((score) => score.name === name)?.value ?? 0;
 }
 
-export function ComparePage({ tasks, badCases, comparison }: ComparePageProps) {
+export function ComparePage({ tasks, comparison }: ComparePageProps) {
   const [selectedCompareTaskIds, setSelectedCompareTaskIds] = useState<string[]>([]);
-  const [selectedCompareBadCaseIds, setSelectedCompareBadCaseIds] = useState<string[]>([]);
 
   useEffect(() => {
     setSelectedCompareTaskIds((current) => {
@@ -41,13 +39,6 @@ export function ComparePage({ tasks, badCases, comparison }: ComparePageProps) {
       return current.length ? current.filter((id) => ids.includes(id)) : ids;
     });
   }, [tasks]);
-
-  useEffect(() => {
-    setSelectedCompareBadCaseIds((current) => {
-      const ids = badCases.map((item) => item.id);
-      return current.length ? current.filter((id) => ids.includes(id)) : ids;
-    });
-  }, [badCases]);
 
   const visibleComparisonItems = comparison?.items.filter((item) => selectedCompareTaskIds.includes(item.task_id)) ?? [];
   const visibleAggregate = visibleComparisonItems.length
@@ -82,10 +73,10 @@ export function ComparePage({ tasks, badCases, comparison }: ComparePageProps) {
           <p>横向比较不同任务的成功情况、迭代轮数、工具使用和测试验证情况。</p>
         </div>
         <div className="action-row">
-          <a className="secondary-button" href={analyticsReportUrl("md", selectedCompareTaskIds, selectedCompareBadCaseIds)}>
+          <a className="secondary-button" href={analyticsReportUrl("md", selectedCompareTaskIds)}>
             导出 Markdown
           </a>
-          <a className="secondary-button" href={analyticsReportUrl("csv", selectedCompareTaskIds, selectedCompareBadCaseIds)}>
+          <a className="secondary-button" href={analyticsReportUrl("csv", selectedCompareTaskIds)}>
             导出 CSV
           </a>
         </div>
@@ -133,26 +124,6 @@ export function ComparePage({ tasks, badCases, comparison }: ComparePageProps) {
                     }
                   />
                   <span>{task.name}</span>
-                </label>
-              ))}
-            </div>
-
-            <strong>Bad Case 选择</strong>
-            <div className="tag-grid">
-              {badCases.map((item) => (
-                <label key={item.id} className="checkbox-row tag-choice">
-                  <input
-                    type="checkbox"
-                    checked={selectedCompareBadCaseIds.includes(item.id)}
-                    onChange={(event) =>
-                      setSelectedCompareBadCaseIds((current) =>
-                        event.target.checked
-                          ? Array.from(new Set([...current, item.id]))
-                          : current.filter((id) => id !== item.id)
-                      )
-                    }
-                  />
-                  <span>{item.task_name}</span>
                 </label>
               ))}
             </div>

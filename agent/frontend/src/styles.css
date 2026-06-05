@@ -1944,7 +1944,6 @@ button.floating-env-row:hover:not(:disabled) {
 
 .skill-picker,
 .conversation-panel,
-.bad-case-panel,
 .skill-manager-panel {
   display: grid;
   gap: 10px;
@@ -2409,52 +2408,12 @@ button.floating-env-row:hover:not(:disabled) {
   color: #eef2f4;
 }
 
-.bad-case-note textarea {
-  width: 100%;
-  border: 1px solid #dde2e6;
-  border-radius: 12px;
-  background: #fbfcfc;
-  color: #0f172a;
-  padding: 11px 13px;
-}
-
-.bad-case-layout {
-  display: grid;
-  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
-  gap: 16px;
-}
-
-.bad-case-list,
 .skill-manager-list {
   display: grid;
   align-content: start;
   gap: 10px;
 }
 
-.bad-case-item {
-  display: grid;
-  gap: 6px;
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #e4e8eb;
-  border-radius: 14px;
-  background: #fbfcfc;
-  color: #334047;
-  text-align: left;
-  cursor: pointer;
-}
-
-.bad-case-item.active {
-  border-color: rgba(47, 125, 121, 0.35);
-  background: #eef8f6;
-}
-
-.bad-case-item span,
-.bad-case-item small {
-  color: var(--muted);
-}
-
-.bad-case-detail,
 .skill-manager-item {
   display: grid;
   gap: 14px;
@@ -2464,17 +2423,6 @@ button.floating-env-row:hover:not(:disabled) {
   background: #ffffff;
 }
 
-.bad-case-detail h3,
-.bad-case-detail h4 {
-  margin: 0 0 8px;
-}
-
-.bad-case-note {
-  display: grid;
-  gap: 8px;
-}
-
-.bad-case-note span,
 .skill-detail-grid span,
 .compare-selector strong,
 .aggregate-grid span {
@@ -2817,7 +2765,6 @@ button.floating-env-row:hover:not(:disabled) {
     grid-template-columns: 1fr;
   }
 
-  .bad-case-layout,
   .aggregate-grid {
     grid-template-columns: 1fr;
   }
