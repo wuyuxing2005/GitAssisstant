@@ -428,6 +428,7 @@ class AgentOrchestrator:
             "total_before": len(raw_messages),
             "total_after": len(compressed_messages),
             "level2_summaries": 1 if len(compressed_messages) < len(raw_messages) and len(raw_messages) > self.compressor.level0_window + self.compressor.level1_window else 0,
+            **getattr(self.compressor, "last_stats", {}),
         }
 
         response = await self.agent.run_react(

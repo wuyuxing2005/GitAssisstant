@@ -1,13 +1,13 @@
 """多层降级上下文压缩器
 
 按代价从低到高排列，越靠后越贵；只有上一层无法把 token 压到预算内时才触发下一层。
-当前仅实现兜底的 AutoCompact，其余层级保留为后续扩展点。
+当前已实现 Tool Result Budget、History Snip 和兜底的 AutoCompact，其余层级保留为后续扩展点。
 
 层级表（从轻到重）：
-1. Tool Result Budget   — 工具结果写盘、上下文留预览                [TODO]
-2. Snip                 — 移除明显冗余消息                          [TODO]
-3. Microcompact         — 本地清理旧工具结果，不调 API              [TODO]
-4. Context Collapse     — 只读折叠视图，不改原始数据                [TODO]
+1. Tool Result Budget   — 工具结果上下文留预览                      [已实现]
+2. History Snip         — 移除明显冗余消息（HISTORY_SNIP gate）       [已实现]
+3. Microcompact         — 本地清理旧工具结果，不调 API              [TODO]//好像没必要？Claude到底如何实现缓存的
+4. Context Collapse     — 只读折叠视图，不改原始数据                [TODO]//同上
 5. AutoCompact          — fork 子 Agent 调 LLM 生成结构化摘要        [已实现]
 
 边界安全（始终运行）：保证不会在 AIMessage(tool_calls) 与对应 ToolMessage 之间切断，
@@ -18,6 +18,7 @@ message with 'tool_calls'" 拒绝请求。
 from __future__ import annotations
 
 import json
+import os
 
 from langchain_core.messages import (
     AIMessage,
@@ -33,13 +34,14 @@ DEFAULT_KEEP_RECENT_MESSAGES = 6
 DEFAULT_SUMMARY_MAX_TOKENS = 8000
 DEFAULT_TOOL_OUTPUT_TRUNCATE = 300
 DEFAULT_TOOL_OUTPUT_TRUNCATE_FOR_PROMPT = 400
+TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 
 CHARS_PER_TOKEN_CJK = 2
 CHARS_PER_TOKEN_EN = 4
 
 
 class ContextCompressor:
-    """多层降级压缩器。当前仅启用 AutoCompact 兜底，其余层todo。"""
+    """多层降级压缩器。轻量层优先，必要时再进入 AutoCompact 兜底。"""
 
     def __init__(
         self,
@@ -48,12 +50,19 @@ class ContextCompressor:
         keep_recent_messages: int = DEFAULT_KEEP_RECENT_MESSAGES,
         summary_max_tokens: int = DEFAULT_SUMMARY_MAX_TOKENS,
         tool_output_truncate: int = DEFAULT_TOOL_OUTPUT_TRUNCATE,
+        history_snip_enabled: bool | None = None,
     ):
         self.compactor_llm = compactor_llm
         self.max_context_tokens = max_context_tokens
         self.keep_recent_messages = keep_recent_messages
         self.summary_max_tokens = summary_max_tokens
         self.tool_output_truncate = tool_output_truncate
+        self.history_snip_enabled = (
+            self._env_enabled("HISTORY_SNIP")
+            if history_snip_enabled is None
+            else history_snip_enabled
+        )
+        self.last_stats: dict[str, int | bool] = {}
         # 给 orchestrator._node_react 算 compression_stats 用，保持字段存在即可。
         self.level0_window = keep_recent_messages
         self.level1_window = 0
@@ -63,25 +72,191 @@ class ContextCompressor:
     # ============================================================
 
     async def compress(self, messages: list[BaseMessage]) -> list[BaseMessage]:
-        """超出预算才触发 AutoCompact；否则只做边界清理后原样返回。"""
+        """超出预算才触发多级压缩；否则只做边界清理后原样返回。"""
         if not messages:
             return []
+        self._reset_stats(messages)
 
-        # TODO: 在这里依次插入 Tool Result Budget / Snip / Microcompact / Context Collapse
+        # TODO: 在这里继续插入 Microcompact / Context Collapse
         # 每一层尝试把 estimate_tokens 压到 max_context_tokens 以下，压到了就 return。
 
         if self.estimate_tokens(messages) <= self.max_context_tokens:
+            self.last_stats["after_compress_tokens"] = self.estimate_tokens(messages)
             return self._drop_orphan_tool_messages(list(messages))
 
-        return await self._autocompact(messages)
+        tool_budgeted = self._apply_tool_result_budget(messages)
+        self._record_tool_budget(messages, tool_budgeted)
+        if self.estimate_tokens(tool_budgeted) <= self.max_context_tokens:
+            self.last_stats["after_compress_tokens"] = self.estimate_tokens(tool_budgeted)
+            return self._drop_orphan_tool_messages(tool_budgeted)
+
+        snipped = self.snip_compact_if_needed(tool_budgeted)
+        if self.estimate_tokens(snipped) <= self.max_context_tokens:
+            self.last_stats["after_compress_tokens"] = self.estimate_tokens(snipped)
+            return self._drop_orphan_tool_messages(snipped)
+
+        compacted = await self._autocompact(snipped)
+        self.last_stats["after_compress_tokens"] = self.estimate_tokens(compacted)
+        return compacted
 
     def compress_sync(self, messages: list[BaseMessage]) -> list[BaseMessage]:
         """同步入口：不调用 LLM，仅做机械裁剪。供测试或异步上下文外的调用使用。"""
         if not messages:
             return []
+        self._reset_stats(messages)
         if self.estimate_tokens(messages) <= self.max_context_tokens:
+            self.last_stats["after_compress_tokens"] = self.estimate_tokens(messages)
             return self._drop_orphan_tool_messages(list(messages))
-        return self._mechanical_fallback(messages)
+        tool_budgeted = self._apply_tool_result_budget(messages)
+        self._record_tool_budget(messages, tool_budgeted)
+        if self.estimate_tokens(tool_budgeted) <= self.max_context_tokens:
+            self.last_stats["after_compress_tokens"] = self.estimate_tokens(tool_budgeted)
+            return self._drop_orphan_tool_messages(tool_budgeted)
+        snipped = self.snip_compact_if_needed(tool_budgeted)
+        if self.estimate_tokens(snipped) <= self.max_context_tokens:
+            self.last_stats["after_compress_tokens"] = self.estimate_tokens(snipped)
+            return self._drop_orphan_tool_messages(snipped)
+        compacted = self._mechanical_fallback(snipped)
+        self.last_stats["after_compress_tokens"] = self.estimate_tokens(compacted)
+        return compacted
+
+    # ============================================================
+    # Level 1: Tool Result Budget
+    # ============================================================
+
+    def _apply_tool_result_budget(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Level 1：总上下文超限时，把工具结果替换为短预览。"""
+        result: list[BaseMessage] = []
+        for msg in messages:
+            if isinstance(msg, ToolMessage):
+                result.append(self._truncate_tool_message(msg))
+            else:
+                result.append(msg)
+        return result
+
+    # ============================================================
+    # Level 2: History Snip
+    # ============================================================
+
+    def snip_compact_if_needed(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Feature-gated 历史剪裁层：删除历史区中可判定的冗余消息。"""
+        if not self.history_snip_enabled:
+            return list(messages)
+
+        before_tokens = self.estimate_tokens(messages)
+        if before_tokens <= self.max_context_tokens:
+            return list(messages)
+
+        snipped, removed_messages = self._snip_history(messages)
+        after_tokens = self.estimate_tokens(snipped)
+        self.last_stats["snip_tokens_freed"] = max(0, before_tokens - after_tokens)
+        self.last_stats["snip_removed_messages"] = removed_messages
+        self.last_stats["after_snip_tokens"] = after_tokens
+        return snipped
+
+    def _snip_history(self, messages: list[BaseMessage]) -> tuple[list[BaseMessage], int]:
+        cut = self._safe_cut_point(messages)
+        if cut <= 0:
+            return list(messages), 0
+
+        groups = self._message_groups(messages[:cut])
+        kept_recent = list(messages[cut:])
+        seen_signatures: set[str] = set()
+        kept_groups_reversed: list[list[BaseMessage]] = []
+        removed_messages = 0
+
+        for group in reversed(groups):
+            signature = self._snip_signature(group)
+            if signature and signature in seen_signatures:
+                removed_messages += len(group)
+                continue
+            if signature:
+                seen_signatures.add(signature)
+
+            compacted_group = [self._snip_message_content(msg) for msg in group]
+            if len(compacted_group) == 1 and self._is_empty_assistant(compacted_group[0]):
+                removed_messages += 1
+                continue
+            kept_groups_reversed.append(compacted_group)
+
+        result: list[BaseMessage] = []
+        for group in reversed(kept_groups_reversed):
+            result.extend(group)
+        result.extend(kept_recent)
+        return self._drop_orphan_tool_messages(result), removed_messages
+
+    def _message_groups(self, messages: list[BaseMessage]) -> list[list[BaseMessage]]:
+        groups: list[list[BaseMessage]] = []
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+            tool_calls = getattr(msg, "tool_calls", []) or []
+            if isinstance(msg, AIMessage) and tool_calls:
+                call_ids = {
+                    call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
+                    for call in tool_calls
+                }
+                group = [msg]
+                i += 1
+                while i < len(messages) and isinstance(messages[i], ToolMessage):
+                    call_id = getattr(messages[i], "tool_call_id", "")
+                    if call_id and call_ids and call_id not in call_ids:
+                        break
+                    group.append(messages[i])
+                    i += 1
+                groups.append(group)
+                continue
+            groups.append([msg])
+            i += 1
+        return groups
+
+    def _snip_signature(self, group: list[BaseMessage]) -> str:
+        if not group:
+            return ""
+        first = group[0]
+        if isinstance(first, (HumanMessage, SystemMessage)):
+            return ""
+        tool_calls = getattr(first, "tool_calls", []) or []
+        if isinstance(first, AIMessage) and tool_calls:
+            normalized_calls = []
+            for call in tool_calls:
+                if isinstance(call, dict):
+                    normalized_calls.append({
+                        "name": call.get("name", ""),
+                        "args": call.get("args", {}) or {},
+                    })
+                else:
+                    normalized_calls.append({
+                        "name": getattr(call, "name", ""),
+                        "args": getattr(call, "args", {}) or {},
+                    })
+            tool_results = [
+                self._normalize_for_snip(getattr(msg, "content", "") or "")
+                for msg in group[1:]
+                if isinstance(msg, ToolMessage)
+            ]
+            payload = {"calls": normalized_calls, "results": tool_results}
+            return f"tool_calls:{json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)}"
+        if isinstance(first, AIMessage):
+            text = self._normalize_for_snip(self._get_message_text(first))
+            return f"ai:{text}" if text else ""
+        return ""
+
+    def _snip_message_content(self, msg: BaseMessage) -> BaseMessage:
+        tool_calls = getattr(msg, "tool_calls", []) or []
+        if isinstance(msg, AIMessage) and tool_calls and (getattr(msg, "content", "") or "").strip():
+            return AIMessage(content="", tool_calls=tool_calls)
+        return msg
+
+    def _is_empty_assistant(self, msg: BaseMessage) -> bool:
+        return (
+            isinstance(msg, AIMessage)
+            and not (getattr(msg, "content", "") or "").strip()
+            and not (getattr(msg, "tool_calls", []) or [])
+        )
+
+    def _normalize_for_snip(self, text: str) -> str:
+        return " ".join((text or "").strip().split())
 
     # ============================================================
     # AutoCompact（Level 5）
@@ -193,6 +368,32 @@ class ContextCompressor:
     # ============================================================
     # 工具方法
     # ============================================================
+
+    def _env_enabled(self, name: str) -> bool:
+        return os.getenv(name, "").strip().lower() in TRUTHY_ENV_VALUES
+
+    def _reset_stats(self, messages: list[BaseMessage]) -> None:
+        before_tokens = self.estimate_tokens(messages)
+        self.last_stats = {
+            "history_snip_enabled": self.history_snip_enabled,
+            "before_tokens": before_tokens,
+            "after_tool_budget_tokens": before_tokens,
+            "tool_budget_tokens_freed": 0,
+            "snip_tokens_freed": 0,
+            "snip_removed_messages": 0,
+            "after_snip_tokens": before_tokens,
+            "after_compress_tokens": before_tokens,
+        }
+
+    def _record_tool_budget(
+        self,
+        before_messages: list[BaseMessage],
+        after_messages: list[BaseMessage],
+    ) -> None:
+        before_tokens = self.estimate_tokens(before_messages)
+        after_tokens = self.estimate_tokens(after_messages)
+        self.last_stats["after_tool_budget_tokens"] = after_tokens
+        self.last_stats["tool_budget_tokens_freed"] = max(0, before_tokens - after_tokens)
 
     def estimate_tokens(self, messages: list[BaseMessage]) -> int:
         total = 0
