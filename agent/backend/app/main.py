@@ -5,7 +5,7 @@ from app.api.router import api_router
 from app.services.evaluation_service import evaluation_service
 
 app = FastAPI(
-    title="Agent 应用评估平台 API",
+    title="gitIssueAssitant",
     description="用于包装 gitIssueAssitant 任务、执行和结果展示的后端服务。",
     version="0.1.0",
 )
