@@ -891,6 +891,7 @@ class EvaluationService:
                 self._append_timeline_entries(
                     task, node_name, event[node_name])
                 state = handle.orchestrator.graph.get_state(config).values
+                handle.orchestrator.persist_state(handle.thread_id, node_name)
                 self._sync_state(task, state)
                 task_service.save_task_record(task)
                 break
@@ -900,10 +901,12 @@ class EvaluationService:
                 self._append_timeline_entries(
                     task, node_name, event[node_name])
                 state = handle.orchestrator.graph.get_state(config).values
+                handle.orchestrator.persist_state(handle.thread_id, node_name)
                 self._sync_state(task, state)
                 task_service.save_task_record(task)
 
         final_state = handle.orchestrator.graph.get_state(config).values
+        handle.orchestrator.persist_state(handle.thread_id)
         self._sync_state(task, final_state)
         self._refresh_result(task)
         task_service.save_task_record(task)
@@ -1021,6 +1024,7 @@ class EvaluationService:
             task.finished_at = None
 
         self._sync_state(task, current_state)
+        handle.orchestrator.persist_state(handle.thread_id)
         if task.status == "running":
             task.status = "scheduled"
             self._refresh_result(task)

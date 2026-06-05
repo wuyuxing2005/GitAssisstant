@@ -38,6 +38,7 @@ class AgentOrchestrator:
         self.registry = registry  # 工具注册表（迭代三第二组新增）
         self.sandbox_manager = sandbox_manager  # 沙箱管理器（迭代三第二组新增）
         self._sandbox_activated = False  # 标记沙箱是否已激活
+        self.state_persist_hook = None
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -708,10 +709,21 @@ class AgentOrchestrator:
         if replan:
             update["replan_trigger"] = "user_intervention"
         self.graph.update_state(config, update)
+        self.persist_state(thread_id)
+
+    def persist_state(self, thread_id: str, last_node: str | None = None) -> None:
+        if self.state_persist_hook is None:
+            return
+        try:
+            self.state_persist_hook(thread_id, last_node)
+        except Exception as exc:
+            print(f"[持久化] 保存会话状态失败: {exc}")
 
     async def run_step(self, thread_id: str):
         config = {"configurable": {"thread_id": thread_id}}
         async for event in self.graph.astream(None, config=config, stream_mode="updates"):
+            node_name = list(event.keys())[0]
+            self.persist_state(thread_id, node_name)
             return event
 
     async def run_auto(self, thread_id: str, verbose: bool = False):
@@ -719,6 +731,7 @@ class AgentOrchestrator:
         async for event in self.graph.astream(None, config=config, stream_mode="updates"):
             node_name = list(event.keys())[0]
             state = self.graph.get_state(config).values
+            self.persist_state(thread_id, node_name)
             self._print_event(
                 node_name, event[node_name], state=state, verbose=verbose)
 
@@ -744,6 +757,7 @@ class AgentOrchestrator:
         async for event in self.graph.astream(None, config=config, stream_mode="updates"):
             node_name = list(event.keys())[0]
             current_state = self.graph.get_state(config).values
+            self.persist_state(thread_id, node_name)
             self._print_event(
                 node_name, event[node_name], state=current_state, verbose=verbose)
 
@@ -773,6 +787,7 @@ class AgentOrchestrator:
             {"status": "RUNNING", "max_iterations": new_max},
             as_node=resume_node,
         )
+        self.persist_state(thread_id, resume_node)
 
     def mark_failed_after_user_declines_extension(self, thread_id: str):
         config = {"configurable": {"thread_id": thread_id}}
@@ -781,6 +796,7 @@ class AgentOrchestrator:
             {"status": "FAILED"},
             as_node="finish_failed",
         )
+        self.persist_state(thread_id, "finish_failed")
 
     async def raw_chat(self, user_input):
         return (await self.agent.chat(user_input)).content

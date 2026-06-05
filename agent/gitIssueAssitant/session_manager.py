@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 from langchain_core.messages import HumanMessage
 
 from .orchestrator import AgentOrchestrator
+from .persistence import AgentConversationStore, default_store_path
 
 
 def _text_output_kwargs() -> dict[str, str | bool]:
@@ -33,15 +34,77 @@ class Session:
 
 class SessionManager:
     def __init__(self, orchestrator, workspace_root: str | Path | None = None,
-                 sandbox_manager=None):
+                 sandbox_manager=None, store: AgentConversationStore | None = None):
         self.orchestrator: AgentOrchestrator = orchestrator
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
         self.repos_root = (self.workspace_root / "repos").resolve()
         self.repos_root.mkdir(parents=True, exist_ok=True)
+        self.store = store or AgentConversationStore(default_store_path(self.workspace_root))
         # session_id -> Session
-        self.sessions: Dict[str, Session] = {}
+        self.sessions: Dict[str, Session] = self._load_persisted_sessions()
         self.current_session_id: Optional[str] = None
         self.sandbox_manager = sandbox_manager  # 沙箱管理器（迭代三第二组新增）
+        self.orchestrator.state_persist_hook = self.persist_thread_state
+
+    def _load_persisted_sessions(self) -> Dict[str, Session]:
+        sessions: Dict[str, Session] = {}
+        for row in self.store.list_sessions():
+            sessions[row["session_id"]] = Session(
+                session_id=row["session_id"],
+                thread_id=row["thread_id"],
+                repo_path=row["repo_path"],
+                issue_ref=row.get("issue_ref"),
+                issue_description=row.get("issue_description"),
+                sandbox_error=row.get("sandbox_error"),
+                max_iterations=int(row.get("max_iterations") or 25),
+                created_at=row.get("created_at") or datetime.now().isoformat(),
+            )
+        return sessions
+
+    def _persist_session(self, session: Session) -> None:
+        self.store.save_session(session)
+
+    def persist_current_state(self, last_node: str | None = None) -> None:
+        session = self._current_session()
+        if session is None:
+            return
+        self.persist_thread_state(session.thread_id, last_node)
+
+    def persist_thread_state(self, thread_id: str, last_node: str | None = None) -> None:
+        session = next(
+            (item for item in self.sessions.values() if item.thread_id == thread_id),
+            None,
+        )
+        if session is None:
+            return
+        config = {"configurable": {"thread_id": session.thread_id}}
+        state_snapshot = self.orchestrator.graph.get_state(config)
+        state = state_snapshot.values if state_snapshot else {}
+        if state:
+            self.store.save_state(
+                session.session_id,
+                session.thread_id,
+                state,
+                last_node=last_node,
+            )
+        self._persist_session(session)
+
+    def _restore_graph_state(self, session: Session) -> None:
+        record = self.store.load_state_record(session.thread_id)
+        if not record:
+            return
+        state = record["state"]
+        if not state:
+            return
+        config = {"configurable": {"thread_id": session.thread_id}}
+        existing_snapshot = self.orchestrator.graph.get_state(config)
+        if existing_snapshot and existing_snapshot.values:
+            return
+        last_node = record.get("last_node") or "__start__"
+        try:
+            self.orchestrator.graph.update_state(config, state, as_node=last_node)
+        except Exception:
+            self.orchestrator.graph.update_state(config, state)
 
     def _is_git_url(self, repo_ref: str) -> bool:
         return repo_ref.startswith(("http://", "https://", "git@")) or repo_ref.endswith(".git")
@@ -263,6 +326,7 @@ class SessionManager:
         )
         self.sessions[session_id] = session
         self._switch_to(session)
+        self._persist_session(session)
         return session, duplicates
 
     def switch_session(self, session_id: str) -> Session:
@@ -288,6 +352,7 @@ class SessionManager:
     def get_session_state(self, session_id: str) -> dict:
         """获取指定会话的实时状态数据，不切换当前会话。"""
         session = self.get_session(session_id)
+        self._restore_graph_state(session)
         config = {"configurable": {"thread_id": session.thread_id}}
         state_snapshot = self.orchestrator.graph.get_state(config)
         return state_snapshot.values if state_snapshot else {}
@@ -295,7 +360,12 @@ class SessionManager:
     def _switch_to(self, session: Session):
         self.current_session_id = session.session_id
         os.environ["GIT_ISSUE_ASSISTANT_REPO_ROOT"] = session.repo_path
-        os.chdir(session.repo_path)
+        if Path(session.repo_path).exists():
+            os.chdir(session.repo_path)
+        else:
+            print(f"[会话] 仓库路径不存在，暂时停留在工作区目录: {session.repo_path}")
+            os.chdir(self.workspace_root)
+        self._restore_graph_state(session)
 
     def set_issue(self, issue_desc: str):
         """为当前会话注入初始 Issue 并初始化状态。
@@ -311,6 +381,7 @@ class SessionManager:
         session.issue_ref = issue_desc
         session.issue_description = resolved_desc
         session.sandbox_error = None
+        self._persist_session(session)
 
         # ---- 沙箱启动（迭代三第二组新增）----
         sandbox_id = ""
@@ -336,6 +407,8 @@ class SessionManager:
                 session.sandbox_error = str(exc)
                 print(f"[沙箱] 沙箱启动失败，回退到本地执行模式: {exc}")
                 sandbox_id = ""
+            finally:
+                self._persist_session(session)
 
         config = {"configurable": {"thread_id": session.thread_id}}
 
@@ -375,6 +448,7 @@ class SessionManager:
             print("[会话] 检测到已有历史状态，已用 as_node='__start__' 重置 graph 位置。")
         else:
             self.orchestrator.graph.update_state(config, initial_state)
+        self.persist_current_state(last_node="__start__")
 
     def set_max_iterations(self, max_iterations: int) -> int:
         """设置当前会话的 ReAct 最大轮数，并同步到已初始化的 graph state。"""
@@ -392,6 +466,9 @@ class SessionManager:
                 config,
                 {"max_iterations": max_iterations},
             )
+            self.persist_current_state()
+        else:
+            self._persist_session(session)
         return max_iterations
 
     def get_current_thread_id(self) -> str:
