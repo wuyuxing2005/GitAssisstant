@@ -392,7 +392,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     return () => {
       cancelled = true;
     };
-  }, [task?.id, task?.result?.messages]);
+  }, [task?.id]);
 
   useEffect(() => {
     if (!task || task.status !== "completed") {

@@ -94,6 +94,7 @@ export default function App() {
     return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : DEFAULT_SIDEBAR_WIDTH;
   });
   const [resizingSidebar, setResizingSidebar] = useState(false);
+  const hasActiveTask = tasks.some((task) => task.status === "running" || task.status === "scheduled");
 
   useEffect(() => {
     void refreshData();
@@ -112,17 +113,42 @@ export default function App() {
   }, [selectedTaskId]);
 
   useEffect(() => {
-    const hasActiveTask = tasks.some((task) => task.status === "running" || task.status === "scheduled");
     if (!hasActiveTask) {
       return undefined;
     }
 
     const timer = window.setInterval(() => {
-      void refreshData(true);
+      void refreshTaskList(true);
     }, 3000);
 
     return () => window.clearInterval(timer);
-  }, [tasks]);
+  }, [hasActiveTask]);
+
+  function syncTaskList(taskList: EvaluationTask[]) {
+    setTasks(taskList);
+    setSelectedTaskId((current) => {
+      if (current && taskList.some((task) => task.id === current)) {
+        return current;
+      }
+      const stored = window.localStorage.getItem(SELECTED_TASK_STORAGE_KEY);
+      if (stored && taskList.some((task) => task.id === stored)) {
+        return stored;
+      }
+      return taskList[0]?.id ?? null;
+    });
+  }
+
+  async function refreshTaskList(_keepBanner = false) {
+    try {
+      setErrorMessage(null);
+      const taskList = await fetchTasks();
+      setBackendStatus("online");
+      syncTaskList(taskList);
+    } catch (error) {
+      setBackendStatus("offline");
+      setErrorMessage(error instanceof Error ? error.message : "鍔犺浇浠诲姟澶辫触");
+    }
+  }
 
   async function refreshData(_keepBanner = false) {
     try {
@@ -135,19 +161,9 @@ export default function App() {
       ]);
 
       setBackendStatus(health.status === "ok" ? "online" : "offline");
-      setTasks(taskList);
+      syncTaskList(taskList);
       setSettings(settingsResponse);
       setSkills(skillResponse.items);
-      setSelectedTaskId((current) => {
-        if (current && taskList.some((task) => task.id === current)) {
-          return current;
-        }
-        const stored = window.localStorage.getItem(SELECTED_TASK_STORAGE_KEY);
-        if (stored && taskList.some((task) => task.id === stored)) {
-          return stored;
-        }
-        return taskList[0]?.id ?? null;
-      });
 
       if (taskList.length > 0) {
         const comparisonResponse = await compareTasks(taskList.map((task) => task.id));
