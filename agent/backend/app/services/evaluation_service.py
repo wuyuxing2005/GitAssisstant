@@ -53,6 +53,7 @@ TERMINAL_TASK_STATUSES = {"completed", "failed"}
 AGENT_DISABLED_GIT_TOOL_NAMES = {"git_add", "git_commit", "git_push"}
 MAX_ITERATIONS_REACHED_STATUS = "MAX_ITERATIONS_REACHED"
 SANDBOX_UNAVAILABLE_STATUS = "SANDBOX_UNAVAILABLE"
+AGENT_CONTROL_MESSAGE_LINES = {"GOAL_DONE", "TASK_SUCCESS", "TASK_FAILED"}
 
 
 @dataclass
@@ -84,6 +85,15 @@ def _serialize_content(content: Any) -> str:
                 parts.append(str(item))
         return "\n".join(part for part in parts if part)
     return str(content)
+
+
+def _strip_agent_control_lines(content: str) -> str:
+    lines = [
+        line
+        for line in content.splitlines()
+        if line.strip() not in AGENT_CONTROL_MESSAGE_LINES
+    ]
+    return "\n".join(lines).strip()
 
 
 def _tool_calls_from_message(message: Any) -> list[dict[str, Any]]:
@@ -571,8 +581,9 @@ class EvaluationService:
                     created_at=created_at,
                 )
             )
-            if content.strip():
-                self._append_task_message(task, "assistant", content)
+            display_content = _strip_agent_control_lines(content)
+            if display_content:
+                self._append_task_message(task, "assistant", display_content)
             return
 
         if node_name == "reflect":
@@ -885,25 +896,14 @@ class EvaluationService:
         self._refresh_result(task)
         task_service.save_task_record(task)
 
-        if mode == "step":
-            async for event in handle.orchestrator.graph.astream(None, config=config, stream_mode="updates"):
-                node_name = next(iter(event))
-                self._append_timeline_entries(
-                    task, node_name, event[node_name])
-                state = handle.orchestrator.graph.get_state(config).values
-                handle.orchestrator.persist_state(handle.thread_id, node_name)
-                self._sync_state(task, state)
-                task_service.save_task_record(task)
-                break
-        else:
-            async for event in handle.orchestrator.graph.astream(None, config=config, stream_mode="updates"):
-                node_name = next(iter(event))
-                self._append_timeline_entries(
-                    task, node_name, event[node_name])
-                state = handle.orchestrator.graph.get_state(config).values
-                handle.orchestrator.persist_state(handle.thread_id, node_name)
-                self._sync_state(task, state)
-                task_service.save_task_record(task)
+        async for event in handle.orchestrator.graph.astream(None, config=config, stream_mode="updates"):
+            node_name = next(iter(event))
+            self._append_timeline_entries(
+                task, node_name, event[node_name])
+            state = handle.orchestrator.graph.get_state(config).values
+            handle.orchestrator.persist_state(handle.thread_id, node_name)
+            self._sync_state(task, state)
+            task_service.save_task_record(task)
 
         final_state = handle.orchestrator.graph.get_state(config).values
         handle.orchestrator.persist_state(handle.thread_id)
@@ -1017,7 +1017,7 @@ class EvaluationService:
             self._append_task_message(
                 task,
                 "system",
-                "已接收追加要求，任务已重新打开；请点击继续单步或自动执行。",
+                "已接收追加要求，任务已重新打开并将继续自动执行。",
                 replan=payload.replan,
             )
             task.status = "scheduled"

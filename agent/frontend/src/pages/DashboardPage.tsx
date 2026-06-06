@@ -3,7 +3,6 @@ import type {
   AppSettings,
   CreateTaskPayload,
   GitHubIssueSummary,
-  RunMode,
   SkillRecord
 } from "../types/task";
 import { fetchRepoIssues } from "../services/api";
@@ -379,24 +378,6 @@ export function DashboardPage({
             />
           </label>
 
-          <label>
-            <span>运行模式</span>
-            <select
-              value={formState.config.run_mode}
-              onChange={(event) =>
-                setFormState((current) => ({
-                  ...current,
-                  config: {
-                    ...current.config,
-                    run_mode: event.target.value as RunMode
-                  }
-                }))
-              }
-            >
-              <option value="auto">auto</option>
-              <option value="step">step</option>
-            </select>
-          </label>
         </div>
 
         <label className="checkbox-row">

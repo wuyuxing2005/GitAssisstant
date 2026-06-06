@@ -8,7 +8,7 @@ router = APIRouter()
 @router.get("/evaluation-options", response_model=EvaluationMetadataResponse)
 def get_evaluation_options() -> EvaluationMetadataResponse:
     return EvaluationMetadataResponse(
-        modes=["auto", "step"],
+        modes=["auto"],
         methods=["规划", "ReAct", "工具调用", "失败反思"],
         dimensions=["结果", "流程", "工具", "验证", "性能"],
         builtin_metrics=[
@@ -19,7 +19,7 @@ def get_evaluation_options() -> EvaluationMetadataResponse:
             "test_run_count",
             "duration_seconds",
         ],
-        strategy_templates=["自动求解", "单步调试", "重置后重跑"],
+        strategy_templates=["自动求解", "重置后重跑"],
         builtin_tools=[
             ToolDescriptor(name="read_file", category="文件操作", summary="读取文件并返回带行号的内容"),
             ToolDescriptor(name="write_file", category="文件操作", summary="创建或覆盖文件"),

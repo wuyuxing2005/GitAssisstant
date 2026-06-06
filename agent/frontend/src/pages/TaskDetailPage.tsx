@@ -246,16 +246,6 @@ function mergeConversationMessages(remoteMessages: TaskMessage[], localMessages:
   );
 }
 
-function continuePromptMessage(taskId: string): TaskMessage {
-  return {
-    id: `${taskId}-local-continue-prompt-${Date.now()}`,
-    role: "system",
-    content: "补充要求已收到。请选择右侧环境栏中的“继续单步”或“自动执行”来让 Agent 继续处理。",
-    created_at: new Date().toISOString(),
-    replan: false
-  };
-}
-
 function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
   const visibleFiles = files.filter((file) => !file.isBinary);
   const hiddenBinaryCount = files.length - visibleFiles.length;
@@ -660,9 +650,8 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
         replan: messageReplan
       });
       setMessages(response.messages);
-      setLocalMessages((current) => [...current, continuePromptMessage(task.id)]);
       setMessageContent("");
-      await onTaskChanged?.();
+      await onRunTask(task.id, "auto");
     } catch (error) {
       setMessageError(error instanceof Error ? error.message : "发送对话失败");
     } finally {
@@ -677,25 +666,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     }
     const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
     setConversationPinnedToBottom(distanceToBottom < 64);
-  }
-
-  async function handleRunWithConversationChoice(mode: RunMode) {
-    if (!task) {
-      return;
-    }
-    const label = mode === "step" ? "继续单步" : "自动执行";
-    setConversationPinnedToBottom(true);
-    setLocalMessages((current) => [
-      ...current,
-      {
-        id: `${task.id}-local-run-choice-${mode}-${Date.now()}`,
-        role: "user",
-        content: `选择：${label}`,
-        created_at: new Date().toISOString(),
-        replan: false
-      }
-    ]);
-    await onRunTask(task.id, mode);
   }
 
   async function handleRunLocallyAfterSandboxFailure() {
@@ -713,7 +683,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
         replan: false
       }
     ]);
-    await onRunTask(task.id, task.config.run_mode, true, true);
+    await onRunTask(task.id, "auto", true, true);
   }
 
   async function handleTerminateAfterSandboxFailure() {
@@ -787,7 +757,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
         <div className="section-header compact">
           <div>
             <h3>多轮对话</h3>
-            <p>补充约束后，再点击继续单步或自动执行。</p>
+            <p>发送补充要求后，Agent 会自动继续处理。</p>
           </div>
         </div>
 
@@ -878,24 +848,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
         </div>
         <button type="button" onClick={() => void handleRefreshDiff()} disabled={!canPublish || diffLoading}>
           刷新
-        </button>
-      </div>
-
-      <div className="floating-task-actions" aria-label="任务操作">
-        <button
-          type="button"
-          onClick={() => void handleRunWithConversationChoice("step")}
-          disabled={isBusy}
-        >
-          继续单步
-        </button>
-        <button
-          className="primary"
-          type="button"
-          onClick={() => void handleRunWithConversationChoice("auto")}
-          disabled={isBusy}
-        >
-          自动执行
         </button>
       </div>
 

@@ -37,7 +37,7 @@ export function TaskTable({
         </div>
         <div className="empty-state">
           <strong>还没有任务</strong>
-          <p>先创建一个任务，然后从这里继续单步调试、自动执行或重置重跑。</p>
+          <p>先创建一个任务，然后从这里自动执行或重置重跑。</p>
         </div>
       </section>
     );
@@ -111,17 +111,6 @@ export function TaskTable({
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
-                        void onRunTask(task.id, "step");
-                      }}
-                      disabled={disableActions || isBusy}
-                    >
-                      单步
-                    </button>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
                         void onRunTask(task.id, "auto");
                       }}
                       disabled={disableActions || isBusy}
@@ -133,7 +122,7 @@ export function TaskTable({
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
-                        void onRunTask(task.id, task.config.run_mode, true);
+                        void onRunTask(task.id, "auto", true);
                       }}
                       disabled={disableActions || isBusy}
                     >
