@@ -21,3 +21,10 @@ repos
 ## frontend
 dist/
 node_modules/
+
+## skills
+skills/*
+!patch-review/
+!test-failure-fix/
+!__init__.py
+!registry.py
