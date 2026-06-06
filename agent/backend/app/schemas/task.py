@@ -334,10 +334,20 @@ class SkillRecord(BaseModel):
     priority_tools: list[str] = Field(default_factory=list)
     body: str = ""
     enabled: bool = True
+    builtin: bool = False
 
 
 class SkillListResponse(BaseModel):
     items: list[SkillRecord] = Field(default_factory=list)
+
+
+class SkillCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(min_length=1, max_length=500)
+    allowed_tools: list[str] = Field(default_factory=list)
+    priority_tools: list[str] = Field(default_factory=list)
+    body: str = Field(min_length=1)
+    enabled: bool = True
 
 
 class SkillEnabledUpdate(BaseModel):

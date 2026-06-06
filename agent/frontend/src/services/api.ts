@@ -20,6 +20,7 @@ import type {
   GitPushRequest,
   GitPushResponse,
   ModelListResponse,
+  SkillCreateRequest,
   SkillListResponse,
   SkillRecord,
   TaskMessageCreate,
@@ -195,11 +196,22 @@ export async function fetchSkills(): Promise<SkillListResponse> {
   return request<SkillListResponse>("/skills/");
 }
 
+export async function createSkill(payload: SkillCreateRequest): Promise<SkillRecord> {
+  return request<SkillRecord>("/skills/", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function updateSkillEnabled(name: string, enabled: boolean): Promise<SkillRecord> {
   return request<SkillRecord>(`/skills/${encodeURIComponent(name)}/enabled`, {
     method: "PUT",
     body: JSON.stringify({ enabled })
   });
+}
+
+export async function deleteSkill(name: string): Promise<void> {
+  await request(`/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
 export async function fetchSettings(): Promise<AppSettings> {

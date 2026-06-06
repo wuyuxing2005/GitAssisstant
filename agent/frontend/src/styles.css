@@ -937,6 +937,7 @@ ul {
   .score-grid,
   .tool-grid,
   .comparison-grid,
+  .skill-form-grid,
   .form-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -974,6 +975,7 @@ ul {
   .detail-grid,
   .tool-grid,
   .comparison-grid,
+  .skill-form-grid,
   .form-row,
   .git-push-controls {
     grid-template-columns: 1fr;
@@ -2412,6 +2414,70 @@ button.floating-env-row:hover:not(:disabled) {
   display: grid;
   align-content: start;
   gap: 10px;
+}
+
+.skill-create-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #e4e8eb;
+  border-radius: 16px;
+  background: #fbfcfc;
+}
+
+.section-header.compact {
+  margin-bottom: 0;
+}
+
+.section-header.compact h3 {
+  margin: 0 0 6px;
+}
+
+.skill-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.skill-create-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.skill-create-form label span {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.skill-create-form input,
+.skill-create-form textarea {
+  width: 100%;
+  border: 1px solid #dde2e6;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 11px 13px;
+}
+
+.skill-create-form textarea {
+  min-height: 220px;
+  resize: vertical;
+}
+
+.skill-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-title-line span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #edf2f7;
+  color: #52616a;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .skill-manager-item {

@@ -304,10 +304,20 @@ export interface SkillRecord {
   priority_tools: string[];
   body: string;
   enabled: boolean;
+  builtin: boolean;
 }
 
 export interface SkillListResponse {
   items: SkillRecord[];
+}
+
+export interface SkillCreateRequest {
+  name: string;
+  description: string;
+  allowed_tools: string[];
+  priority_tools: string[];
+  body: string;
+  enabled: boolean;
 }
 
 export interface ToolDescriptor {
