@@ -51,7 +51,6 @@ EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
 TEST_TOOL_NAMES = {"run_pytest"}
 TERMINAL_TASK_STATUSES = {"completed", "failed"}
 AGENT_DISABLED_GIT_TOOL_NAMES = {"git_add", "git_commit", "git_push"}
-MAX_ITERATIONS_REACHED_STATUS = "MAX_ITERATIONS_REACHED"
 SANDBOX_UNAVAILABLE_STATUS = "SANDBOX_UNAVAILABLE"
 AGENT_CONTROL_MESSAGE_LINES = {"GOAL_DONE", "TASK_SUCCESS", "TASK_FAILED"}
 
@@ -309,7 +308,6 @@ class EvaluationService:
                 repo_path=task.repo_path,
                 issue_description=task.config.issue_input,
                 status="INIT",
-                max_iterations=task.config.max_iterations,
             ),
             started_at=task.started_at,
             finished_at=task.finished_at,
@@ -435,8 +433,6 @@ class EvaluationService:
         manager.set_issue(task.config.issue_input)
         thread_id = manager.get_current_thread_id()
         config = {"configurable": {"thread_id": thread_id}}
-        orchestrator.graph.update_state(
-            config, {"max_iterations": task.config.max_iterations})
         initial_state = orchestrator.graph.get_state(config).values or {}
         sandbox_id = str(initial_state.get("sandbox_id") or "")
         session = manager._current_session()
@@ -513,8 +509,6 @@ class EvaluationService:
                 "issue_description") or task.config.issue_input,
             status=str(state.get("status") or "INIT"),
             iteration_count=int(state.get("iteration_count") or 0),
-            max_iterations=int(state.get("max_iterations")
-                               or task.config.max_iterations),
             plan=[str(item) for item in (state.get("plan") or [])],
             reflexion_notes=str(state.get("reflexion_notes") or ""),
             last_message=last_message,
@@ -526,8 +520,6 @@ class EvaluationService:
             return "completed"
         if runtime_status == "FAILED":
             return "failed"
-        if runtime_status == MAX_ITERATIONS_REACHED_STATUS:
-            return "scheduled"
         if runtime_status == SANDBOX_UNAVAILABLE_STATUS:
             return "scheduled"
         if runtime_status == "INIT":
@@ -732,8 +724,7 @@ class EvaluationService:
         task: EvaluationTaskRecord,
         result: EvaluationResult,
     ) -> list[MetricScore]:
-        snapshot = result.current_state or RuntimeSnapshot(
-            max_iterations=task.config.max_iterations)
+        snapshot = result.current_state or RuntimeSnapshot()
         tool_usage = {item.name: item.count for item in result.tool_usage}
         duration_seconds = 0.0
         if task.started_at:
@@ -814,12 +805,6 @@ class EvaluationService:
             result.summary = (
                 f"任务执行中，当前已完成 {result.current_state.iteration_count if result.current_state else 0} 轮推理。"
             )
-        elif result.current_state and result.current_state.status == MAX_ITERATIONS_REACHED_STATUS:
-            result.outcome = "running"
-            result.summary = (
-                f"已达到 max_iterations={result.current_state.max_iterations}，"
-                "等待用户再次运行以延长对话继续。"
-            )
         elif task.status == "scheduled":
             result.outcome = "running" if task.started_at else "not_started"
             result.summary = "任务上下文已初始化，等待执行。"
@@ -872,7 +857,6 @@ class EvaluationService:
             repo_path=task.repo_path,
             issue_description=task.config.issue_input,
             status="FAILED",
-            max_iterations=task.config.max_iterations,
         )
         result.current_state.status = "FAILED"
         self._refresh_result(task)
@@ -888,9 +872,6 @@ class EvaluationService:
     ) -> None:
         self._activate_runtime(handle)
         config = {"configurable": {"thread_id": handle.thread_id}}
-        current_state = handle.orchestrator.graph.get_state(config).values
-        if current_state.get("status") == MAX_ITERATIONS_REACHED_STATUS:
-            handle.orchestrator.reopen_after_terminal(handle.thread_id)
         task.status = "running"
         task.started_at = task.started_at or _utcnow()
         self._refresh_result(task)
@@ -1011,7 +992,7 @@ class EvaluationService:
 
         config = {"configurable": {"thread_id": handle.thread_id}}
         current_state = handle.orchestrator.graph.get_state(config).values
-        if current_state.get("status") in ("SUCCESS", "FAILED", MAX_ITERATIONS_REACHED_STATUS):
+        if current_state.get("status") in ("SUCCESS", "FAILED"):
             handle.orchestrator.reopen_after_terminal(handle.thread_id)
             current_state = handle.orchestrator.graph.get_state(config).values
             self._append_task_message(

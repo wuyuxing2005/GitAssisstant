@@ -56,7 +56,6 @@ class AgentConversationStore:
                     issue_ref TEXT,
                     issue_description TEXT,
                     sandbox_error TEXT,
-                    max_iterations INTEGER NOT NULL DEFAULT 25,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -88,16 +87,15 @@ class AgentConversationStore:
                 """
                 INSERT INTO sessions (
                     session_id, thread_id, repo_path, issue_ref, issue_description,
-                    sandbox_error, max_iterations, created_at, updated_at
+                    sandbox_error, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     thread_id=excluded.thread_id,
                     repo_path=excluded.repo_path,
                     issue_ref=excluded.issue_ref,
                     issue_description=excluded.issue_description,
                     sandbox_error=excluded.sandbox_error,
-                    max_iterations=excluded.max_iterations,
                     created_at=excluded.created_at,
                     updated_at=excluded.updated_at
                 """,
@@ -108,7 +106,6 @@ class AgentConversationStore:
                     payload.get("issue_ref"),
                     payload.get("issue_description"),
                     payload.get("sandbox_error"),
-                    int(payload.get("max_iterations") or 25),
                     payload.get("created_at") or now,
                     now,
                 ),

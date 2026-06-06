@@ -19,7 +19,6 @@ class EvaluationConfig(BaseModel):
         default=None,
         description="可选，覆盖默认的模型名称",
     )
-    max_iterations: int = Field(default=15, ge=1, le=50)
     run_mode: RunMode = Field(default="auto")
     enabled_skills: list[str] | None = Field(
         default=None,
@@ -157,7 +156,6 @@ class RuntimeSnapshot(BaseModel):
     issue_description: str | None = None
     status: str = "INIT"
     iteration_count: int = 0
-    max_iterations: int = 0
     plan: list[str] = Field(default_factory=list)
     reflexion_notes: str = ""
     last_message: str = ""

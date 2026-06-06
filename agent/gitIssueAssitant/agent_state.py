@@ -10,9 +10,8 @@ class AgentState(TypedDict):
     issue_description: str
 
     # 核心状态
-    status: str  # INIT, PLANNING, RUNNING, REFLECTING, REPLANNING, SUCCESS, FAILED, MAX_ITERATIONS_REACHED
+    status: str  # INIT, PLANNING, RUNNING, REFLECTING, REPLANNING, SUCCESS, FAILED
     iteration_count: int
-    max_iterations: int
 
     # 分层规划
     goals: List[Dict[str, Any]]

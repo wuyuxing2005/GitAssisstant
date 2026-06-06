@@ -7,7 +7,6 @@ export interface EvaluationConfig {
   issue_input: string;
   target_dir?: string | null;
   model_name?: string | null;
-  max_iterations: number;
   run_mode: RunMode;
   enabled_skills?: string[] | null;
 }
@@ -124,7 +123,6 @@ export interface RuntimeSnapshot {
   issue_description?: string | null;
   status: string;
   iteration_count: number;
-  max_iterations: number;
   plan: string[];
   reflexion_notes: string;
   last_message: string;

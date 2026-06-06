@@ -10,7 +10,7 @@ from .cli_utils.commit import get_commit_plan_from_agent
 from .cli_utils.git import run_git_capture, working_tree_diff_for_commit
 from .cli_utils.reports import build_fix_report_markdown, write_fix_report
 from .github_pr import create_github_pr
-from  .orchestrator import AgentOrchestrator, MAX_ITERATIONS_REACHED_STATUS
+from  .orchestrator import AgentOrchestrator
 from  .session_manager import SessionManager
 from  .skills import SkillRegistry
 from .tools.tools import AGENT_TOOLS_ALL, clear_active_sandbox  # 迭代三第二组
@@ -82,7 +82,7 @@ class CLI:
         session = self.manager._current_session()
         print(f"📊 状态: {state.get('status', 'UNKNOWN')}")
         print(f"📁 仓库: {state.get('repo_path', session.repo_path if session else '未设置')}")
-        print(f"🔁 迭代次数: {state.get('iteration_count', 0)}/{state.get('max_iterations', 0)}")
+        print(f"🔁 迭代次数: {state.get('iteration_count', 0)}")
         if state.get("issue_description"):
             print(f"📝 Issue: {state['issue_description']}")
         if plan:
@@ -95,26 +95,6 @@ class CLI:
             content = getattr(last_message, "content", "")
             if content:
                 print(f"💬 最近输出: {content}")
-
-    async def _ask_extend_iterations(self, state: dict) -> int | None:
-        iteration_count = state.get("iteration_count", 0)
-        max_iterations = state.get("max_iterations", 0)
-        print(
-            f"\n⏸️ Agent 已达到 max_iterations："
-            f"{iteration_count}/{max_iterations}。"
-        )
-        print("是否延长对话继续？回车/yes 延长 5 轮；输入数字可自定义延长轮数；输入 n 结束。")
-        answer = await self._read_line("[延长?] > ")
-        while(True):
-            normalized = answer.strip().lower()
-            if normalized in ("", "y", "yes", "继续", "是"):
-                return 5
-            if normalized in ("n", "no", "否", "不", "停止", "结束"):
-                return None
-            if normalized.isdigit():
-                return max(int(normalized), 1)
-            print(f"⚠️ 未识别的输入: {answer}")
-            answer = await self._read_line("[延长?] > ")
 
     async def handle_command(self, cmd: str):
         parts = shlex.split(cmd)
@@ -165,10 +145,7 @@ class CLI:
                     print(f"Issue: {session.issue_ref or '未设置'}")
                     print(f"创建时间: {session.created_at}")
                     print(f"状态: {state.get('status', 'INIT')}")
-                    print(
-                        f"迭代: {state.get('iteration_count', 0)}/"
-                        f"{state.get('max_iterations', session.max_iterations)}"
-                    )
+                    print(f"迭代: {state.get('iteration_count', 0)}")
                     if session.issue_description:
                         print(f"Issue 描述: {session.issue_description}")
                 else:
@@ -194,22 +171,6 @@ class CLI:
                 thread_id = self.manager.get_current_thread_id()
                 await self.orchestrator.run_step(thread_id)
                 self._print_status(self.manager.get_current_state())
-
-            elif command in ("/max_iterations", "/max-iterations", "/maxiter"):
-                if len(parts) != 2 or not parts[1].isdigit():
-                    print("用法: /max_iterations <正整数>，例如 /max_iterations 40")
-                    return
-                max_iterations = int(parts[1])
-                state = self.manager.get_current_state()
-                current_count = int(state.get("iteration_count") or 0)
-                if current_count and max_iterations <= current_count:
-                    print(
-                        f"⚠️ 当前已执行 {current_count} 轮，"
-                        f"请设置大于 {current_count} 的 max_iterations。"
-                    )
-                    return
-                updated = self.manager.set_max_iterations(max_iterations)
-                print(f"🔁 当前会话 max_iterations 已设置为 {updated}")
 
             elif command == "/solve":
                 state = self.manager.get_current_state()
@@ -250,18 +211,6 @@ class CLI:
                                 f"自动接续刚才的 {last_drain} 条追加输入..."
                             )
                             self.orchestrator.reopen_after_terminal(thread_id)
-                            continue
-
-                        if status == MAX_ITERATIONS_REACHED_STATUS:
-                            extra_iterations = await self._ask_extend_iterations(current_state)
-                            if extra_iterations is None:
-                                self.orchestrator.mark_failed_after_user_declines_extension(thread_id)
-                                print("🛑 已按用户选择结束，本次任务标记为 FAILED。")
-                                break
-                            self.orchestrator.reopen_after_terminal(
-                                thread_id, extra_iterations=extra_iterations
-                            )
-                            print(f"🔁 已延长 {extra_iterations} 轮，继续运行。")
                             continue
 
                         if status not in ("SUCCESS", "FAILED"):
@@ -404,7 +353,6 @@ class CLI:
                 /sessions [session_id]       列出所有会话，或查看指定会话详情
                 /issue <desc|#number>        设置问题，支持 GitHub Issue 编号或链接
                 /run                         单步执行
-                /max_iterations <n>          设置当前会话最大推理轮数，默认25
                 /solve [-v|--verbose]        自动解决问题（运行期间可随时插入对话）
                 /status                      查看状态
                 exit                         退出

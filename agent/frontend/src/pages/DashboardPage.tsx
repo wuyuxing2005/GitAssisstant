@@ -37,7 +37,6 @@ export function DashboardPage({
       issue_input: "",
       target_dir: "",
       model_name: settings?.model_name || models[0] || "",
-      max_iterations: 15,
       run_mode: "auto",
       enabled_skills: []
     }
@@ -169,7 +168,6 @@ export function DashboardPage({
           issue_input: "",
           target_dir: "",
           model_name: settings?.model_name || models[0] || "",
-          max_iterations: 15,
           run_mode: "auto",
           enabled_skills: skills.filter((skill) => skill.enabled).map((skill) => skill.name)
         }
@@ -357,25 +355,6 @@ export function DashboardPage({
                 <option value="" disabled>请先在设置中导入模型</option>
               ) : null}
             </select>
-          </label>
-
-          <label>
-            <span>最大轮数</span>
-            <input
-              type="number"
-              min={1}
-              max={50}
-              value={formState.config.max_iterations}
-              onChange={(event) =>
-                setFormState((current) => ({
-                  ...current,
-                  config: {
-                    ...current.config,
-                    max_iterations: Number(event.target.value) || 15
-                  }
-                }))
-              }
-            />
           </label>
 
         </div>

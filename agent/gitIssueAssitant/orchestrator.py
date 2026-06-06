@@ -15,7 +15,6 @@ from .tools.sandbox_manager import SandboxManager
 
 
 EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
-MAX_ITERATIONS_REACHED_STATUS = "MAX_ITERATIONS_REACHED"
 USER_INSERT_PREFIX = "[用户插入指令]"
 
 
@@ -49,7 +48,6 @@ class AgentOrchestrator:
         workflow.add_node("reflect", self._node_reflect)
         workflow.add_node("finish_success", self._node_finish_success)
         workflow.add_node("finish_failed", self._node_finish_failed)
-        workflow.add_node("finish_max_iterations", self._node_finish_max_iterations)
         workflow.add_node("reopen", self._node_reopen)
 
         workflow.set_entry_point("h_planner")
@@ -67,7 +65,6 @@ class AgentOrchestrator:
                 "h_planner": "h_planner",
                 "finish_success": "finish_success",
                 "finish_failed": "finish_failed",
-                "finish_max_iterations": "finish_max_iterations",
             },
         )
         workflow.add_edge("tools", "react")
@@ -79,7 +76,6 @@ class AgentOrchestrator:
         )
         workflow.add_edge("finish_success", END)
         workflow.add_edge("finish_failed", END)
-        workflow.add_edge("finish_max_iterations", END)
         return workflow.compile(checkpointer=self.memory)
 
     def _shorten(self, text: str, limit: int = 300) -> str:
@@ -303,10 +299,6 @@ class AgentOrchestrator:
                     f"   反思: {self._shorten(reflexion, 800 if verbose else 220)}")
             if replan_trigger:
                 print(f"   触发重规划: {replan_trigger}")
-            return
-
-        if node_name == "finish_max_iterations":
-            print("⏸️ 已达到 max_iterations，等待用户决定是否延长对话。")
             return
 
         print(f"⚙️ Graph Step: {node_name}")
@@ -634,14 +626,6 @@ class AgentOrchestrator:
     async def _node_finish_failed(self, state: AgentState):
         return {"status": "FAILED"}
 
-    async def _node_finish_max_iterations(self, state: AgentState):
-        max_iterations = state.get("max_iterations", 15)
-        note = f"已达到 max_iterations={max_iterations}，等待用户决定是否延长对话。"
-        return {
-            "status": MAX_ITERATIONS_REACHED_STATUS,
-            "trajectory": [{"type": "control", "content": note}],
-        }
-
     async def _node_reopen(self, state: AgentState):
         return {}
 
@@ -658,8 +642,6 @@ class AgentOrchestrator:
         last_msg = state["messages"][-1]
         content = getattr(last_msg, "content", "") or ""
 
-        # Agent 主动给出的终止信号优先于 iteration 上限：
-        # 即使刚好打满 max_iterations，只要它说"做完了/做不下去了"，也别强行判 FAILED。
         if "TASK_SUCCESS" in content:
             return "finish_success"
         if "TASK_FAILED" in content:
@@ -667,9 +649,6 @@ class AgentOrchestrator:
 
         if self._last_message_has_tool_calls(state):
             return "tools"
-
-        if state["iteration_count"] >= state.get("max_iterations", 15):
-            return "finish_max_iterations"
 
         if "GOAL_DONE" in content or self._recent_successful_edit(state):
             goals = state.get("goals", [])
@@ -764,39 +743,25 @@ class AgentOrchestrator:
             yield {"node": node_name, "state": current_state}
 
             status = current_state.get("status", "")
-            if status in ("SUCCESS", "FAILED", MAX_ITERATIONS_REACHED_STATUS):
+            if status in ("SUCCESS", "FAILED"):
                 if status == "FAILED":
                     self._print_failure_diagnostics(current_state)
                 return
 
-    def reopen_after_terminal(self, thread_id: str, extra_iterations: int = 5):
+    def reopen_after_terminal(self, thread_id: str):
         """图已到达终态后，若用户追加了输入，把状态推回 react 继续处理。
 
         通过 as_node="reopen" 让 graph 走 reopen→react 固定边重新进入推理；
-        同时把 max_iterations 抬高，避免立即被 iteration 上限挡掉。
         """
         config = {"configurable": {"thread_id": thread_id}}
         current_state = self.graph.get_state(config).values
-        current_max = current_state.get("max_iterations", 15)
-        current_count = current_state.get("iteration_count", 0)
-        extra_iterations = max(int(extra_iterations or 0), 1)
-        new_max = max(current_max + extra_iterations, current_count + extra_iterations)
         resume_node = "react" if self._last_message_has_tool_calls(current_state) else "reopen"
         self.graph.update_state(
             config,
-            {"status": "RUNNING", "max_iterations": new_max},
+            {"status": "RUNNING"},
             as_node=resume_node,
         )
         self.persist_state(thread_id, resume_node)
-
-    def mark_failed_after_user_declines_extension(self, thread_id: str):
-        config = {"configurable": {"thread_id": thread_id}}
-        self.graph.update_state(
-            config,
-            {"status": "FAILED"},
-            as_node="finish_failed",
-        )
-        self.persist_state(thread_id, "finish_failed")
 
     async def raw_chat(self, user_input):
         return (await self.agent.chat(user_input)).content

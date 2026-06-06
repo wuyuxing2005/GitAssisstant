@@ -53,7 +53,7 @@ def _trace_status(task_status: str, runtime_status: str = "") -> str:
         return "success"
     if task_status == "failed" or runtime_status == "FAILED":
         return "failed"
-    if runtime_status in {"MAX_ITERATIONS_REACHED", "SANDBOX_UNAVAILABLE"}:
+    if runtime_status == "SANDBOX_UNAVAILABLE":
         return "waiting_confirmation"
     if task_status == "draft":
         return "running"

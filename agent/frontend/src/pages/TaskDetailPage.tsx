@@ -868,7 +868,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
         <div className="floating-env-row static">
           <span className="floating-env-icon">#</span>
           <span>轮数</span>
-          <strong>{snapshot ? `${snapshot.iteration_count}/${snapshot.max_iterations}` : "-"}</strong>
+          <strong>{snapshot ? snapshot.iteration_count : "-"}</strong>
         </div>
 
         <div className="floating-env-row static">

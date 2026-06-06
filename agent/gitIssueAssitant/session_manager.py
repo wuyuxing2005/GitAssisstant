@@ -28,7 +28,6 @@ class Session:
     issue_ref: Optional[str] = None
     issue_description: Optional[str] = None
     sandbox_error: Optional[str] = None
-    max_iterations: int = 25
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -56,7 +55,6 @@ class SessionManager:
                 issue_ref=row.get("issue_ref"),
                 issue_description=row.get("issue_description"),
                 sandbox_error=row.get("sandbox_error"),
-                max_iterations=int(row.get("max_iterations") or 25),
                 created_at=row.get("created_at") or datetime.now().isoformat(),
             )
         return sessions
@@ -417,7 +415,6 @@ class SessionManager:
             "issue_description": resolved_desc,
             "status": "INIT",
             "iteration_count": 0,
-            "max_iterations": session.max_iterations,
             "goals": [],
             "current_goal_index": 0,
             "plan_version": 0,
@@ -449,27 +446,6 @@ class SessionManager:
         else:
             self.orchestrator.graph.update_state(config, initial_state)
         self.persist_current_state(last_node="__start__")
-
-    def set_max_iterations(self, max_iterations: int) -> int:
-        """设置当前会话的 ReAct 最大轮数，并同步到已初始化的 graph state。"""
-        session = self._current_session()
-        if not session:
-            raise ValueError("当前没有激活的会话，请先创建会话")
-        if max_iterations < 1:
-            raise ValueError("max_iterations 必须大于等于 1")
-
-        session.max_iterations = max_iterations
-        config = {"configurable": {"thread_id": session.thread_id}}
-        state_snapshot = self.orchestrator.graph.get_state(config)
-        if state_snapshot and state_snapshot.values:
-            self.orchestrator.graph.update_state(
-                config,
-                {"max_iterations": max_iterations},
-            )
-            self.persist_current_state()
-        else:
-            self._persist_session(session)
-        return max_iterations
 
     def get_current_thread_id(self) -> str:
         """获取当前会话的 thread_id"""

@@ -96,9 +96,7 @@ export function TaskTable({
                 </td>
                 <td>
                   {snapshot ? (
-                    <span>
-                      {snapshot.iteration_count}/{snapshot.max_iterations}
-                    </span>
+                    <span>{snapshot.iteration_count}</span>
                   ) : (
                     <span>-</span>
                   )}
