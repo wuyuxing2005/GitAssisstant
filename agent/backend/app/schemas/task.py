@@ -4,7 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 TaskStatus = Literal["draft", "scheduled", "running", "completed", "failed"]
-RunMode = Literal["auto", "step"]
+RunMode = Literal["auto"]
 ExecutionOutcome = Literal["not_started", "running", "completed", "failed"]
 
 

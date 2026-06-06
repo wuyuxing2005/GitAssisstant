@@ -1,5 +1,5 @@
 export type TaskStatus = "draft" | "scheduled" | "running" | "completed" | "failed";
-export type RunMode = "auto" | "step";
+export type RunMode = "auto";
 export type ExecutionOutcome = "not_started" | "running" | "completed" | "failed";
 
 export interface EvaluationConfig {
