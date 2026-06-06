@@ -246,6 +246,10 @@ function mergeConversationMessages(remoteMessages: TaskMessage[], localMessages:
   );
 }
 
+function taskHasLiveConversation(task: EvaluationTask | null): boolean {
+  return task?.status === "scheduled" || task?.status === "running";
+}
+
 function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
   const visibleFiles = files.filter((file) => !file.isBinary);
   const hiddenBinaryCount = files.length - visibleFiles.length;
@@ -321,6 +325,10 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
   const [issueCommentBody, setIssueCommentBody] = useState("");
   const [issueCloseReason, setIssueCloseReason] = useState<"completed" | "not_planned">("completed");
   const [issueLabelsText, setIssueLabelsText] = useState("");
+  const [sandboxDecisionAcknowledged, setSandboxDecisionAcknowledged] = useState(false);
+  const taskResultMessages = task?.result?.messages ?? [];
+  const latestTaskResultMessage = taskResultMessages[taskResultMessages.length - 1];
+  const taskResultMessagesVersion = `${taskResultMessages.length}:${latestTaskResultMessage?.id ?? ""}`;
 
   useEffect(() => {
     setDiffInfo(null);
@@ -349,7 +357,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     setIssueCommentBody(cachedIssueInfo?.default_comment ?? "");
     setIssueCloseReason("completed");
     setIssueLabelsText(cachedIssueInfo?.labels.join(", ") ?? "");
+    setSandboxDecisionAcknowledged(false);
   }, [task?.id]);
+
+  useEffect(() => {
+    if (task?.result?.current_state?.status !== "SANDBOX_UNAVAILABLE") {
+      setSandboxDecisionAcknowledged(false);
+    }
+  }, [task?.id, task?.result?.current_state?.status]);
 
   useEffect(() => {
     if (!conversationPinnedToBottom) {
@@ -393,6 +408,47 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       cancelled = true;
     };
   }, [task?.id]);
+
+  useEffect(() => {
+    if (!task) {
+      return;
+    }
+    setMessages(taskResultMessages);
+  }, [task?.id, taskResultMessagesVersion]);
+
+  useEffect(() => {
+    if (!task) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const refreshMessages = async () => {
+      try {
+        const response = await fetchTaskMessages(task.id);
+        if (!cancelled) {
+          setMessages(response.messages);
+        }
+      } catch {
+        // Keep the last known conversation visible during transient polling errors.
+      }
+    };
+
+    void refreshMessages();
+    if (!taskHasLiveConversation(task)) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timer = window.setInterval(() => {
+      void refreshMessages();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [task?.id, task?.status]);
 
   useEffect(() => {
     if (!task || task.status !== "completed") {
@@ -673,6 +729,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       return;
     }
     setConversationPinnedToBottom(true);
+    setSandboxDecisionAcknowledged(true);
     setLocalMessages((current) => [
       ...current,
       {
@@ -691,6 +748,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       return;
     }
     setConversationPinnedToBottom(true);
+    setSandboxDecisionAcknowledged(true);
     await onTerminateSandboxTask(task.id);
   }
 
@@ -722,7 +780,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
   const result = task.result;
   const snapshot = result?.current_state;
   const executionEnvLabel = snapshot?.sandbox_id ? "Docker 沙箱" : "本地执行";
-  const waitingForSandboxDecision = snapshot?.status === "SANDBOX_UNAVAILABLE";
+  const waitingForSandboxDecision = snapshot?.status === "SANDBOX_UNAVAILABLE" && !sandboxDecisionAcknowledged;
   const isBusy = busyTaskId === task.id;
   const canPublish = task.status === "completed";
   const stats = diffStats(diffInfo?.diff);

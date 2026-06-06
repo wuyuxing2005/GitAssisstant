@@ -30,6 +30,9 @@ class TaskService:
     def save_task_record(self, task: TaskRecord) -> TaskRecord:
         return task_repository.save(task)
 
+    def list_task_records(self) -> list[TaskRecord]:
+        return task_repository.list()
+
     def list_tasks(self) -> list[TaskResponse]:
         return [self._to_response(task) for task in task_repository.list()]
 

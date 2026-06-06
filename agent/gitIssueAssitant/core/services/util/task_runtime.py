@@ -646,6 +646,16 @@ class _IssueAssistantTaskRuntime:
         self._refresh_agent_trace(task)
         task_service.save_task_record(task)
 
+    def _acknowledge_local_fallback(self, task: TaskRecord) -> None:
+        result = self._ensure_result(task)
+        snapshot = result.current_state
+        if snapshot is None or snapshot.status != SANDBOX_UNAVAILABLE_STATUS:
+            return
+
+        snapshot.status = "INIT"
+        snapshot.sandbox_id = ""
+        self._append_task_message(task, "system", "已选择本地执行，正在重新初始化任务。")
+
     async def _run_graph(
         self,
         task: TaskRecord,
@@ -723,6 +733,8 @@ class _IssueAssistantTaskRuntime:
             if any(not background_job.done() for task_key, background_job in self._background_jobs.items() if task_key != task_id):
                 raise RuntimeError("当前已有其他任务在运行，gitIssueAssitant 运行时暂不支持并发执行。")
 
+            if run_request.allow_local_fallback:
+                self._acknowledge_local_fallback(task)
             task.status = "scheduled"
             self._refresh_result(task)
             task_service.save_task_record(task)
@@ -807,6 +819,27 @@ class _IssueAssistantTaskRuntime:
         if self._sandbox_manager is not None:
             self._sandbox_manager.stop_all()
             self._sandbox_manager = None
+
+    def recover_interrupted_tasks(self) -> int:
+        recovered_count = 0
+        for task in task_service.list_task_records():
+            if task.status not in {"scheduled", "running"}:
+                continue
+
+            result = self._ensure_result(task)
+            snapshot = result.current_state
+            if snapshot and snapshot.status == SANDBOX_UNAVAILABLE_STATUS:
+                continue
+
+            self._append_task_message(
+                task,
+                "system",
+                "后端服务在任务执行过程中重启，原后台执行已中断。请重新运行任务继续。",
+            )
+            self._mark_failed(task, "后端服务重启，后台执行已中断。请重新运行任务继续。")
+            recovered_count += 1
+
+        return recovered_count
 
     def terminate_after_sandbox_unavailable(self, task_id: str) -> TaskRecord | None:
         task = task_service.get_task_record(task_id)

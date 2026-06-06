@@ -333,6 +333,9 @@ class IssueAssistantService:
     def clear_task_state(self, task_id: str) -> None:
         self._tasks().clear_task_state(task_id)
 
+    def recover_interrupted_tasks(self) -> int:
+        return self._tasks().recover_interrupted_tasks()
+
     def terminate_after_sandbox_unavailable(self, task_id: str):
         return self._tasks().terminate_after_sandbox_unavailable(task_id)
 

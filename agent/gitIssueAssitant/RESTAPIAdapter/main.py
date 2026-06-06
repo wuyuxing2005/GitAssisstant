@@ -31,6 +31,11 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.on_event("startup")
+def recover_interrupted_runtime_tasks() -> None:
+    issue_assistant_service.recover_interrupted_tasks()
+
+
 @app.on_event("shutdown")
 def shutdown_runtime_resources() -> None:
     issue_assistant_service.shutdown()
