@@ -7,6 +7,7 @@ import { TaskDetailPage } from "./pages/TaskDetailPage";
 import {
   compareTasks,
   createTask,
+  deleteTask,
   fetchOpenAIModels,
   fetchHealth,
   fetchSettings,
@@ -225,6 +226,29 @@ export default function App() {
     }
   }
 
+  async function handleDeleteTask(taskId: string) {
+    const task = tasks.find((item) => item.id === taskId);
+    const confirmed = window.confirm(`确定删除任务 "${task?.name ?? taskId}" 吗？此操作不可恢复。`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setBusyTaskId(taskId);
+      await deleteTask(taskId);
+      setIssueInfoCache((current) => {
+        const next = { ...current };
+        delete next[taskId];
+        return next;
+      });
+      await refreshData(true);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "删除任务失败");
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
   async function handleSaveSettings(payload: AppSettingsUpdate) {
     const updated = await updateSettings(payload);
     setSettings(updated);
@@ -322,18 +346,32 @@ export default function App() {
 
         <div className="sidebar-task-list">
           {tasks.map((task) => (
-            <button
+            <div
               key={task.id}
               className={`sidebar-task-item ${task.id === selectedTaskId ? "active" : ""}`}
-              type="button"
-              onClick={() => {
-                setSelectedTaskId(task.id);
-                setCurrentPage("detail");
-              }}
             >
-              <span>{task.name}</span>
-              <small>{formatTaskStatus(task.status)}</small>
-            </button>
+              <button
+                className="sidebar-task-select"
+                type="button"
+                onClick={() => {
+                  setSelectedTaskId(task.id);
+                  setCurrentPage("detail");
+                }}
+              >
+                <span>{task.name}</span>
+                <small>{formatTaskStatus(task.status)}</small>
+              </button>
+              <button
+                className="sidebar-task-delete"
+                type="button"
+                aria-label={`删除任务 ${task.name}`}
+                title="删除任务"
+                disabled={busyTaskId === task.id}
+                onClick={() => void handleDeleteTask(task.id)}
+              >
+                ×
+              </button>
+            </div>
           ))}
           {tasks.length === 0 ? (
             <div className="sidebar-empty">还没有任务</div>

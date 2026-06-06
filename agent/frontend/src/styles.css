@@ -1099,16 +1099,12 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
   width: 100%;
   min-height: 44px;
   padding: 10px 12px;
-  border: 0;
   border-radius: 12px;
   background: transparent;
   color: #314347;
-  text-align: left;
-  cursor: pointer;
 }
 
 .sidebar-task-item:hover {
@@ -1119,16 +1115,54 @@ body {
   background: rgba(193, 229, 225, 0.8);
 }
 
-.sidebar-task-item span {
+.sidebar-task-select {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-task-select span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 700;
 }
 
-.sidebar-task-item small,
+.sidebar-task-select small,
 .sidebar-empty {
   color: #85989a;
+}
+
+.sidebar-task-delete {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--danger);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sidebar-task-delete:hover {
+  background: rgba(180, 35, 24, 0.1);
+}
+
+.sidebar-task-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .sidebar-settings {

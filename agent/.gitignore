@@ -3,3 +3,4 @@ workspaces/
 .agent_data/
 __pycache__/
 *.py[cod]
+.serena
