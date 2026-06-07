@@ -7,6 +7,7 @@ import { TaskDetailPage } from "./pages/TaskDetailPage";
 import {
   compareTasks,
   createTask,
+  deleteTask,
   fetchOpenAIModels,
   fetchHealth,
   fetchSettings,
@@ -94,6 +95,7 @@ export default function App() {
     return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : DEFAULT_SIDEBAR_WIDTH;
   });
   const [resizingSidebar, setResizingSidebar] = useState(false);
+  const hasActiveTask = tasks.some((task) => task.status === "running" || task.status === "scheduled");
 
   useEffect(() => {
     void refreshData();
@@ -112,17 +114,42 @@ export default function App() {
   }, [selectedTaskId]);
 
   useEffect(() => {
-    const hasActiveTask = tasks.some((task) => task.status === "running" || task.status === "scheduled");
     if (!hasActiveTask) {
       return undefined;
     }
 
     const timer = window.setInterval(() => {
-      void refreshData(true);
+      void refreshTaskList(true);
     }, 3000);
 
     return () => window.clearInterval(timer);
-  }, [tasks]);
+  }, [hasActiveTask]);
+
+  function syncTaskList(taskList: EvaluationTask[]) {
+    setTasks(taskList);
+    setSelectedTaskId((current) => {
+      if (current && taskList.some((task) => task.id === current)) {
+        return current;
+      }
+      const stored = window.localStorage.getItem(SELECTED_TASK_STORAGE_KEY);
+      if (stored && taskList.some((task) => task.id === stored)) {
+        return stored;
+      }
+      return taskList[0]?.id ?? null;
+    });
+  }
+
+  async function refreshTaskList(_keepBanner = false) {
+    try {
+      setErrorMessage(null);
+      const taskList = await fetchTasks();
+      setBackendStatus("online");
+      syncTaskList(taskList);
+    } catch (error) {
+      setBackendStatus("offline");
+      setErrorMessage(error instanceof Error ? error.message : "鍔犺浇浠诲姟澶辫触");
+    }
+  }
 
   async function refreshData(_keepBanner = false) {
     try {
@@ -135,19 +162,9 @@ export default function App() {
       ]);
 
       setBackendStatus(health.status === "ok" ? "online" : "offline");
-      setTasks(taskList);
+      syncTaskList(taskList);
       setSettings(settingsResponse);
       setSkills(skillResponse.items);
-      setSelectedTaskId((current) => {
-        if (current && taskList.some((task) => task.id === current)) {
-          return current;
-        }
-        const stored = window.localStorage.getItem(SELECTED_TASK_STORAGE_KEY);
-        if (stored && taskList.some((task) => task.id === stored)) {
-          return stored;
-        }
-        return taskList[0]?.id ?? null;
-      });
 
       if (taskList.length > 0) {
         const comparisonResponse = await compareTasks(taskList.map((task) => task.id));
@@ -204,6 +221,29 @@ export default function App() {
       await refreshData(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "终止任务失败");
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  async function handleDeleteTask(taskId: string) {
+    const task = tasks.find((item) => item.id === taskId);
+    const confirmed = window.confirm(`确定删除任务 "${task?.name ?? taskId}" 吗？此操作不可恢复。`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setBusyTaskId(taskId);
+      await deleteTask(taskId);
+      setIssueInfoCache((current) => {
+        const next = { ...current };
+        delete next[taskId];
+        return next;
+      });
+      await refreshData(true);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "删除任务失败");
     } finally {
       setBusyTaskId(null);
     }
@@ -306,18 +346,32 @@ export default function App() {
 
         <div className="sidebar-task-list">
           {tasks.map((task) => (
-            <button
+            <div
               key={task.id}
               className={`sidebar-task-item ${task.id === selectedTaskId ? "active" : ""}`}
-              type="button"
-              onClick={() => {
-                setSelectedTaskId(task.id);
-                setCurrentPage("detail");
-              }}
             >
-              <span>{task.name}</span>
-              <small>{formatTaskStatus(task.status)}</small>
-            </button>
+              <button
+                className="sidebar-task-select"
+                type="button"
+                onClick={() => {
+                  setSelectedTaskId(task.id);
+                  setCurrentPage("detail");
+                }}
+              >
+                <span>{task.name}</span>
+                <small>{formatTaskStatus(task.status)}</small>
+              </button>
+              <button
+                className="sidebar-task-delete"
+                type="button"
+                aria-label={`删除任务 ${task.name}`}
+                title="删除任务"
+                disabled={busyTaskId === task.id}
+                onClick={() => void handleDeleteTask(task.id)}
+              >
+                ×
+              </button>
+            </div>
           ))}
           {tasks.length === 0 ? (
             <div className="sidebar-empty">还没有任务</div>
