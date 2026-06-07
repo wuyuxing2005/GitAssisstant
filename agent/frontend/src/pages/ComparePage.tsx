@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { analyticsReportUrl } from "../services/api";
 import type { ComparisonResponse, EvaluationTask } from "../types/task";
 
@@ -26,44 +26,108 @@ function statusText(status: EvaluationTask["status"]): string {
   return mapping[status];
 }
 
-function scoreByName(item: ComparisonResponse["items"][number], name: string): number {
-  return item.scores.find((score) => score.name === name)?.value ?? 0;
-}
-
 export function ComparePage({ tasks, comparison }: ComparePageProps) {
   const [selectedCompareTaskIds, setSelectedCompareTaskIds] = useState<string[]>([]);
 
-  useEffect(() => {
-    setSelectedCompareTaskIds((current) => {
-      const ids = tasks.map((task) => task.id);
-      return current.length ? current.filter((id) => ids.includes(id)) : ids;
-    });
+  const comparisonByTaskId = useMemo(() => {
+    return new Map(comparison?.items.map((item) => [item.task_id, item]) ?? []);
+  }, [comparison]);
+
+  const taskById = useMemo(() => {
+    return new Map(tasks.map((task) => [task.id, task]));
   }, [tasks]);
 
-  const visibleComparisonItems = comparison?.items.filter((item) => selectedCompareTaskIds.includes(item.task_id)) ?? [];
-  const visibleAggregate = visibleComparisonItems.length
-    ? {
-        success_rate:
-          visibleComparisonItems.reduce((sum, item) => sum + scoreByName(item, "success"), 0) /
-          visibleComparisonItems.length,
-        failed_count: visibleComparisonItems.filter((item) => item.status === "failed").length,
-        average_duration_seconds:
-          visibleComparisonItems.reduce((sum, item) => sum + scoreByName(item, "duration_seconds"), 0) /
-          visibleComparisonItems.length,
-        average_tool_call_count:
-          visibleComparisonItems.reduce((sum, item) => sum + scoreByName(item, "tool_call_count"), 0) /
-          visibleComparisonItems.length,
-        average_test_run_count:
-          visibleComparisonItems.reduce((sum, item) => sum + scoreByName(item, "test_run_count"), 0) /
-          visibleComparisonItems.length
+  const orderedTasks = useMemo(() => {
+    if (!selectedCompareTaskIds.length) {
+      return tasks;
+    }
+    return [...tasks].sort((first, second) => {
+      const firstIndex = selectedCompareTaskIds.indexOf(first.id);
+      const secondIndex = selectedCompareTaskIds.indexOf(second.id);
+      if (firstIndex === -1 && secondIndex === -1) {
+        return 0;
       }
-    : comparison?.aggregate ?? {
-        success_rate: 0,
-        failed_count: 0,
-        average_duration_seconds: 0,
-        average_tool_call_count: 0,
-        average_test_run_count: 0
-      };
+      if (firstIndex === -1) {
+        return 1;
+      }
+      if (secondIndex === -1) {
+        return -1;
+      }
+      return firstIndex - secondIndex;
+    });
+  }, [selectedCompareTaskIds, tasks]);
+
+  const firstSelectedId = selectedCompareTaskIds[0] ?? null;
+  const secondSelectedId = selectedCompareTaskIds[1] ?? null;
+
+  function handleTaskSelect(taskId: string) {
+    setSelectedCompareTaskIds((current) => {
+      if (current.includes(taskId)) {
+        return current;
+      }
+      return [...current, taskId].slice(0, 2);
+    });
+  }
+
+  function handleResetSelection() {
+    setSelectedCompareTaskIds([]);
+  }
+
+  function renderComparisonDetail(item: ComparisonResponse["items"][number], label: string) {
+    return (
+      <article className="comparison-detail-card">
+        <div className="comparison-card-header">
+          <div>
+            <span className="compare-side-label">{label}</span>
+            <strong>{item.task_name}</strong>
+            <p>{item.summary}</p>
+          </div>
+          <span className={`status-badge ${item.status}`}>{statusText(item.status)}</span>
+        </div>
+
+        <div className="metric-list">
+          {item.scores.map((score) => (
+            <div key={`${item.task_id}-${score.name}`} className="metric-row">
+              <span>{score.name}</span>
+              <strong>
+                {formatMetricValue(score.value)}
+                {score.unit ? ` ${score.unit}` : ""}
+              </strong>
+            </div>
+          ))}
+        </div>
+      </article>
+    );
+  }
+
+  function renderTaskDetail(taskId: string, label: string) {
+    const comparisonItem = comparisonByTaskId.get(taskId);
+    if (comparisonItem) {
+      return renderComparisonDetail(comparisonItem, label);
+    }
+
+    const task = taskById.get(taskId);
+    if (!task) {
+      return null;
+    }
+
+    return (
+      <article className="comparison-detail-card">
+        <div className="comparison-card-header">
+          <div>
+            <span className="compare-side-label">{label}</span>
+            <strong>{task.name}</strong>
+            <p>{task.description || "该任务暂无描述。"}</p>
+          </div>
+          <span className={`status-badge ${task.status}`}>{statusText(task.status)}</span>
+        </div>
+        <div className="empty-state inline">
+          <strong>暂无指标</strong>
+          <p>该任务还没有可用于对比的运行结果。</p>
+        </div>
+      </article>
+    );
+  }
 
   return (
     <section className="card comparison-panel">
@@ -73,6 +137,11 @@ export function ComparePage({ tasks, comparison }: ComparePageProps) {
           <p>横向比较不同任务的成功情况、迭代轮数、工具使用和测试验证情况。</p>
         </div>
         <div className="action-row">
+          {selectedCompareTaskIds.length ? (
+            <button className="secondary-button" type="button" onClick={handleResetSelection}>
+              重新选择
+            </button>
+          ) : null}
           <a className="secondary-button" href={analyticsReportUrl("md", selectedCompareTaskIds)}>
             导出 Markdown
           </a>
@@ -82,89 +151,52 @@ export function ComparePage({ tasks, comparison }: ComparePageProps) {
         </div>
       </div>
 
-      {comparison && comparison.items.length > 0 ? (
-        <>
-          <div className="aggregate-grid">
-            <article>
-              <span>成功率</span>
-              <strong>{Math.round(visibleAggregate.success_rate * 100)}%</strong>
-            </article>
-            <article>
-              <span>失败数</span>
-              <strong>{visibleAggregate.failed_count}</strong>
-            </article>
-            <article>
-              <span>平均耗时</span>
-              <strong>{formatMetricValue(visibleAggregate.average_duration_seconds)} 秒</strong>
-            </article>
-            <article>
-              <span>平均工具调用</span>
-              <strong>{formatMetricValue(visibleAggregate.average_tool_call_count)}</strong>
-            </article>
-            <article>
-              <span>平均测试次数</span>
-              <strong>{formatMetricValue(visibleAggregate.average_test_run_count)}</strong>
-            </article>
-          </div>
-
-          <div className="compare-selector">
-            <strong>任务选择</strong>
-            <div className="tag-grid">
-              {tasks.map((task) => (
-                <label key={task.id} className="checkbox-row tag-choice">
-                  <input
-                    type="checkbox"
-                    checked={selectedCompareTaskIds.includes(task.id)}
-                    onChange={(event) =>
-                      setSelectedCompareTaskIds((current) =>
-                        event.target.checked
-                          ? Array.from(new Set([...current, task.id]))
-                          : current.filter((id) => id !== task.id)
-                      )
-                    }
-                  />
-                  <span>{task.name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="comparison-grid">
-            {visibleComparisonItems.map((item) => (
-              <article key={item.task_id} className="comparison-card">
-                <div className="comparison-card-header">
-                  <div>
-                    <strong>{item.task_name}</strong>
-                    <p>{item.summary}</p>
-                  </div>
-                  <span className={`status-badge ${item.status}`}>{statusText(item.status)}</span>
+      {tasks.length > 0 ? (
+        <div className="compare-workspace">
+          <div className="compare-pane">
+            {secondSelectedId ? (
+              renderTaskDetail(secondSelectedId, "")
+            ) : (
+              <div className="compare-task-list">
+                <div>
+                  <strong>请选择对比任务</strong>
+                  <p className="muted-copy">
+                    {firstSelectedId ? "选择对比任务。" : "查看任务详情。"}
+                  </p>
                 </div>
-
-                <div className="metric-list">
-                  {item.scores.map((score) => (
-                    <div key={`${item.task_id}-${score.name}`} className="metric-row">
-                      <span>{score.name}</span>
-                      <strong>
-                        {formatMetricValue(score.value)}
-                        {score.unit ? ` ${score.unit}` : ""}
-                      </strong>
-                    </div>
-                  ))}
+                <div className="compare-task-stack">
+                  {orderedTasks.map((task) => {
+                    const selected = selectedCompareTaskIds.includes(task.id);
+                    return (
+                      <button
+                        key={task.id}
+                        className={`compare-task-option${selected ? " selected" : ""}`}
+                        type="button"
+                        onClick={() => handleTaskSelect(task.id)}
+                      >
+                        <span className="compare-checkmark">{selected ? "✓" : ""}</span>
+                        <span>
+                          <strong>{task.name}</strong>
+                          <small>{statusText(task.status)}</small>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              </article>
-            ))}
-            {!visibleComparisonItems.length ? (
-              <div className="empty-state inline">
-                <strong>未选择任务</strong>
-                <p>在上方任务选择中勾选至少一个任务。</p>
               </div>
-            ) : null}
+            )}
           </div>
-        </>
+
+          <div className="compare-pane">
+            {(
+              renderTaskDetail(firstSelectedId, "")
+            ) }
+          </div>
+        </div>
       ) : (
         <div className="empty-state">
-          <strong>暂无可对比数据</strong>
-          <p>先运行至少一个任务，再查看汇总指标矩阵。</p>
+          <strong>暂无任务</strong>
+          <p>先创建任务，再进入这里选择对比对象。</p>
         </div>
       )}
     </section>

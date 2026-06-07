@@ -618,6 +618,260 @@ ul {
   gap: 16px;
 }
 
+.compare-workspace {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 520px;
+  border: 1px solid #dfe5e8;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #ffffff;
+  animation: compare-fade-rise 360ms ease both;
+}
+
+.compare-pane {
+  min-width: 0;
+  padding: 18px;
+  background: #fbfcfc;
+}
+
+.compare-pane + .compare-pane {
+  border-left: 1px solid #dfe5e8;
+  background: #ffffff;
+}
+
+.compare-task-list {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  height: 100%;
+  animation: compare-fade-rise 260ms ease both;
+}
+
+.compare-task-list > div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.compare-task-list > div:first-child strong,
+.compare-empty-hint strong {
+  font-size: 20px;
+}
+
+.compare-task-stack {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.compare-task-option {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px;
+  border: 1px solid #e3e8eb;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #17212b;
+  text-align: left;
+  cursor: pointer;
+  animation: compare-list-pop 320ms ease both;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.compare-task-option:nth-child(2) {
+  animation-delay: 35ms;
+}
+
+.compare-task-option:nth-child(3) {
+  animation-delay: 70ms;
+}
+
+.compare-task-option:nth-child(4) {
+  animation-delay: 105ms;
+}
+
+.compare-task-option:nth-child(n + 5) {
+  animation-delay: 140ms;
+}
+
+.compare-task-option:hover {
+  border-color: rgba(47, 125, 121, 0.32);
+  background: #f4fbfa;
+  box-shadow: 0 10px 24px rgba(31, 95, 90, 0.08);
+  transform: translateY(-1px);
+}
+
+.compare-task-option.selected {
+  border-color: rgba(47, 125, 121, 0.45);
+  background: #e9f7f5;
+  box-shadow: 0 12px 28px rgba(31, 95, 90, 0.1);
+}
+
+.compare-task-option span:last-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.compare-task-option strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-task-option small {
+  color: #647077;
+  font-weight: 700;
+}
+
+.compare-checkmark {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #cfd8dd;
+  border-radius: 50%;
+  color: #1f5f5a;
+  font-weight: 900;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.compare-task-option.selected .compare-checkmark {
+  border-color: #2f7d79;
+  background: #2f7d79;
+  color: #ffffff;
+  animation: compare-check-pop 220ms ease both;
+}
+
+.comparison-detail-card {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  animation: compare-detail-in 300ms ease both;
+}
+
+.comparison-detail-card .comparison-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.comparison-detail-card .comparison-card-header > div {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.comparison-detail-card .comparison-card-header strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comparison-detail-card .comparison-card-header p {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comparison-detail-card .status-badge {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.compare-side-label {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: #647077;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.compare-empty-hint {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  min-height: 100%;
+  padding: 24px;
+  border: 1px dashed #d6dee2;
+  border-radius: 14px;
+  color: #52616a;
+  text-align: center;
+  animation: compare-fade-rise 300ms ease both;
+}
+
+@keyframes compare-fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes compare-list-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes compare-detail-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes compare-check-pop {
+  0% {
+    transform: scale(0.72);
+  }
+  70% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compare-workspace,
+  .compare-task-list,
+  .compare-task-option,
+  .compare-task-option.selected .compare-checkmark,
+  .comparison-detail-card,
+  .compare-empty-hint {
+    animation: none;
+  }
+
+  .compare-task-option,
+  .compare-checkmark {
+    transition: none;
+  }
+}
+
 .comparison-card-header {
   display: flex;
   align-items: flex-start;
@@ -937,6 +1191,7 @@ ul {
   .score-grid,
   .tool-grid,
   .comparison-grid,
+  .compare-workspace,
   .skill-form-grid,
   .form-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -975,10 +1230,16 @@ ul {
   .detail-grid,
   .tool-grid,
   .comparison-grid,
+  .compare-workspace,
   .skill-form-grid,
   .form-row,
   .git-push-controls {
     grid-template-columns: 1fr;
+  }
+
+  .compare-pane + .compare-pane {
+    border-top: 1px solid #dfe5e8;
+    border-left: 0;
   }
 
   .task-table {
@@ -2419,9 +2680,9 @@ button.floating-env-row:hover:not(:disabled) {
 .skill-create-form {
   display: grid;
   gap: 14px;
-  padding: 16px;
-  border: 1px solid #e4e8eb;
-  border-radius: 16px;
+}
+
+.skill-create-item {
   background: #fbfcfc;
 }
 

@@ -23,8 +23,10 @@ dist/
 node_modules/
 
 ## skills
-skills/*
-!patch-review/
-!test-failure-fix/
-!__init__.py
-!registry.py
+agent/gitIssueAssitant/skills/*
+!agent/gitIssueAssitant/skills/__init__.py
+!agent/gitIssueAssitant/skills/registry.py
+!agent/gitIssueAssitant/skills/patch-review/
+!agent/gitIssueAssitant/skills/patch-review/**
+!agent/gitIssueAssitant/skills/test-failure-fix/
+!agent/gitIssueAssitant/skills/test-failure-fix/**
