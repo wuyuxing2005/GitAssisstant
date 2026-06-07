@@ -40,7 +40,7 @@ build:backend:
   stage: build
   image: python:3.11-slim
   before_script:
-    - cd agent/backend
+    - cd agent
     - pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
   script:
     - pip install -e .
