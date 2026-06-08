@@ -86,7 +86,7 @@ class SandboxManager:
             self.stop(thread_id)
 
     def cleanup(self, thread_id: str) -> None:
-        """清理指定会话的宿主机工作目录（在 stop 之后调用）。"""
+        """清理指定会话的宿主机工作目录（在 stop 之后调用，带重试兼容 Windows）。"""
         sandbox = self._sandboxes.get(thread_id)
         if sandbox is not None:
             sandbox.cleanup()
@@ -94,6 +94,16 @@ class SandboxManager:
             # 即使缓存中没有，也尝试从已知路径清理
             host_work_dir = self.workspace_root / thread_id / "repo"
             import shutil
-            if host_work_dir.exists():
-                shutil.rmtree(host_work_dir)
+            import time
+            if not host_work_dir.exists():
+                return
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    shutil.rmtree(host_work_dir)
+                    return
+                except PermissionError:
+                    if attempt < max_retries - 1:
+                        time.sleep(1)
+                    # 最后一次重试仍失败则静默跳过，避免阻塞任务删除流程
 
