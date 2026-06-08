@@ -376,7 +376,7 @@ export function DashboardPage({
             {skills.map((skill) => {
               const checked = formState.config.enabled_skills?.includes(skill.name) ?? false;
               return (
-                <label key={skill.name} className="checkbox-row skill-choice">
+                <label key={skill.name} className="checkbox-row skill-choice" data-summary={skill.description}>
                   <input
                     type="checkbox"
                     checked={checked}
@@ -394,7 +394,6 @@ export function DashboardPage({
                     }
                   />
                   <span>{skill.name}</span>
-                  <small>{skill.description}</small>
                 </label>
               );
             })}

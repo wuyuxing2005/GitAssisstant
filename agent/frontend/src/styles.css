@@ -618,6 +618,23 @@ ul {
   gap: 16px;
 }
 
+.comparison-panel {
+  align-self: start;
+}
+
+.comparison-empty-state {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 0;
+  padding: 18px;
+}
+
+.comparison-empty-state p {
+  margin: 0;
+  color: #647077;
+}
+
 .compare-workspace {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1240,6 +1257,34 @@ ul {
   .compare-pane + .compare-pane {
     border-top: 1px solid #dfe5e8;
     border-left: 0;
+  }
+
+  .skill-manager-item .timeline-title-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .skill-manager-item .action-row {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .skill-create-form,
+  .skill-detail-grid {
+    margin-left: 0;
+  }
+
+  .skill-choice[data-summary]:not([data-summary=""])::after {
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    transform: translateY(-2px);
+  }
+
+  .skill-choice[data-summary]:not([data-summary=""]):hover::after,
+  .skill-choice[data-summary]:not([data-summary=""]):focus-within::after {
+    transform: translateY(0);
   }
 
   .task-table {
@@ -2273,6 +2318,12 @@ button.floating-env-row:hover:not(:disabled) {
   gap: 10px;
 }
 
+.skill-picker-grid {
+  flex-direction: column;
+  align-items: stretch;
+  width: min(100%, 280px);
+}
+
 .skill-choice,
 .tag-choice {
   align-items: flex-start;
@@ -2283,15 +2334,41 @@ button.floating-env-row:hover:not(:disabled) {
 }
 
 .skill-choice {
+  position: relative;
   display: grid !important;
   grid-template-columns: auto minmax(0, 1fr);
-  max-width: 360px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-.skill-choice small {
-  grid-column: 2;
-  color: var(--muted);
+.skill-choice[data-summary]:not([data-summary=""])::after {
+  content: attr(data-summary);
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 12px);
+  z-index: 30;
+  width: max-content;
+  max-width: 320px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3e6;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
+  color: #314047;
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(4px, -50%);
+  transition: opacity 140ms ease, transform 140ms ease;
+  white-space: normal;
+}
+
+.skill-choice[data-summary]:not([data-summary=""]):hover::after,
+.skill-choice[data-summary]:not([data-summary=""]):focus-within::after {
+  opacity: 1;
+  transform: translate(0, -50%);
 }
 
 .conversation-list {
@@ -2714,6 +2791,7 @@ button.floating-env-row:hover:not(:disabled) {
 .skill-create-form {
   display: grid;
   gap: 14px;
+  margin-left: 40px;
 }
 
 .skill-create-item {
@@ -2749,7 +2827,7 @@ button.floating-env-row:hover:not(:disabled) {
   width: 100%;
   border: 1px solid #dde2e6;
   border-radius: 12px;
-  background: #ffffff;
+  background: #f3f6f6;
   color: #0f172a;
   padding: 11px 13px;
 }
@@ -2784,6 +2862,114 @@ button.floating-env-row:hover:not(:disabled) {
   background: #ffffff;
 }
 
+.skill-manager-item .timeline-title-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.skill-manager-item .timeline-title-row > div:nth-child(2) {
+  min-width: 0;
+}
+
+.skill-arrow-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #344047;
+  cursor: pointer;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.skill-arrow-button:hover {
+  background: transparent;
+  color: #1f5f5a;
+  transform: translateX(1px);
+}
+
+.skill-manager-item:not(.expanded) .muted-copy {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-manager-item.expanded .muted-copy {
+  white-space: normal;
+}
+
+.skill-manager-item .action-row {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.skill-manager-item .action-row button {
+  flex: 0 0 auto;
+}
+
+.trash-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 12px;
+  background: #f3f4f6;
+  color: #111827;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.trash-button:hover {
+  background: #e5e7eb;
+  transform: translateY(-1px);
+}
+
+.trash-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.trash-button span {
+  position: relative;
+  width: 13px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top: 0;
+  border-radius: 0 0 3px 3px;
+}
+
+.trash-button span::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: -3px;
+  width: 15px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.trash-button span::after {
+  content: "";
+  position: absolute;
+  top: -9px;
+  left: 3px;
+  width: 5px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
 .skill-detail-grid span,
 .compare-selector strong,
 .aggregate-grid span {
@@ -2795,6 +2981,7 @@ button.floating-env-row:hover:not(:disabled) {
 .skill-detail-grid {
   display: grid;
   gap: 12px;
+  margin-left: 40px;
 }
 
 .skill-detail-grid p {
