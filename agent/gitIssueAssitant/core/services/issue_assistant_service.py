@@ -387,12 +387,18 @@ class IssueAssistantService:
         status = git_status_short(repo)
         branch = current_git_branch(repo)
         diff = working_tree_diff_for_commit(repo)
+        # 判断是否有变更时排除 Python 运行时产物，避免 __pycache__ 导致 has_changes 恒真
+        try:
+            meaningful = cls._filter_junk_files(status)
+            has_changes = bool(meaningful)
+        except ValueError:
+            has_changes = bool(status.strip())
         return GitDiffResult(
             repo_path=str(repo),
             branch=branch,
             status=status,
             diff=diff,
-            has_changes=bool(status.strip()),
+            has_changes=has_changes,
         )
 
     @staticmethod
@@ -415,6 +421,39 @@ class IssueAssistantService:
             test_output=test_output,
             commit_plan=commit_plan,
         )
+
+    @staticmethod
+    def _filter_junk_files(status_output: str) -> list[str]:
+        """从 git status --short 输出中提取文件列表，排除 Python 运行时产物。
+
+        注意：run_git_command 会对整段 stdout 做 strip()，会吃掉 " M file" 的前导空格，
+        因此不能用固定宽度 line[3:] 解析，改为按空白分隔。
+        """
+        JUNK_PATTERNS = (
+            "__pycache__/", "/__pycache__/", ".pytest_cache/", ".mypy_cache/",
+            ".ruff_cache/", ".tox/", "node_modules/",
+        )
+        file_paths: list[str] = []
+        for line in status_output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # git status --short 格式: "XY filename"（X/Y 可能为空格）
+            # 按第一个空白分隔，跳过状态部分，取文件名
+            parts = line.split(None, 1)
+            if len(parts) < 2:
+                continue
+            file_path = parts[1].strip()
+            if file_path:
+                file_paths.append(file_path)
+        clean_files = [
+            f for f in file_paths
+            if not any(p in f for p in JUNK_PATTERNS)
+            and not f.endswith((".pyc", ".pyo"))
+        ]
+        if not clean_files:
+            raise ValueError("No meaningful changes to commit (all changes are in junk directories)")
+        return clean_files
 
     @classmethod
     def push_repository_changes(
@@ -439,7 +478,11 @@ class IssueAssistantService:
         if not target_branch or target_branch == "HEAD":
             raise ValueError("Cannot push from a detached HEAD state")
 
-        add_args = ["add", *(files or ["-A"])]
+        add_args = ["add"]
+        if files:
+            add_args.extend(files)
+        else:
+            add_args.extend(cls._filter_junk_files(status))
         outputs = [
             run_git_command(repo, add_args, timeout=60),
             run_git_command(repo, ["commit", "-m", commit_message], timeout=60),
@@ -483,9 +526,15 @@ class IssueAssistantService:
         if not target_branch:
             raise ValueError("Pull request branch cannot be empty")
 
+        add_args = ["add"]
+        if files:
+            add_args.extend(files)
+        else:
+            add_args.extend(cls._filter_junk_files(status))
+
         outputs = [
             run_git_command(repo, ["checkout", "-B", target_branch], timeout=30),
-            run_git_command(repo, ["add", *(files or ["-A"])], timeout=60),
+            run_git_command(repo, add_args, timeout=60),
             run_git_command(repo, ["commit", "-m", commit_message], timeout=60),
         ]
         commit_hash = run_git_command(repo, ["rev-parse", "--short", "HEAD"], timeout=10).strip()

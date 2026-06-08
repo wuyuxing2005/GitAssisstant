@@ -158,16 +158,33 @@ class DockerSandbox:
 
     def prepare_workspace(self):
         """在宿主机上创建独立的工作副本，并将仓库内容复制进去"""
+        import shutil
         if self.host_work_dir.exists():
-            import shutil
             shutil.rmtree(self.host_work_dir)
         self.host_work_dir.mkdir(parents=True, exist_ok=True)
 
         # 复制仓库文件到工作目录（排除 .git 以减小体积，但保留 .git 以便 git 操作）
         # 注意：若需保留 git 历史，可完整复制，但可能较大；此处选择保留 .git
-        import shutil
         shutil.copytree(self.repo_path, self.host_work_dir, symlinks=True, dirs_exist_ok=True)
+
+        # 确保 .gitignore 包含 Python 运行时产物，避免被 Agent 提交
+        self._ensure_python_gitignore()
         print(f"[sandbox.py] 工作目录已创建: {self.host_work_dir}")
+
+    def _ensure_python_gitignore(self):
+        """确保工作目录的 .gitignore 包含 Python 标准忽略项。"""
+        gitignore_path = self.host_work_dir / ".gitignore"
+        entries = ("__pycache__/", "*.pyc", "*.pyo", ".pytest_cache/")
+        existing = gitignore_path.read_text(encoding="utf-8") if gitignore_path.exists() else ""
+        missing = [e for e in entries if e not in existing]
+        if missing:
+            with gitignore_path.open("a", encoding="utf-8") as f:
+                if existing and not existing.endswith("\n"):
+                    f.write("\n")
+                f.write("\n# Python runtime artifacts (auto-added by gitIssueAssitant)\n")
+                for entry in missing:
+                    f.write(f"{entry}\n")
+            print(f"[sandbox.py] 已补充 .gitignore: {missing}")
 
 
     def start(self):
@@ -247,11 +264,23 @@ class DockerSandbox:
         self._started = False
 
     def cleanup(self):
-        """清理宿主机工作目录"""
+        """清理宿主机工作目录（带重试，兼容 Windows 文件锁定）。"""
         import shutil
-        if self.host_work_dir.exists():
-            shutil.rmtree(self.host_work_dir)
-            print(f"[sandbox.py] 工作目录已清理: {self.host_work_dir}")
+        import time
+        if not self.host_work_dir.exists():
+            return
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                shutil.rmtree(self.host_work_dir)
+                print(f"[sandbox.py] 工作目录已清理: {self.host_work_dir}")
+                return
+            except PermissionError:
+                if attempt < max_retries - 1:
+                    print(f"[sandbox.py] 清理工作目录失败（尝试 {attempt + 1}/{max_retries}），等待后重试...")
+                    time.sleep(1)
+                else:
+                    print(f"[sandbox.py] 清理工作目录失败（已重试 {max_retries} 次），跳过: {self.host_work_dir}")
 
     # def _run_docker_command(self, args: list, timeout: int = 60) -> str:
     #     """底层执行 docker 命令"""
