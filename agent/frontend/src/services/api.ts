@@ -10,8 +10,6 @@ import type {
   GitHubIssueCommentRequest,
   GitHubIssueCommentResponse,
   GitHubIssueInfo,
-  GitHubIssueLabelsRequest,
-  GitHubIssueLabelsResponse,
   GitHubIssueStateRequest,
   GitHubIssueStateResponse,
   GitHubIssueSummary,
@@ -155,16 +153,6 @@ export async function updateTaskIssueState(
   payload: GitHubIssueStateRequest
 ): Promise<GitHubIssueStateResponse> {
   return request<GitHubIssueStateResponse>(`/tasks/${taskId}/issue/state`, {
-    method: "PATCH",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function updateTaskIssueLabels(
-  taskId: string,
-  payload: GitHubIssueLabelsRequest
-): Promise<GitHubIssueLabelsResponse> {
-  return request<GitHubIssueLabelsResponse>(`/tasks/${taskId}/issue/labels`, {
     method: "PATCH",
     body: JSON.stringify(payload)
   });

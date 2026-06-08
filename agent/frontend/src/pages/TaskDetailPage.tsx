@@ -7,7 +7,6 @@ import {
   fetchTaskMessages,
   pushTaskChanges,
   submitTaskMessage,
-  updateTaskIssueLabels,
   updateTaskIssueState
 } from "../services/api";
 import type {
@@ -32,7 +31,7 @@ interface TaskDetailPageProps {
 }
 
 type PublishDialogMode = "push" | "pr" | null;
-type IssueStateDialogMode = "close" | "reopen" | null;
+type IssueStateDialogMode = "close" | null;
 type ParsedDiffLineType = "add" | "remove" | "context" | "meta";
 
 interface ParsedDiffLine {
@@ -321,10 +320,8 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
   const [issueMessage, setIssueMessage] = useState<string | null>(null);
   const [issueCommentDialogOpen, setIssueCommentDialogOpen] = useState(false);
   const [issueStateDialogMode, setIssueStateDialogMode] = useState<IssueStateDialogMode>(null);
-  const [issueLabelsDialogOpen, setIssueLabelsDialogOpen] = useState(false);
   const [issueCommentBody, setIssueCommentBody] = useState("");
   const [issueCloseReason, setIssueCloseReason] = useState<"completed" | "not_planned">("completed");
-  const [issueLabelsText, setIssueLabelsText] = useState("");
   const [sandboxDecisionAcknowledged, setSandboxDecisionAcknowledged] = useState(false);
   const taskResultMessages = task?.result?.messages ?? [];
   const latestTaskResultMessage = taskResultMessages[taskResultMessages.length - 1];
@@ -353,10 +350,8 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     setIssueMessage(null);
     setIssueCommentDialogOpen(false);
     setIssueStateDialogMode(null);
-    setIssueLabelsDialogOpen(false);
     setIssueCommentBody(cachedIssueInfo?.default_comment ?? "");
     setIssueCloseReason("completed");
-    setIssueLabelsText(cachedIssueInfo?.labels.join(", ") ?? "");
     setSandboxDecisionAcknowledged(false);
   }, [task?.id]);
 
@@ -488,7 +483,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     if (cachedIssueInfo?.task_id === task.id) {
       setIssueInfo(cachedIssueInfo);
       setIssueCommentBody(cachedIssueInfo.default_comment);
-      setIssueLabelsText(cachedIssueInfo.labels.join(", "));
       setIssueLoading(false);
       setIssueError(null);
       return undefined;
@@ -503,7 +497,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
           setIssueInfo(response);
           onIssueInfoChanged?.(task.id, response);
           setIssueCommentBody(response.default_comment);
-          setIssueLabelsText(response.labels.join(", "));
         }
       })
       .catch((error) => {
@@ -534,7 +527,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       const response = await fetchTaskIssue(task.id);
       setIssueInfo(response);
       onIssueInfoChanged?.(task.id, response);
-      setIssueLabelsText(response.labels.join(", "));
       if (!issueCommentDialogOpen) {
         setIssueCommentBody(response.default_comment);
       }
@@ -597,36 +589,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       setIssueBusy(true);
       setIssueError(null);
       const response = await updateTaskIssueState(task.id, {
-        state: issueStateDialogMode === "close" ? "closed" : "open",
-        state_reason: issueStateDialogMode === "close" ? issueCloseReason : null
+        state: "closed",
+        state_reason: issueCloseReason
       });
       setIssueMessage(`Issue 状态已更新：${response.state}`);
       setIssueStateDialogMode(null);
       await handleRefreshIssue();
     } catch (error) {
       setIssueError(error instanceof Error ? error.message : "更新 Issue 状态失败");
-    } finally {
-      setIssueBusy(false);
-    }
-  }
-
-  async function handleSubmitIssueLabels() {
-    if (!task) {
-      return;
-    }
-    const labels = issueLabelsText
-      .split(/[\n,]/)
-      .map((label) => label.trim())
-      .filter(Boolean);
-    try {
-      setIssueBusy(true);
-      setIssueError(null);
-      await updateTaskIssueLabels(task.id, { labels });
-      setIssueMessage("Issue 标签已更新");
-      setIssueLabelsDialogOpen(false);
-      await handleRefreshIssue();
-    } catch (error) {
-      setIssueError(error instanceof Error ? error.message : "更新 Issue 标签失败");
     } finally {
       setIssueBusy(false);
     }
@@ -797,7 +767,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
         : "进行中"
       : "未关联";
   const canCloseIssue = !!issueInfo && issueInfo.state !== "closed" && task.status === "completed";
-  const canReopenIssue = !!issueInfo && issueInfo.state === "closed";
   const publishStateLabel =
     task.status === "failed"
       ? "失败"
@@ -990,12 +959,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
             <button type="button" onClick={() => setIssueStateDialogMode("close")} disabled={issueBusy || !canCloseIssue}>
               关闭 Issue
             </button>
-            <button type="button" onClick={() => setIssueStateDialogMode("reopen")} disabled={issueBusy || !canReopenIssue}>
-              重新打开
-            </button>
-            <button type="button" onClick={() => setIssueLabelsDialogOpen(true)} disabled={issueBusy}>
-              更新标签
-            </button>
           </div>
         ) : null}
       </section>
@@ -1138,65 +1101,28 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
         <section className="settings-modal issue-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
           <div className="settings-modal-header">
             <div>
-              <h2>{issueStateDialogMode === "close" ? "关闭 Issue" : "重新打开 Issue"}</h2>
+              <h2>关闭 Issue</h2>
               <p>确认后才会修改 GitHub Issue 状态。</p>
             </div>
             <button className="modal-close-button" type="button" onClick={() => setIssueStateDialogMode(null)}>关闭</button>
           </div>
           <div className="settings-form">
-            {issueStateDialogMode === "close" ? (
-              <label>
-                <span>关闭原因</span>
-                <select
-                  value={issueCloseReason}
-                  onChange={(event) => setIssueCloseReason(event.target.value as "completed" | "not_planned")}
-                  disabled={issueBusy}
-                >
-                  <option value="completed">completed</option>
-                  <option value="not_planned">not_planned</option>
-                </select>
-              </label>
-            ) : (
-              <p className="muted-copy">将 Issue 状态改为 open。</p>
-            )}
+            <label>
+              <span>关闭原因</span>
+              <select
+                value={issueCloseReason}
+                onChange={(event) => setIssueCloseReason(event.target.value as "completed" | "not_planned")}
+                disabled={issueBusy}
+              >
+                <option value="completed">completed</option>
+                <option value="not_planned">not_planned</option>
+              </select>
+            </label>
             <div className="settings-actions">
               <button className="secondary-button" type="button" onClick={() => setIssueStateDialogMode(null)} disabled={issueBusy}>
                 取消
               </button>
               <button className="primary-button" type="button" onClick={() => void handleSubmitIssueState()} disabled={issueBusy}>
-                确认更新
-              </button>
-            </div>
-          </div>
-        </section>
-      </div>
-    ) : null}
-
-    {issueLabelsDialogOpen ? (
-      <div className="modal-backdrop" role="presentation" onMouseDown={() => setIssueLabelsDialogOpen(false)}>
-        <section className="settings-modal issue-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-          <div className="settings-modal-header">
-            <div>
-              <h2>更新 Issue 标签</h2>
-              <p>确认后会替换当前 Issue labels，多个标签用逗号或换行分隔。</p>
-            </div>
-            <button className="modal-close-button" type="button" onClick={() => setIssueLabelsDialogOpen(false)}>关闭</button>
-          </div>
-          <div className="settings-form">
-            <label>
-              <span>Labels</span>
-              <textarea
-                rows={5}
-                value={issueLabelsText}
-                onChange={(event) => setIssueLabelsText(event.target.value)}
-                disabled={issueBusy}
-              />
-            </label>
-            <div className="settings-actions">
-              <button className="secondary-button" type="button" onClick={() => setIssueLabelsDialogOpen(false)} disabled={issueBusy}>
-                取消
-              </button>
-              <button className="primary-button" type="button" onClick={() => void handleSubmitIssueLabels()} disabled={issueBusy}>
                 确认更新
               </button>
             </div>

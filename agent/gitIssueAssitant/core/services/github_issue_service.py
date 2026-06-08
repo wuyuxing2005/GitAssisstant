@@ -14,8 +14,6 @@ from gitIssueAssitant.core.schemas.task import (
     GitHubIssueCommentRequest,
     GitHubIssueCommentResponse,
     GitHubIssueInfo,
-    GitHubIssueLabelsRequest,
-    GitHubIssueLabelsResponse,
     GitHubIssueStateRequest,
     GitHubIssueStateResponse,
     GitHubIssueSummary,
@@ -330,29 +328,6 @@ class GitHubIssueService:
             state_reason=response.get("state_reason"),
             html_url=str(response.get("html_url", "")),
         )
-
-    def update_labels(
-        self,
-        task_id: str,
-        payload: GitHubIssueLabelsRequest,
-    ) -> GitHubIssueLabelsResponse | None:
-        task = task_service.get_task_record(task_id)
-        if task is None:
-            return None
-        owner, repo, number = self._resolve_issue(task)
-        response = _github_json_request(
-            f"/repos/{owner}/{repo}/issues/{number}/labels",
-            method="PUT",
-            payload={"labels": payload.labels},
-            require_token=True,
-            operation="GitHub issue labels update",
-        )
-        labels = [
-            str(label.get("name"))
-            for label in response
-            if isinstance(label, dict) and label.get("name")
-        ]
-        return GitHubIssueLabelsResponse(labels=labels)
 
 
 github_issue_service = GitHubIssueService()

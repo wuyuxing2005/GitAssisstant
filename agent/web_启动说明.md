@@ -1,6 +1,7 @@
 项目当前目录运行
 python -m venv .venv
 .\.venv\Scripts\activate
+
 pip install -e .
 uvicorn gitIssueAssitant.RESTAPIAdapter.main:app --reload --reload-dir gitIssueAssitant --port 8000
 

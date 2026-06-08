@@ -304,7 +304,7 @@ class GitHubIssueCommentResponse(BaseModel):
 
 
 class GitHubIssueStateRequest(BaseModel):
-    state: Literal["open", "closed"]
+    state: Literal["closed"]
     state_reason: Literal["completed", "not_planned"] | None = None
 
 
@@ -312,14 +312,6 @@ class GitHubIssueStateResponse(BaseModel):
     state: str
     state_reason: str | None = None
     html_url: str = ""
-
-
-class GitHubIssueLabelsRequest(BaseModel):
-    labels: list[str] = Field(default_factory=list)
-
-
-class GitHubIssueLabelsResponse(BaseModel):
-    labels: list[str] = Field(default_factory=list)
 
 
 class ComparisonAggregate(BaseModel):

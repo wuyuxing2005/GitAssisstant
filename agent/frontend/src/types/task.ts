@@ -255,7 +255,7 @@ export interface GitHubIssueCommentResponse {
 }
 
 export interface GitHubIssueStateRequest {
-  state: "open" | "closed";
+  state: "closed";
   state_reason?: "completed" | "not_planned" | null;
 }
 
@@ -263,14 +263,6 @@ export interface GitHubIssueStateResponse {
   state: string;
   state_reason?: string | null;
   html_url: string;
-}
-
-export interface GitHubIssueLabelsRequest {
-  labels: string[];
-}
-
-export interface GitHubIssueLabelsResponse {
-  labels: string[];
 }
 
 export interface ComparisonItem {
