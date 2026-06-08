@@ -3368,6 +3368,109 @@ button.floating-env-row:hover:not(:disabled) {
   background: rgba(34, 115, 111, 0.08);
 }
 
+/* Issues Modal Styles */
+.issues-modal {
+  max-width: 800px;
+  width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.issues-modal-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 24px;
+  min-height: 0;
+}
+
+.issues-modal-loading,
+.issues-modal-error,
+.issues-modal-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  text-align: center;
+}
+
+.issues-modal-header-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #647077;
+}
+
+.issues-modal-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.issue-modal-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid #e5e9ec;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #253438;
+  text-align: left;
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+
+.issue-modal-item:hover {
+  background: #f3f8f7;
+  border-color: rgba(47, 125, 121, 0.32);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+.issue-modal-item.selected {
+  background: #e1f4f1;
+  border-color: rgba(47, 125, 121, 0.58);
+  box-shadow: 0 4px 12px rgba(47, 125, 121, 0.15);
+}
+
+.issue-modal-item-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.issue-modal-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.issue-body-preview {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f8fafb;
+  color: #5b6476;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
 @media (max-width: 720px) {
   .content > section,
   .content > .banner {
