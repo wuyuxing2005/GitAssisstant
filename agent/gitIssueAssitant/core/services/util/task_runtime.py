@@ -222,7 +222,13 @@ class _IssueAssistantTaskRuntime:
         )
         enabled_skill_set = {name.strip() for name in enabled_skills if name.strip()}
         sandbox_manager = self._get_sandbox_manager(SandboxManager)
-        if sandbox_manager is None:
+        # 用户明确选择本地回退时，强制禁用 Docker 沙箱，避免重复尝试启动容器
+        if allow_local_fallback and sandbox_manager is not None:
+            sandbox_manager.stop_all()
+            self._sandbox_manager = None
+            sandbox_manager = None
+            self._append_progress_message(task, "用户已选择本地执行，Docker 沙箱已禁用，使用本地执行环境。")
+        elif sandbox_manager is None:
             self._append_progress_message(task, "Docker 沙箱已禁用，当前任务将使用本地执行环境。")
         else:
             self._append_progress_message(
@@ -267,6 +273,11 @@ class _IssueAssistantTaskRuntime:
             self._append_progress_message(task, "历史会话缺少 graph state，正在重新初始化任务上下文。")
             session_service.set_issue(task.config.issue_input)
             initial_state = assistant.graph_state(thread_id)
+        # 本地回退时，如果恢复的 session 处于 SANDBOX_UNAVAILABLE 状态，需要重新初始化
+        if allow_local_fallback and restored_session is not None and initial_state.get("status") == SANDBOX_UNAVAILABLE_STATUS:
+            self._append_progress_message(task, "正在重新初始化任务为本地执行模式。")
+            session_service.set_issue(task.config.issue_input)
+            initial_state = assistant.graph_state(thread_id)
         sandbox_id = str(initial_state.get("sandbox_id") or "")
         session = session_service._current_session()
         sandbox_error = getattr(session, "sandbox_error", "") if session is not None else ""
@@ -301,16 +312,22 @@ class _IssueAssistantTaskRuntime:
         reset: bool,
         allow_local_fallback: bool = False,
     ) -> _AssistantRuntimeHandle:
-        needs_rebuild = reset or task.id not in self._runtime_handles or task.status in TERMINAL_TASK_STATUSES
+        # 本地回退时需要强制重建 runtime（禁用沙箱、重置 graph state）
+        needs_rebuild = reset or allow_local_fallback or task.id not in self._runtime_handles or task.status in TERMINAL_TASK_STATUSES
         if needs_rebuild:
             previous_handle = self._runtime_handles.pop(task.id, None)
             if previous_handle is not None:
-                previous_handle.assistant.cleanup_current_session()
+                try:
+                    previous_handle.assistant.cleanup_current_session()
+                except Exception:
+                    pass  # 清理失败不阻塞重建流程
+            # 本地回退时优先复用已有 session，避免重建后再次尝试 Docker
+            restore_session = allow_local_fallback or not reset
             handle = await asyncio.to_thread(
                 self._build_runtime_sync,
                 task,
                 allow_local_fallback=allow_local_fallback,
-                restore_existing_session=not reset,
+                restore_existing_session=restore_session,
             )
             self._runtime_handles[task.id] = handle
             task.thread_id = handle.thread_id
