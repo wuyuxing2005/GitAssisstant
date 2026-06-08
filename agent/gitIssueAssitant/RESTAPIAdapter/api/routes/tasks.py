@@ -10,8 +10,6 @@ from gitIssueAssitant.core.schemas.task import (
     GitHubIssueCommentRequest,
     GitHubIssueCommentResponse,
     GitHubIssueInfo,
-    GitHubIssueLabelsRequest,
-    GitHubIssueLabelsResponse,
     GitHubIssueStateRequest,
     GitHubIssueStateResponse,
     GitPullRequestRequest,
@@ -208,22 +206,6 @@ def update_task_issue_state(
 ) -> GitHubIssueStateResponse:
     try:
         response = github_issue_service.update_state(task_id, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except GitHubIssueError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    if response is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return response
-
-
-@router.patch("/{task_id}/issue/labels", response_model=GitHubIssueLabelsResponse)
-def update_task_issue_labels(
-    task_id: str,
-    payload: GitHubIssueLabelsRequest,
-) -> GitHubIssueLabelsResponse:
-    try:
-        response = github_issue_service.update_labels(task_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except GitHubIssueError as exc:

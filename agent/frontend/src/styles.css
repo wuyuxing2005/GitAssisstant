@@ -1411,14 +1411,14 @@ body {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--danger);
+  color: #7b8a8d;
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
 }
 
 .sidebar-task-delete:hover {
-  background: rgba(180, 35, 24, 0.1);
+  background: rgba(15, 23, 42, 0.08);
 }
 
 .sidebar-task-delete:disabled {
