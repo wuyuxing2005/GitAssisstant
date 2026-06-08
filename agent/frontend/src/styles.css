@@ -682,6 +682,12 @@ ul {
   padding-right: 4px;
 }
 
+.compare-task-stack-main {
+  gap: 10px;
+  overflow: visible;
+  padding-right: 0;
+}
+
 .compare-task-option {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
@@ -733,6 +739,49 @@ ul {
   display: grid;
   gap: 4px;
   min-width: 0;
+}
+
+.compare-task-card {
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  min-height: 78px;
+  padding: 14px 16px;
+}
+
+.compare-task-card .compare-checkmark {
+  margin-top: 2px;
+}
+
+.compare-task-card-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.compare-task-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.compare-task-card-title strong {
+  min-width: 0;
+}
+
+.compare-task-card-title .status-badge {
+  flex: 0 0 auto;
+}
+
+.compare-task-card small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #647077;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .compare-task-option strong {
@@ -896,6 +945,136 @@ ul {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.comparison-modal {
+  width: min(980px, 100%);
+}
+
+.comparison-modal-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.comparison-export-menu {
+  position: relative;
+}
+
+.comparison-export-menu summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #344047;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.comparison-export-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.comparison-export-menu summary:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.comparison-export-menu summary::after {
+  content: "";
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  border-top: 5px solid #647077;
+  transform-origin: 50% 40%;
+  transition: transform 160ms ease;
+}
+
+.comparison-export-menu[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.comparison-export-menu > div {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 3;
+  display: grid;
+  min-width: 136px;
+  padding: 6px;
+  border: 1px solid #e5e9ec;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.14);
+  animation: compare-detail-in 180ms ease both;
+}
+
+.comparison-export-menu a {
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: #17212b;
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.comparison-export-menu a:hover {
+  background: #f3f6f6;
+}
+
+.comparison-modal-body {
+  display: grid;
+  gap: 16px;
+  padding: 18px 24px 24px;
+}
+
+.comparison-metric-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.comparison-metric-table th,
+.comparison-metric-table td {
+  padding: 12px 10px;
+  border: 0;
+  vertical-align: top;
+  text-align: left;
+}
+
+.comparison-metric-table th {
+  color: #647077;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.comparison-metric-table td {
+  color: #344047;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.comparison-metric-table td:first-child {
+  width: 180px;
+  color: #647077;
+  font-weight: 900;
+}
+
+.comparison-metric-table tbody tr:nth-child(odd) {
+  background: #fbfcfc;
+}
+
+.comparison-metric-table tbody tr:nth-child(odd) td:first-child {
+  border-radius: 10px 0 0 10px;
+}
+
+.comparison-metric-table tbody tr:nth-child(odd) td:last-child {
+  border-radius: 0 10px 10px 0;
 }
 
 .metric-list,
