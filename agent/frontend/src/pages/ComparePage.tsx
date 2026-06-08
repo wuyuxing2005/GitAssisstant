@@ -188,13 +188,18 @@ export function ComparePage({ tasks, comparison }: ComparePageProps) {
           </div>
 
           <div className="compare-pane">
-            {(
+            {firstSelectedId ? (
               renderTaskDetail(firstSelectedId, "")
-            ) }
+            ) : (
+              <div className="compare-empty-hint">
+                <strong>等待选择</strong>
+                <p>选择一个任务后，这里会展示它的详细指标。</p>
+              </div>
+            )}
           </div>
         </div>
       ) : (
-        <div className="empty-state">
+        <div className="empty-state comparison-empty-state">
           <strong>暂无任务</strong>
           <p>先创建任务，再进入这里选择对比对象。</p>
         </div>

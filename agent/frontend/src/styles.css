@@ -879,7 +879,9 @@ ul {
   .compare-task-option,
   .compare-task-option.selected .compare-checkmark,
   .comparison-detail-card,
-  .compare-empty-hint {
+  .compare-empty-hint,
+  .skill-modal-backdrop,
+  .skill-create-modal {
     animation: none;
   }
 
@@ -1494,6 +1496,7 @@ body {
 .content {
   --task-env-rail-width: clamp(292px, 18vw, 330px);
   --task-env-rail-gap: 18px;
+  align-content: start;
   min-width: 0;
   overflow: visible;
   padding: 0;
@@ -1518,11 +1521,22 @@ body {
 }
 
 .hero {
+  --topbar-height: 64px;
   position: sticky;
   top: 0;
   z-index: 10;
+  display: flex;
+  flex: 0 0 var(--topbar-height);
+  flex-direction: row;
   align-items: center;
-  min-height: 48px;
+  align-self: start;
+  justify-content: space-between;
+  width: 100%;
+  height: var(--topbar-height);
+  min-height: var(--topbar-height);
+  max-height: var(--topbar-height);
+  box-sizing: border-box;
+  overflow: hidden;
   padding: 8px 22px;
   border-bottom: 1px solid #eceef0;
   background: rgba(255, 255, 255, 0.94);
@@ -1540,13 +1554,14 @@ body {
 }
 
 .hero-title-block {
+  overflow: hidden;
   min-width: 0;
 }
 
 .hero-title-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
   min-width: 0;
 }
@@ -1617,13 +1632,18 @@ body {
 
 .hero p {
   max-width: 860px;
+  overflow: hidden;
   font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hero-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 10px;
+  white-space: nowrap;
 }
 
 .card {
@@ -2213,13 +2233,23 @@ button.floating-env-row:hover:not(:disabled) {
 }
 
 .modal-close-button {
-  border: 1px solid #e2e6e9;
-  border-radius: 12px;
-  background: #ffffff;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: #344047;
   cursor: pointer;
-  padding: 8px 12px;
+  padding: 0;
+  font-size: 20px;
   font-weight: 700;
+  line-height: 1;
+}
+
+.modal-close-button:hover {
+  background: rgba(15, 23, 42, 0.06);
 }
 
 .settings-form {
@@ -2794,6 +2824,29 @@ button.floating-env-row:hover:not(:disabled) {
   margin-left: 40px;
 }
 
+.skill-modal-backdrop {
+  user-select: none;
+  animation: skill-backdrop-in 180ms ease both;
+}
+
+.skill-create-modal {
+  width: min(760px, 100%);
+  user-select: auto;
+  animation: skill-modal-in 220ms ease both;
+}
+
+.skill-create-modal .skill-create-form {
+  margin-left: 0;
+  padding: 20px 24px 24px;
+}
+
+.skill-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 2px;
+}
+
 .skill-create-item {
   background: #fbfcfc;
 }
@@ -2922,7 +2975,7 @@ button.floating-env-row:hover:not(:disabled) {
   height: 36px;
   border: 0;
   border-radius: 12px;
-  background: #f3f4f6;
+  background: transparent;
   color: #111827;
   cursor: pointer;
   transition: background 160ms ease, transform 160ms ease;
@@ -2970,6 +3023,28 @@ button.floating-env-row:hover:not(:disabled) {
   background: currentColor;
 }
 
+@keyframes skill-backdrop-in {
+  from {
+    opacity: 0;
+    backdrop-filter: blur(0);
+  }
+  to {
+    opacity: 1;
+    backdrop-filter: blur(6px);
+  }
+}
+
+@keyframes skill-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .skill-detail-grid span,
 .compare-selector strong,
 .aggregate-grid span {
@@ -2994,9 +3069,10 @@ button.floating-env-row:hover:not(:disabled) {
   overflow: auto;
   margin: 0;
   padding: 14px;
+  border: 1px solid #dde2e6;
   border-radius: 12px;
-  background: #111827;
-  color: #e2e8f0;
+  background: #f3f6f6;
+  color: #0f172a;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -3086,9 +3162,12 @@ button.floating-env-row:hover:not(:disabled) {
     position: static;
   }
 
-  .hero-title-row,
+  .hero-title-row {
+    flex-wrap: nowrap;
+  }
+
   .hero-context-pills {
-    flex-wrap: wrap;
+    overflow: hidden;
   }
 
   .task-detail-layout {
