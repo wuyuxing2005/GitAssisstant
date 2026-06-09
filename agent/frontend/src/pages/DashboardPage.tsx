@@ -52,7 +52,6 @@ export function DashboardPage({
   const [formState, setFormState] = useState<CreateTaskPayload>({
     name: "",
     description: "",
-    auto_start: true,
     config: {
       repo_source: "",
       issue_input: "",
@@ -240,7 +239,6 @@ export function DashboardPage({
       setFormState({
         name: "",
         description: "",
-        auto_start: true,
         config: {
           repo_source: "",
           issue_input: "",
@@ -399,17 +397,6 @@ export function DashboardPage({
           </label>
 
         </div>
-
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={formState.auto_start}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, auto_start: event.target.checked }))
-            }
-          />
-          <span>创建后立即按当前模式执行</span>
-        </label>
 
         <div className="skill-picker">
           <span className="field-label">启用 Skill</span>

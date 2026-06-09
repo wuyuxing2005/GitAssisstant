@@ -330,7 +330,6 @@ export interface CreateTaskPayload {
   name: string;
   description: string;
   config: EvaluationConfig;
-  auto_start: boolean;
 }
 
 export interface TaskRunRequest {

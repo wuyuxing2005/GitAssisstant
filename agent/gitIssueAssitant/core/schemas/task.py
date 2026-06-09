@@ -36,7 +36,7 @@ class TaskBase(BaseModel):
 
 
 class TaskCreate(TaskBase):
-    auto_start: bool = False
+    pass
 
 
 class TaskUpdate(BaseModel):
