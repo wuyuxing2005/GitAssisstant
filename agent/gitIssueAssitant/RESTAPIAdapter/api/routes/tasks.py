@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Response
 
 from gitIssueAssitant.core.schemas.task import (
@@ -131,16 +133,29 @@ def get_task_messages(task_id: str) -> TaskMessageList:
 
 
 @router.post("/{task_id}/messages", response_model=TaskMessageList)
-def submit_task_message(task_id: str, payload: TaskMessageCreate) -> TaskMessageList:
+async def submit_task_message(task_id: str, payload: TaskMessageCreate) -> TaskMessageList:
     try:
-        messages = issue_assistant_service.submit_task_message(task_id, payload)
+        messages = await asyncio.to_thread(
+            issue_assistant_service.submit_task_message,
+            task_id,
+            payload,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if messages is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    return messages
+
+    try:
+        await issue_assistant_service.run_task(task_id, TaskRunRequest(mode="auto"))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    refreshed = await asyncio.to_thread(issue_assistant_service.get_task_messages, task_id)
+    return refreshed or messages
 
 
 @router.get("/{task_id}/diff", response_model=GitDiffResponse)

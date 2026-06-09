@@ -140,6 +140,7 @@ class _IssueAssistantTaskRuntime:
         self.workspace_root = Path(workspace_root or WORKSPACE_ROOT).resolve()
         self._runtime_handles: dict[str, _AssistantRuntimeHandle] = {}
         self._background_jobs: dict[str, asyncio.Task[None]] = {}
+        self._pending_run_requests: dict[str, TaskRunRequest] = {}
         self._execution_lock = asyncio.Lock()
         self._sandbox_manager: Any | None = None
 
@@ -147,6 +148,7 @@ class _IssueAssistantTaskRuntime:
         job = self._background_jobs.get(task_id)
         if job is not None and job.done():
             self._background_jobs.pop(task_id, None)
+            self._pending_run_requests.pop(task_id, None)
 
     def _track_background_job(self, task_id: str, job: asyncio.Task[None]) -> None:
         self._background_jobs[task_id] = job
@@ -154,8 +156,38 @@ class _IssueAssistantTaskRuntime:
         def cleanup(completed_job: asyncio.Task[None]) -> None:
             if self._background_jobs.get(task_id) is completed_job:
                 self._background_jobs.pop(task_id, None)
+                self._schedule_pending_run_if_needed(task_id)
 
         job.add_done_callback(cleanup)
+
+    def _has_pending_runtime_work(self, task: TaskRecord) -> bool:
+        snapshot = task.result.current_state if task.result else None
+        runtime_status = (snapshot.status if snapshot else "").strip().upper()
+        if not runtime_status or runtime_status in {"INIT", SANDBOX_UNAVAILABLE_STATUS}:
+            return task.status in {"scheduled", "running"}
+        if runtime_status in {"SUCCESS", "FAILED"}:
+            return False
+        return task.status in {"scheduled", "running"}
+
+    def _schedule_pending_run_if_needed(self, task_id: str) -> None:
+        pending_request = self._pending_run_requests.pop(task_id, None)
+        if pending_request is None:
+            return
+        if task_id in self._background_jobs:
+            self._pending_run_requests[task_id] = pending_request
+            return
+
+        task = task_service.get_task_record(task_id)
+        if task is None or not self._has_pending_runtime_work(task):
+            return
+
+        try:
+            self._track_background_job(
+                task_id,
+                asyncio.create_task(self._execute(task_id, pending_request)),
+            )
+        except RuntimeError:
+            self._pending_run_requests[task_id] = pending_request
 
     def _get_sandbox_manager(self, SandboxManager: Any) -> Any | None:
         disabled = os.getenv("GIT_ISSUE_ASSISTANT_DISABLE_SANDBOX", "").lower() in ("1", "true", "yes")
@@ -745,7 +777,6 @@ class _IssueAssistantTaskRuntime:
         self._clear_previous_failure(task)
         self._refresh_result(task)
         task_service.save_task_record(task)
-
         async for event in handle.assistant.stream_graph_updates(handle.thread_id):
             node_name = next(iter(event))
             self._append_timeline_entries(
@@ -795,17 +826,18 @@ class _IssueAssistantTaskRuntime:
         if task is None:
             raise ValueError("Task not found")
 
-        self._prune_finished_background_job(task_id)
-        job = self._background_jobs.get(task_id)
-        if job is not None and not job.done():
-            return task
-
         request_mode = request.mode or task.config.run_mode
         run_request = TaskRunRequest(
             mode=request_mode,
             reset=request.reset,
             allow_local_fallback=request.allow_local_fallback,
         )
+
+        self._prune_finished_background_job(task_id)
+        job = self._background_jobs.get(task_id)
+        if job is not None and not job.done():
+            self._pending_run_requests[task_id] = run_request
+            return task
 
         if request_mode == "auto":
             for task_key in list(self._background_jobs.keys()):
@@ -901,6 +933,7 @@ class _IssueAssistantTaskRuntime:
         return self.get_messages(task_id)
 
     def clear_task_state(self, task_id: str) -> None:
+        self._pending_run_requests.pop(task_id, None)
         job = self._background_jobs.pop(task_id, None)
         if job is not None and not job.done():
             job.cancel()

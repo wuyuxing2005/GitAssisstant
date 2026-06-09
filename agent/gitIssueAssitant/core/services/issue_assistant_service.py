@@ -263,7 +263,17 @@ class IssueAssistantService:
             self._orchestrator.graph.update_state(config, state)
         return self.graph_state(thread_id)
 
+    def ensure_graph_resumable(self, thread_id: str) -> None:
+        config = {"configurable": {"thread_id": thread_id}}
+        snapshot = self._orchestrator.graph.get_state(config)
+        if not snapshot or snapshot.next:
+            return
+        status = str((snapshot.values or {}).get("status") or "").upper()
+        if status and status not in {"INIT", "SUCCESS", "FAILED", "SANDBOX_UNAVAILABLE"}:
+            self._orchestrator.reopen_after_terminal(thread_id)
+
     def stream_graph_updates(self, thread_id: str):
+        self.ensure_graph_resumable(thread_id)
         config = {"configurable": {"thread_id": thread_id}}
         return self._orchestrator.graph.astream(None, config=config, stream_mode="updates")
 
