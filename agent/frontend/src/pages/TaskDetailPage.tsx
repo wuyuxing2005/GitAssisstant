@@ -19,6 +19,7 @@ import type {
   TaskMessage
 } from "../types/task";
 import { formatDisplayTime } from "../utils/time";
+import { isGitHubIssueReference } from "../utils/githubIssue";
 import { formatTaskStatus, getEffectiveTaskStatus } from "../utils/taskStatus";
 
 interface TaskDetailPageProps {
@@ -484,6 +485,13 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     if (cachedIssueInfo?.task_id === task.id) {
       setIssueInfo(cachedIssueInfo);
       setIssueCommentBody(cachedIssueInfo.default_comment);
+      setIssueLoading(false);
+      setIssueError(null);
+      return undefined;
+    }
+    if (!isGitHubIssueReference(task.config.issue_input)) {
+      setIssueInfo(null);
+      onIssueInfoChanged?.(task.id, null);
       setIssueLoading(false);
       setIssueError(null);
       return undefined;

@@ -111,8 +111,21 @@ def _load_runtime_env() -> None:
             load_dotenv(env_file, override=False)
 
 
+def _repair_windows_path_escapes(value: str) -> str:
+    if os.name != "nt":
+        return value
+    return (
+        value
+        .replace("\r", r"\r")
+        .replace("\n", r"\n")
+        .replace("\t", r"\t")
+    )
+
+
 def _configured_clone_root() -> Path:
-    configured = os.getenv("GIT_ISSUE_ASSISTANT_CLONE_ROOT", "").strip()
+    configured = _repair_windows_path_escapes(
+        os.getenv("GIT_ISSUE_ASSISTANT_CLONE_ROOT", "").strip()
+    )
     if not configured:
         return WORKSPACE_ROOT / "repos"
     clone_root = Path(configured).expanduser()
@@ -129,6 +142,20 @@ class _IssueAssistantTaskRuntime:
         self._background_jobs: dict[str, asyncio.Task[None]] = {}
         self._execution_lock = asyncio.Lock()
         self._sandbox_manager: Any | None = None
+
+    def _prune_finished_background_job(self, task_id: str) -> None:
+        job = self._background_jobs.get(task_id)
+        if job is not None and job.done():
+            self._background_jobs.pop(task_id, None)
+
+    def _track_background_job(self, task_id: str, job: asyncio.Task[None]) -> None:
+        self._background_jobs[task_id] = job
+
+        def cleanup(completed_job: asyncio.Task[None]) -> None:
+            if self._background_jobs.get(task_id) is completed_job:
+                self._background_jobs.pop(task_id, None)
+
+        job.add_done_callback(cleanup)
 
     def _get_sandbox_manager(self, SandboxManager: Any) -> Any | None:
         disabled = os.getenv("GIT_ISSUE_ASSISTANT_DISABLE_SANDBOX", "").lower() in ("1", "true", "yes")
@@ -336,6 +363,7 @@ class _IssueAssistantTaskRuntime:
             if handle.initial_state:
                 result.current_state = self._state_snapshot(task, handle.initial_state)
             result.summary = "任务上下文已初始化，等待执行。"
+            result.error_message = None
             task.result = result
             task.status = "scheduled"
             task.started_at = None
@@ -428,6 +456,12 @@ class _IssueAssistantTaskRuntime:
             display_content = _strip_agent_control_lines(content)
             if display_content:
                 self._append_task_message(task, "assistant", display_content)
+            elif tool_calls:
+                tool_names = ", ".join(
+                    str(tool_call.get("name", "tool")) for tool_call in tool_calls[:3]
+                )
+                suffix = "..." if len(tool_calls) > 3 else ""
+                self._append_task_message(task, "assistant", f"正在调用工具：{tool_names}{suffix}")
             return
 
         if node_name == "reflect":
@@ -663,6 +697,11 @@ class _IssueAssistantTaskRuntime:
         self._refresh_agent_trace(task)
         task_service.save_task_record(task)
 
+    def _clear_previous_failure(self, task: TaskRecord) -> None:
+        result = self._ensure_result(task)
+        result.error_message = None
+        task.finished_at = None
+
     def _acknowledge_local_fallback(self, task: TaskRecord) -> None:
         result = self._ensure_result(task)
         snapshot = result.current_state
@@ -683,6 +722,7 @@ class _IssueAssistantTaskRuntime:
         self._activate_runtime(handle)
         task.status = "running"
         task.started_at = task.started_at or _utcnow()
+        self._clear_previous_failure(task)
         self._refresh_result(task)
         task_service.save_task_record(task)
 
@@ -735,6 +775,7 @@ class _IssueAssistantTaskRuntime:
         if task is None:
             raise ValueError("Task not found")
 
+        self._prune_finished_background_job(task_id)
         job = self._background_jobs.get(task_id)
         if job is not None and not job.done():
             return task
@@ -747,6 +788,8 @@ class _IssueAssistantTaskRuntime:
         )
 
         if request_mode == "auto":
+            for task_key in list(self._background_jobs.keys()):
+                self._prune_finished_background_job(task_key)
             if any(not background_job.done() for task_key, background_job in self._background_jobs.items() if task_key != task_id):
                 raise RuntimeError("当前已有其他任务在运行，gitIssueAssitant 运行时暂不支持并发执行。")
 
@@ -755,8 +798,10 @@ class _IssueAssistantTaskRuntime:
             task.status = "scheduled"
             self._refresh_result(task)
             task_service.save_task_record(task)
-            self._background_jobs[task_id] = asyncio.create_task(
-                self._execute(task_id, run_request))
+            self._track_background_job(
+                task_id,
+                asyncio.create_task(self._execute(task_id, run_request)),
+            )
             return task
 
         await self._execute(task_id, run_request)
@@ -790,13 +835,26 @@ class _IssueAssistantTaskRuntime:
         task = task_service.get_task_record(task_id)
         if task is None:
             return None
-        if task_id not in self._runtime_handles:
-            raise RuntimeError("请先运行或初始化任务后再发送多轮对话消息。")
         content = payload.content.strip()
         if not content:
             raise ValueError("Message content cannot be empty")
 
-        handle = self._runtime_handles[task_id]
+        self._prune_finished_background_job(task_id)
+        handle = self._runtime_handles.get(task_id)
+        if handle is None:
+            snapshot = task.result.current_state if task.result else None
+            allow_local_fallback = bool(task.repo_path and snapshot and not snapshot.sandbox_id)
+            handle = self._build_runtime_sync(
+                task,
+                allow_local_fallback=allow_local_fallback,
+                restore_existing_session=True,
+            )
+            self._runtime_handles[task_id] = handle
+            task.thread_id = handle.thread_id
+            task.repo_path = handle.assistant.current_repo
+            if handle.initial_state:
+                self._ensure_result(task).current_state = self._state_snapshot(task, handle.initial_state)
+
         self._activate_runtime(handle)
         self._append_task_message(task, "user", content, replan=payload.replan)
         handle.assistant.inject_message(handle.thread_id, content, replan=payload.replan)
@@ -812,7 +870,7 @@ class _IssueAssistantTaskRuntime:
                 replan=payload.replan,
             )
             task.status = "scheduled"
-            task.finished_at = None
+            self._clear_previous_failure(task)
 
         self._sync_state(task, current_state)
         handle.assistant.persist_state(handle.thread_id)
