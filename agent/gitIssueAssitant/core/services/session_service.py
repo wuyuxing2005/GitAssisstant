@@ -365,7 +365,7 @@ class SessionService:
             os.chdir(self.workspace_root)
         self._restore_graph_state(session)
 
-    def set_issue(self, issue_desc: str):
+    def set_issue(self, issue_desc: str, *, issue_description: str | None = None):
         """为当前会话注入初始 Issue 并初始化状态。
 
         迭代三第二组新增：如果 sandbox_manager 可用，在此处启动 Docker 沙箱，
@@ -375,7 +375,7 @@ class SessionService:
         if not session:
             raise ValueError("当前没有激活的会话，请先创建会话")
 
-        resolved_desc = self.resolve_issue_description(issue_desc)
+        resolved_desc = issue_description if issue_description is not None else self.resolve_issue_description(issue_desc)
         session.issue_ref = issue_desc
         session.issue_description = resolved_desc
         session.sandbox_error = None
