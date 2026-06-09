@@ -487,6 +487,8 @@ class _IssueAssistantTaskRuntime:
                     created_at=created_at,
                 )
             )
+            if plan_content:
+                self._append_task_message(task, "assistant", f"📋 修复计划：\n{plan_content}")
             return
 
         if node_name == "react":

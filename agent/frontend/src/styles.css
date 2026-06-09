@@ -2466,7 +2466,7 @@ button.floating-env-row:hover:not(:disabled) {
 .modal-close-button {
   display: inline-grid;
   place-items: center;
-  width: 34px;
+  width: auto;
   height: 34px;
   border: 0;
   border-radius: 8px;
