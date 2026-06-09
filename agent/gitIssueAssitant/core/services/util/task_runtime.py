@@ -409,6 +409,7 @@ class _IssueAssistantTaskRuntime:
             reflexion_notes=str(state.get("reflexion_notes") or ""),
             last_message=last_message,
             sandbox_id=str(state.get("sandbox_id") or ""),
+            selected_skill=str(state.get("selected_skill") or ""),
         )
 
     def _map_task_status(self, runtime_status: str) -> str:
@@ -441,6 +442,9 @@ class _IssueAssistantTaskRuntime:
                 for item in goals
                 if item
             )
+            selected_skill = str(payload.get("selected_skill") or "").strip()
+            if selected_skill:
+                plan_content = f"选定 Skill: {selected_skill}\n{plan_content}".strip()
             result.timeline.append(
                 TimelineEntry(
                     id=next_id(),

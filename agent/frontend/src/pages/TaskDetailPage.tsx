@@ -758,6 +758,11 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
 
   const result = task.result;
   const snapshot = result?.current_state;
+  const selectedSkillLabel = snapshot?.selected_skill
+    ? snapshot.selected_skill
+    : snapshot && snapshot.status !== "INIT"
+      ? "未使用"
+      : "待选择";
   const executionEnvLabel = snapshot?.sandbox_id ? "Docker 沙箱" : "本地执行";
   const waitingForSandboxDecision = snapshot?.status === "SANDBOX_UNAVAILABLE" && !sandboxDecisionAcknowledged;
   const isBusy = busyTaskId === task.id;
@@ -914,6 +919,12 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
           <span className="floating-env-icon">□</span>
           <span>环境</span>
           <strong>{executionEnvLabel}</strong>
+        </div>
+
+        <div className="floating-env-row static">
+          <span className="floating-env-icon">S</span>
+          <span>已选 Skill</span>
+          <strong title={selectedSkillLabel}>{selectedSkillLabel}</strong>
         </div>
 
         <button
