@@ -429,7 +429,7 @@ export default function App() {
             onTerminateSandboxTask={handleTerminateSandboxTask}
             cachedIssueInfo={currentIssueInfo}
             onIssueInfoChanged={handleIssueInfoChanged}
-            onTaskChanged={() => refreshData(true)}
+            onTaskChanged={() => refreshTaskList(true)}
           />
         ) : null}
 

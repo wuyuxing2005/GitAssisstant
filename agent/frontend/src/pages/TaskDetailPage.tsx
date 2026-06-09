@@ -686,7 +686,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       });
       setMessages(response.messages);
       setMessageContent("");
-      await onRunTask(task.id, "auto");
+      await onTaskChanged?.();
     } catch (error) {
       setMessageError(error instanceof Error ? error.message : "发送对话失败");
     } finally {

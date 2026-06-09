@@ -420,6 +420,7 @@ class _IssueAssistantTaskRuntime:
             return handle
 
         handle = self._runtime_handles[task.id]
+        handle.sandbox_error = ""
         self._activate_runtime(handle)
         return handle
 
@@ -914,7 +915,8 @@ class _IssueAssistantTaskRuntime:
         handle.assistant.inject_message(handle.thread_id, content, replan=payload.replan)
 
         current_state = handle.assistant.graph_state(handle.thread_id)
-        if current_state.get("status") in ("SUCCESS", "FAILED"):
+        graph_status = current_state.get("status")
+        if graph_status in ("SUCCESS", "FAILED"):
             handle.assistant.reopen_after_terminal(handle.thread_id)
             current_state = handle.assistant.graph_state(handle.thread_id)
             self._append_task_message(
@@ -925,7 +927,6 @@ class _IssueAssistantTaskRuntime:
             )
             task.status = "scheduled"
             self._clear_previous_failure(task)
-
         self._sync_state(task, current_state)
         handle.assistant.persist_state(handle.thread_id)
         if task.status == "running":
