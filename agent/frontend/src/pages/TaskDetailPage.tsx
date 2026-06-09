@@ -768,13 +768,17 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       : "未关联";
   const canCloseIssue = !!issueInfo && issueInfo.state !== "closed" && task.status === "completed";
   const publishStateLabel =
-    task.status === "failed"
-      ? "失败"
-      : task.status !== "completed"
-        ? "运行中"
-        : hasChanges
-          ? "等待发布"
-          : "已完成";
+    task.status === "draft"
+      ? "草稿"
+      : task.status === "scheduled"
+        ? "排队中"
+        : task.status === "running"
+          ? "执行中"
+          : task.status === "failed"
+            ? "失败"
+            : hasChanges
+              ? "等待发布"
+              : "已完成";
 
   return (
     <>

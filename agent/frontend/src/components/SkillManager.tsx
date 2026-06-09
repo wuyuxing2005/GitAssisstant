@@ -217,20 +217,18 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
                   </div>
                   <p className="muted-copy">{skill.description}</p>
                 </div>
-                {isExpanded ? (
-                  <div className="action-row">
-                    <button
-                      className="trash-button"
-                      type="button"
-                      aria-label={`删除 ${skill.name}`}
-                      title="删除"
-                      onClick={() => void handleDelete(skill)}
-                      disabled={busySkill === skill.name}
-                    >
-                      <span aria-hidden="true" />
-                    </button>
-                  </div>
-                ) : null}
+                <div className="action-row">
+                  <button
+                    className="trash-button"
+                    type="button"
+                    aria-label={`删除 ${skill.name}`}
+                    title="删除"
+                    onClick={() => void handleDelete(skill)}
+                    disabled={busySkill === skill.name}
+                  >
+                    <span aria-hidden="true" />
+                  </button>
+                </div>
               </div>
 
               {isExpanded ? (
