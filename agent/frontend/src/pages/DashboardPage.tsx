@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type {
   AppSettings,
   CreateTaskPayload,
@@ -15,10 +15,29 @@ interface DashboardPageProps {
   onCreateTask: (payload: CreateTaskPayload) => Promise<void>;
 }
 
+interface SkillTriggerState {
+  query: string;
+  start: number;
+  end: number;
+}
+
 function looksLikeGitHubUrl(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
   return /github\.com[/:][\w.-]+\/[\w.-]+/.test(trimmed);
+}
+
+function findSkillTrigger(value: string, caretPosition: number): SkillTriggerState | null {
+  const prefix = value.slice(0, caretPosition);
+  const match = prefix.match(/(^|\s)\$([A-Za-z0-9_-]*)$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    query: match[2],
+    start: prefix.length - match[2].length - 1,
+    end: caretPosition
+  };
 }
 
 export function DashboardPage({
@@ -28,10 +47,11 @@ export function DashboardPage({
   skills,
   onCreateTask
 }: DashboardPageProps) {
+  const descriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [skillTrigger, setSkillTrigger] = useState<SkillTriggerState | null>(null);
   const [formState, setFormState] = useState<CreateTaskPayload>({
     name: "",
     description: "",
-    auto_start: true,
     config: {
       repo_source: "",
       issue_input: "",
@@ -48,6 +68,21 @@ export function DashboardPage({
   const [selectedIssueBody, setSelectedIssueBody] = useState<string>("");
   const [issuesModalOpen, setIssuesModalOpen] = useState(false);
   const issuesFetchAbortRef = useRef<AbortController | null>(null);
+  const skillSuggestions = useMemo(() => {
+    if (!skillTrigger) {
+      return [];
+    }
+    const query = skillTrigger.query.toLowerCase();
+    return skills.filter((skill) => {
+      if (!query) {
+        return true;
+      }
+      return (
+        skill.name.toLowerCase().includes(query) ||
+        skill.description.toLowerCase().includes(query)
+      );
+    });
+  }, [skillTrigger, skills]);
 
   useEffect(() => {
     const enabledSkillNames = skills.filter((skill) => skill.enabled).map((skill) => skill.name);
@@ -147,6 +182,47 @@ export function DashboardPage({
     setIssuesModalOpen(false);
   }
 
+  function handleDescriptionChange(value: string, caretPosition: number | null) {
+    setFormState((current) => ({ ...current, description: value }));
+    setSkillTrigger(caretPosition === null ? null : findSkillTrigger(value, caretPosition));
+  }
+
+  function handleDescriptionKeyUp() {
+    const textarea = descriptionTextareaRef.current;
+    if (!textarea) {
+      setSkillTrigger(null);
+      return;
+    }
+    setSkillTrigger(findSkillTrigger(textarea.value, textarea.selectionStart));
+  }
+
+  function handleDescriptionKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Escape" && skillTrigger) {
+      event.preventDefault();
+      setSkillTrigger(null);
+    }
+  }
+
+  function handleSelectSkill(skill: SkillRecord) {
+    if (!skillTrigger) {
+      return;
+    }
+    const nextDescription = (
+      `${formState.description.slice(0, skillTrigger.start)}$${skill.name} ${formState.description.slice(skillTrigger.end)}`
+    );
+    const nextCaretPosition = skillTrigger.start + skill.name.length + 2;
+    setFormState((current) => ({ ...current, description: nextDescription }));
+    setSkillTrigger(null);
+    window.requestAnimationFrame(() => {
+      const textarea = descriptionTextareaRef.current;
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(nextCaretPosition, nextCaretPosition);
+    });
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
@@ -163,7 +239,6 @@ export function DashboardPage({
       setFormState({
         name: "",
         description: "",
-        auto_start: true,
         config: {
           repo_source: "",
           issue_input: "",
@@ -247,14 +322,39 @@ export function DashboardPage({
 
         <label>
           <span>补充说明</span>
-          <textarea
-            rows={3}
-            value={formState.description}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, description: event.target.value }))
-            }
-            placeholder="记录预期修复范围、限制条件或上下文说明"
-          />
+          <div className="skill-suggest-wrapper">
+            <textarea
+              ref={descriptionTextareaRef}
+              rows={3}
+              value={formState.description}
+              onChange={(event) =>
+                handleDescriptionChange(event.target.value, event.target.selectionStart)
+              }
+              onKeyUp={handleDescriptionKeyUp}
+              onKeyDown={handleDescriptionKeyDown}
+              onClick={handleDescriptionKeyUp}
+              placeholder="记录预期修复范围、限制条件或上下文说明。输入 $ 选择 Skill，例如：使用 $i-am-a-cat skill"
+            />
+            {skillTrigger ? (
+              <div className="skill-suggest-menu" role="listbox" aria-label="选择 Skill">
+                {skillSuggestions.map((skill) => (
+                  <button
+                    key={skill.name}
+                    type="button"
+                    role="option"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => handleSelectSkill(skill)}
+                  >
+                    <strong>{skill.name}</strong>
+                    <span>{skill.description}</span>
+                  </button>
+                ))}
+                {!skillSuggestions.length ? (
+                  <div className="skill-suggest-empty">没有匹配的 Skill</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </label>
 
         <div className="form-row">
@@ -297,17 +397,6 @@ export function DashboardPage({
           </label>
 
         </div>
-
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={formState.auto_start}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, auto_start: event.target.checked }))
-            }
-          />
-          <span>创建后立即按当前模式执行</span>
-        </label>
 
         <div className="skill-picker">
           <span className="field-label">启用 Skill</span>

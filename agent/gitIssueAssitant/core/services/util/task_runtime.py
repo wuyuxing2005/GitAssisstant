@@ -222,6 +222,13 @@ class _IssueAssistantTaskRuntime:
     def _activate_runtime(self, handle: _AssistantRuntimeHandle) -> None:
         handle.assistant.activate_runtime(handle.thread_id)
 
+    def _build_agent_issue_description(self, task: TaskRecord, session_service: Any) -> str:
+        issue_description = session_service.resolve_issue_description(task.config.issue_input)
+        extra_description = task.description.strip()
+        if not extra_description:
+            return issue_description
+        return f"{issue_description}\n\n用户补充说明：\n{extra_description}"
+
     def _build_runtime_sync(
         self,
         task: TaskRecord,
@@ -292,18 +299,27 @@ class _IssueAssistantTaskRuntime:
             self._append_progress_message(task, f"仓库已准备：{session_service.current_repo}")
             if sandbox_manager is not None:
                 self._append_progress_message(task, "正在启动 Docker 沙箱，请等待镜像拉取、容器启动和依赖安装完成。")
-            session_service.set_issue(task.config.issue_input)
+            session_service.set_issue(
+                task.config.issue_input,
+                issue_description=self._build_agent_issue_description(task, session_service),
+            )
 
         thread_id = session_service.get_current_thread_id()
         initial_state = assistant.graph_state(thread_id)
         if restored_session is not None and not initial_state:
             self._append_progress_message(task, "历史会话缺少 graph state，正在重新初始化任务上下文。")
-            session_service.set_issue(task.config.issue_input)
+            session_service.set_issue(
+                task.config.issue_input,
+                issue_description=self._build_agent_issue_description(task, session_service),
+            )
             initial_state = assistant.graph_state(thread_id)
         # 本地回退时，如果恢复的 session 处于 SANDBOX_UNAVAILABLE 状态，需要重新初始化
         if allow_local_fallback and restored_session is not None and initial_state.get("status") == SANDBOX_UNAVAILABLE_STATUS:
             self._append_progress_message(task, "正在重新初始化任务为本地执行模式。")
-            session_service.set_issue(task.config.issue_input)
+            session_service.set_issue(
+                task.config.issue_input,
+                issue_description=self._build_agent_issue_description(task, session_service),
+            )
             initial_state = assistant.graph_state(thread_id)
         sandbox_id = str(initial_state.get("sandbox_id") or "")
         session = session_service._current_session()
