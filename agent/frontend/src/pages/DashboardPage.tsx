@@ -46,7 +46,7 @@ export function DashboardPage({
   const [issuesError, setIssuesError] = useState<string | null>(null);
   const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | null>(null);
   const [selectedIssueBody, setSelectedIssueBody] = useState<string>("");
-  const [showIssuesPanel, setShowIssuesPanel] = useState(false);
+  const [issuesModalOpen, setIssuesModalOpen] = useState(false);
   const issuesFetchAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -92,7 +92,7 @@ export function DashboardPage({
     setIssuesError(null);
     setSelectedIssueNumber(null);
     setSelectedIssueBody("");
-    setShowIssuesPanel(false);
+    setIssuesModalOpen(false);
   }, []);
 
   async function handleFetchIssues() {
@@ -108,7 +108,7 @@ export function DashboardPage({
     setLoadingIssues(true);
     setIssuesError(null);
     setIssuesList([]);
-    setShowIssuesPanel(true);
+    setIssuesModalOpen(true);
 
     try {
       const issues = await fetchRepoIssues(repoSource);
@@ -144,6 +144,7 @@ export function DashboardPage({
       ...current,
       config: { ...current.config, issue_input: `#${issue.number}` }
     }));
+    setIssuesModalOpen(false);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -176,7 +177,7 @@ export function DashboardPage({
       setIssuesError(null);
       setSelectedIssueNumber(null);
       setSelectedIssueBody("");
-      setShowIssuesPanel(false);
+      setIssuesModalOpen(false);
     } catch {
       // App already surfaces the error banner.
     }
@@ -222,73 +223,11 @@ export function DashboardPage({
                 disabled={loadingIssues}
                 onClick={() => void handleFetchIssues()}
               >
-                {loadingIssues ? "获取中..." : "获取 Issues"}
+                {loadingIssues ? "获取中..." : "浏览 Issues"}
               </button>
             ) : null}
           </div>
         </label>
-
-        {showIssuesPanel ? (
-          <div className="issues-panel">
-            {loadingIssues ? (
-              <p className="muted-copy issues-loading">正在加载 Issues...</p>
-            ) : issuesError ? (
-              <p className="issues-error">{issuesError}</p>
-            ) : issuesList.length > 0 ? (
-              <>
-                <div className="issues-panel-header">
-                  <span>共 {issuesList.length} 个 Issue</span>
-                  <button
-                    type="button"
-                    className="link-button"
-                    onClick={() => setShowIssuesPanel(false)}
-                  >
-                    收起
-                  </button>
-                </div>
-                <ul className="issues-list">
-                  {issuesList.map((issue) => (
-                    <li key={issue.number}>
-                      <button
-                        type="button"
-                        className={`issue-item ${issue.number === selectedIssueNumber ? "selected" : ""}`}
-                        onClick={() => handleSelectIssue(issue)}
-                      >
-                        <div className="issue-item-top">
-                          <span className="issue-number">#{issue.number}</span>
-                          <span className="issue-title">{issue.title}</span>
-                          <span className={`issue-state issue-state-${issue.state}`}>
-                            {issue.state === "open" ? "Open" : issue.state}
-                          </span>
-                          {issue.labels.length > 0 ? (
-                            <span className="issue-labels">
-                              {issue.labels.map((label) => (
-                                <span key={label} className="issue-label-tag">{label}</span>
-                              ))}
-                            </span>
-                          ) : null}
-                        </div>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                {selectedIssueBody ? (
-                  <div className="issue-body-section">
-                    <span className="issue-body-label">Issue 内容预览</span>
-                    <textarea
-                      className="issue-body-textarea"
-                      rows={8}
-                      readOnly
-                      value={selectedIssueBody}
-                    />
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <p className="muted-copy">暂无 Issues</p>
-            )}
-          </div>
-        ) : null}
 
         <label>
           <span>Issue 描述 / 编号 / 链接</span>
@@ -376,7 +315,7 @@ export function DashboardPage({
             {skills.map((skill) => {
               const checked = formState.config.enabled_skills?.includes(skill.name) ?? false;
               return (
-                <label key={skill.name} className="checkbox-row skill-choice">
+                <label key={skill.name} className="checkbox-row skill-choice" data-summary={skill.description}>
                   <input
                     type="checkbox"
                     checked={checked}
@@ -394,7 +333,6 @@ export function DashboardPage({
                     }
                   />
                   <span>{skill.name}</span>
-                  <small>{skill.description}</small>
                 </label>
               );
             })}
@@ -408,6 +346,72 @@ export function DashboardPage({
           </button>
         </div>
       </form>
+
+      {issuesModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setIssuesModalOpen(false)}>
+          <section className="settings-modal issues-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="settings-modal-header">
+              <div>
+                <h2>选择 Issue</h2>
+                <p>从仓库中选择一个 Issue 来创建任务</p>
+              </div>
+              <button className="modal-close-button" type="button" onClick={() => setIssuesModalOpen(false)}>关闭</button>
+            </div>
+            <div className="issues-modal-body">
+              {loadingIssues ? (
+                <div className="issues-modal-loading">
+                  <p className="muted-copy">正在加载 Issues...</p>
+                </div>
+              ) : issuesError ? (
+                <div className="issues-modal-error">
+                  <p className="error-copy">{issuesError}</p>
+                </div>
+              ) : issuesList.length > 0 ? (
+                <>
+                  <div className="issues-modal-header-info">
+                    <span>共 {issuesList.length} 个 Issue</span>
+                  </div>
+                  <ul className="issues-modal-list">
+                    {issuesList.map((issue) => (
+                      <li key={issue.number}>
+                        <button
+                          type="button"
+                          className={`issue-modal-item ${issue.number === selectedIssueNumber ? "selected" : ""}`}
+                          onClick={() => handleSelectIssue(issue)}
+                        >
+                          <div className="issue-modal-item-header">
+                            <span className="issue-number">#{issue.number}</span>
+                            <span className="issue-title">{issue.title}</span>
+                          </div>
+                          <div className="issue-modal-item-meta">
+                            <span className={`issue-state issue-state-${issue.state}`}>
+                              {issue.state === "open" ? "Open" : issue.state}
+                            </span>
+                            {issue.labels.length > 0 ? (
+                              <div className="issue-labels">
+                                {issue.labels.map((label) => (
+                                  <span key={label} className="issue-label-tag">{label}</span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                          {issue.body ? (
+                            <p className="issue-body-preview">{issue.body.slice(0, 150)}{issue.body.length > 150 ? "..." : ""}</p>
+                          ) : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <div className="issues-modal-empty">
+                  <p className="muted-copy">暂无 Issues</p>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -36,5 +36,5 @@ def delete_skill(name: str) -> None:
     if result is None:
         raise HTTPException(status_code=404, detail="Skill not found")
     if result is False:
-        raise HTTPException(status_code=403, detail="Built-in skills cannot be deleted")
+        raise HTTPException(status_code=403, detail="Skill cannot be deleted")
 

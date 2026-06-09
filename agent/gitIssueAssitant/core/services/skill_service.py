@@ -74,8 +74,6 @@ class SkillService:
         return skill.model_copy(update={"enabled": payload.enabled})
 
     def delete_skill(self, name: str) -> bool | None:
-        if name in BUILTIN_SKILL_NAMES:
-            return False
         skills = {skill.name: skill for skill in self.list_skills()}
         if name not in skills:
             return None

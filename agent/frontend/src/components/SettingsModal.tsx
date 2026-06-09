@@ -145,7 +145,7 @@ export function SettingsModal({
             <h2>设置</h2>
             <p>保存后会写入后端 <code>{settings?.env_path ?? "backend/.env"}</code> 并立即更新当前进程环境。</p>
           </div>
-          <button className="modal-close-button" type="button" onClick={onClose}>关闭</button>
+          <button className="modal-close-button" type="button" onClick={onClose} aria-label="关闭设置弹窗">×</button>
         </div>
 
         {errorMessage ? <div className="banner error">{errorMessage}</div> : null}
@@ -216,7 +216,6 @@ export function SettingsModal({
           </div>
 
           <div className="settings-actions">
-            <button className="secondary-button" type="button" onClick={onClose}>取消</button>
             <button className="primary-button" type="submit" disabled={saving}>{saving ? "保存中" : "保存设置"}</button>
           </div>
         </form>

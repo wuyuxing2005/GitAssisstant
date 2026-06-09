@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { createSkill, deleteSkill, updateSkillEnabled } from "../services/api";
+import { FormEvent, useState } from "react";
+import { createSkill, deleteSkill } from "../services/api";
 import type { SkillCreateRequest, SkillRecord } from "../types/task";
 
 
@@ -50,57 +50,49 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
   const [submitting, setSubmitting] = useState(false);
   const [formState, setFormState] = useState<SkillFormState>(emptyForm);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [createErrorMessage, setCreateErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-
-
-
-
-
-  async function handleToggle(skill: SkillRecord) {
-    try {
-      setBusySkill(skill.name);
-      setErrorMessage(null);
-      setSuccessMessage(null);
-      await updateSkillEnabled(skill.name, !skill.enabled);
-      await onChanged();
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "更新 Skill 状态失败");
-    } finally {
-      setBusySkill(null);
-    }
-  }
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const payload = toPayload(formState);
     if (!payload.name || !payload.description || !payload.body) {
-      setErrorMessage("请填写名称、描述和正文。");
+      setCreateErrorMessage("请填写名称、描述和正文。");
+      return;
+    }
+    const confirmed = window.confirm(`确定创建 Skill "${payload.name}" 吗？`);
+    if (!confirmed) {
       return;
     }
 
     try {
       setSubmitting(true);
-      setErrorMessage(null);
+      setCreateErrorMessage(null);
       setSuccessMessage(null);
       const skill = await createSkill(payload);
       setFormState(emptyForm);
       setExpanded(skill.name);
-      setShowCreateForm(false);        // 新增成功后自动折叠表单
+      setCreateModalOpen(false);
       setSuccessMessage(`已添加 Skill：${skill.name}`);
       await onChanged();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "新增 Skill 失败");
+      setCreateErrorMessage(error instanceof Error ? error.message : "新增 Skill 失败");
     } finally {
       setSubmitting(false);
     }
   }
 
+  function handleOpenCreateModal() {
+    setCreateErrorMessage(null);
+    setCreateModalOpen(true);
+  }
+
+  function handleCloseCreateModal() {
+    setCreateModalOpen(false);
+  }
 
   async function handleDelete(skill: SkillRecord) {
-    if (skill.builtin) {
-      return;
-    }
     const confirmed = window.confirm(`确定删除 Skill "${skill.name}" 吗？这会删除对应的 SKILL.md 文件。`);
     if (!confirmed) {
       return;
@@ -128,45 +120,28 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
           <h2>Skill 管理</h2>
           <p>查看现有 Skill，添加自定义 Skill，并控制新任务默认启用范围。</p>
         </div>
+        <button className="primary-button" type="button" onClick={handleOpenCreateModal}>
+          自定义skill
+        </button>
       </div>
 
       {errorMessage ? <div className="banner error">{errorMessage}</div> : null}
       {successMessage ? <div className="banner success">{successMessage}</div> : null}
 
-      <article className="skill-manager-item skill-create-item">
-        {/* 折叠式新增 Skill 标题行 */}
-        <div
-          className="section-header compact"
-          style={{ cursor: 'pointer' }}
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              setShowCreateForm(!showCreateForm);
-            }
-          }}
-        >
-          <div>
-            <h3>自定义 Skill</h3>
-            <p>创建新的 Skill</p>
-          </div>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowCreateForm(!showCreateForm);
-            }}
-          >
-            {showCreateForm ? '取消' : '创建'}
-          </button>
-        </div>
-
-        {/* 新增表单（可折叠） */}
-        {showCreateForm && (
+      {createModalOpen ? (
+        <div className="modal-backdrop skill-modal-backdrop" role="presentation">
+          <section className="settings-modal skill-create-modal" role="dialog" aria-modal="true" aria-labelledby="skill-create-title">
+            <div className="settings-modal-header">
+              <div>
+                <h2 id="skill-create-title">自定义 Skill</h2>
+                <p>创建新的 Skill，并按现有格式生成 SKILL.md。</p>
+              </div>
+              <button className="modal-close-button" type="button" onClick={handleCloseCreateModal} aria-label="关闭自定义 Skill 弹窗">
+                ×
+              </button>
+            </div>
           <form className="skill-create-form" onSubmit={(event) => void handleCreate(event)}>
+            {createErrorMessage ? <div className="banner error">{createErrorMessage}</div> : null}
             <div className="skill-form-grid">
               <label>
                 <span>名称</span>
@@ -211,21 +186,30 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
               />
             </label>
 
-            <div className="action-row">
+            <div className="skill-modal-actions">
               <button className="primary-button" type="submit" disabled={submitting}>
-                {submitting ? '保存中' : '添加 Skill'}
+                {submitting ? "保存中" : "确定"}
               </button>
             </div>
           </form>
-        )}
-      </article>
+          </section>
+        </div>
+      ) : null}
 
       <div className="skill-manager-list">
         {skills.map((skill) => {
           const isExpanded = expanded === skill.name;
           return (
-            <article key={skill.name} className="skill-manager-item">
+            <article key={skill.name} className={`skill-manager-item${isExpanded ? " expanded" : ""}`}>
               <div className="timeline-title-row">
+                <button
+                  className="skill-arrow-button"
+                  type="button"
+                  aria-label={isExpanded ? "收起 Skill" : "展开 Skill"}
+                  onClick={() => setExpanded(isExpanded ? null : skill.name)}
+                >
+                  {isExpanded ? "‹" : "›"}
+                </button>
                 <div>
                   <div className="skill-title-line">
                     <strong>{skill.name}</strong>
@@ -233,29 +217,20 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
                   </div>
                   <p className="muted-copy">{skill.description}</p>
                 </div>
-                <div className="action-row">
-                  <button className="secondary-button" type="button" onClick={() => setExpanded(isExpanded ? null : skill.name)}>
-                    {isExpanded ? "收起" : "查看"}
-                  </button>
-                  <button
-                    className={skill.enabled ? "primary-button" : "secondary-button"}
-                    type="button"
-                    onClick={() => void handleToggle(skill)}
-                    disabled={busySkill === skill.name}
-                  >
-                    {skill.enabled ? "已启用" : "已禁用"}
-                  </button>
-                  {!skill.builtin ? (
+                {isExpanded ? (
+                  <div className="action-row">
                     <button
-                      className="ghost-button danger"
+                      className="trash-button"
                       type="button"
+                      aria-label={`删除 ${skill.name}`}
+                      title="删除"
                       onClick={() => void handleDelete(skill)}
                       disabled={busySkill === skill.name}
                     >
-                      删除
+                      <span aria-hidden="true" />
                     </button>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
               </div>
 
               {isExpanded ? (
