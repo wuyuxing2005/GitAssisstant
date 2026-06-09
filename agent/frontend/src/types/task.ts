@@ -126,6 +126,7 @@ export interface RuntimeSnapshot {
   plan: string[];
   reflexion_notes: string;
   last_message: string;
+  selected_skill: string;
 }
 
 export interface EvaluationResult {
@@ -329,6 +330,7 @@ export interface EvaluationMetadataResponse {
 export interface CreateTaskPayload {
   name: string;
   description: string;
+  auto_start?: boolean;
   config: EvaluationConfig;
 }
 

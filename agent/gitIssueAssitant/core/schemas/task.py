@@ -36,7 +36,7 @@ class TaskBase(BaseModel):
 
 
 class TaskCreate(TaskBase):
-    pass
+    auto_start: bool = True
 
 
 class TaskUpdate(BaseModel):
@@ -162,6 +162,7 @@ class RuntimeSnapshot(BaseModel):
     plan: list[str] = Field(default_factory=list)
     reflexion_notes: str = ""
     last_message: str = ""
+    selected_skill: str = ""
 
 
 class FixReport(BaseModel):

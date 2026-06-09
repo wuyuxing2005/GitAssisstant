@@ -6,6 +6,8 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from dotenv import dotenv_values
+
 from gitIssueAssitant.core.schemas.settings import AppSettingsResponse, AppSettingsUpdate, ModelListResponse
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
@@ -32,10 +34,9 @@ def _parse_env_line(line: str) -> tuple[str, str] | None:
 def _read_env_values() -> dict[str, str]:
     values: dict[str, str] = {}
     if ENV_FILE.exists():
-        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-            parsed = _parse_env_line(line)
-            if parsed:
-                values[parsed[0]] = parsed[1]
+        for key, value in dotenv_values(ENV_FILE).items():
+            if key and value is not None:
+                values[key] = value
 
     for key in SETTING_KEYS:
         if os.getenv(key):
@@ -75,13 +76,24 @@ def _write_env_values(updates: dict[str, str]) -> None:
 
 
 def _normalize_clone_root(value: str) -> str:
-    raw = value.strip()
+    raw = _repair_windows_path_escapes(value.strip())
     if not raw:
         return str(DEFAULT_CLONE_ROOT)
     path = Path(raw).expanduser()
     if not path.is_absolute():
         path = (WORKSPACE_ROOT / path).resolve()
     return str(path)
+
+
+def _repair_windows_path_escapes(value: str) -> str:
+    if os.name != "nt":
+        return value
+    return (
+        value
+        .replace("\r", r"\r")
+        .replace("\n", r"\n")
+        .replace("\t", r"\t")
+    )
 
 
 class SettingsService:

@@ -68,7 +68,11 @@ class AgentOrchestrator:
             },
         )
         workflow.add_edge("tools", "react")
-        workflow.add_edge("reopen", "react")  # fixed edge for reopen
+        workflow.add_conditional_edges(
+            "reopen",
+            self._route_after_reopen,
+            {"h_planner": "h_planner", "react": "react"},
+        )
         workflow.add_conditional_edges(
             "reflect",
             self._route_after_reflect,
@@ -675,6 +679,9 @@ class AgentOrchestrator:
         if replan_trigger and plan_version < 3:
             return "h_planner"
         return "react"
+
+    def _route_after_reopen(self, state: AgentState) -> str:
+        return "h_planner" if state.get("replan_trigger") else "react"
 
     def inject_message(self, thread_id: str, content: str, replan: bool = False):
         """向正在运行的会话注入一条用户消息。

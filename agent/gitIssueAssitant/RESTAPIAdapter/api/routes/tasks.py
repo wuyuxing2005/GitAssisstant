@@ -33,7 +33,21 @@ def list_tasks() -> list[TaskResponse]:
 
 @router.post("/", response_model=TaskResponse)
 async def create_task(payload: TaskCreate) -> TaskResponse:
-    return issue_assistant_service.create_task(payload)
+    task = issue_assistant_service.create_task(payload)
+    if payload.auto_start:
+        try:
+            record = await issue_assistant_service.run_task(
+                task.id,
+                TaskRunRequest(mode=task.config.run_mode, reset=True),
+            )
+            refreshed = issue_assistant_service.get_task(record.id)
+            if refreshed is not None:
+                return refreshed
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return task
 
 
 @router.get("/{task_id}", response_model=TaskResponse)

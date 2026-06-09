@@ -52,13 +52,14 @@ export function DashboardPage({
   const [formState, setFormState] = useState<CreateTaskPayload>({
     name: "",
     description: "",
+    auto_start: true,
     config: {
       repo_source: "",
       issue_input: "",
       target_dir: "",
       model_name: settings?.model_name || models[0] || "",
       run_mode: "auto",
-      enabled_skills: []
+      enabled_skills: null
     }
   });
   const [issuesList, setIssuesList] = useState<GitHubIssueSummary[]>([]);
@@ -87,7 +88,7 @@ export function DashboardPage({
   useEffect(() => {
     const enabledSkillNames = skills.filter((skill) => skill.enabled).map((skill) => skill.name);
     setFormState((current) => {
-      if (current.config.enabled_skills && current.config.enabled_skills.length > 0) {
+      if (current.config.enabled_skills !== null && current.config.enabled_skills !== undefined) {
         return current;
       }
       return {
@@ -232,20 +233,23 @@ export function DashboardPage({
           ...formState.config,
           target_dir: formState.config.target_dir?.trim() || null,
           model_name: formState.config.model_name?.trim() || null,
-          enabled_skills: formState.config.enabled_skills ?? []
+          enabled_skills: formState.config.enabled_skills ?? null
         }
       });
 
       setFormState({
         name: "",
         description: "",
+        auto_start: true,
         config: {
           repo_source: "",
           issue_input: "",
           target_dir: "",
           model_name: settings?.model_name || models[0] || "",
           run_mode: "auto",
-          enabled_skills: skills.filter((skill) => skill.enabled).map((skill) => skill.name)
+          enabled_skills: skills.length
+            ? skills.filter((skill) => skill.enabled).map((skill) => skill.name)
+            : null
         }
       });
       setIssuesList([]);

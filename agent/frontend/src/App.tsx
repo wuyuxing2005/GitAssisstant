@@ -4,6 +4,7 @@ import { SkillManager } from "./components/SkillManager";
 import { ComparePage } from "./pages/ComparePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
+import { isGitHubIssueReference } from "./utils/githubIssue";
 import { formatTaskStatus, getEffectiveTaskStatus } from "./utils/taskStatus";
 import {
   compareTasks,
@@ -174,9 +175,11 @@ export default function App() {
     try {
       setBusyTaskId("create");
       const task = await createTask(payload);
-      const issueInfo = await fetchTaskIssue(task.id).catch(() => null);
-      if (issueInfo) {
-        setIssueInfoCache((current) => ({ ...current, [task.id]: issueInfo }));
+      if (isGitHubIssueReference(task.config.issue_input)) {
+        const issueInfo = await fetchTaskIssue(task.id).catch(() => null);
+        if (issueInfo) {
+          setIssueInfoCache((current) => ({ ...current, [task.id]: issueInfo }));
+        }
       }
       setSelectedTaskId(task.id);
       setCurrentPage("detail");
