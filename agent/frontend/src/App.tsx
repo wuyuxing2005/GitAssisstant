@@ -4,6 +4,7 @@ import { SkillManager } from "./components/SkillManager";
 import { ComparePage } from "./pages/ComparePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
+import { formatTaskStatus, getEffectiveTaskStatus } from "./utils/taskStatus";
 import {
   compareTasks,
   createTask,
@@ -26,7 +27,6 @@ import type {
   EvaluationTask,
   GitHubIssueInfo,
   SkillRecord,
-  TaskStatus,
   RunMode
 } from "./types/task";
 
@@ -45,18 +45,6 @@ function isPageKey(value: string | null): value is PageKey {
 
 function clampSidebarWidth(value: number): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
-}
-
-function formatTaskStatus(status: TaskStatus): string {
-  const labels: Record<TaskStatus, string> = {
-    draft: "草稿",
-    scheduled: "排队中",
-    running: "执行中",
-    completed: "已完成",
-    failed: "失败"
-  };
-
-  return labels[status];
 }
 
 function pageTitle(page: PageKey, task: EvaluationTask | null): string {
@@ -95,7 +83,10 @@ export default function App() {
     return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : DEFAULT_SIDEBAR_WIDTH;
   });
   const [resizingSidebar, setResizingSidebar] = useState(false);
-  const hasActiveTask = tasks.some((task) => task.status === "running" || task.status === "scheduled");
+  const hasActiveTask = tasks.some((task) => {
+    const status = getEffectiveTaskStatus(task);
+    return status === "running" || status === "scheduled";
+  });
 
   useEffect(() => {
     void refreshData();
@@ -359,7 +350,7 @@ export default function App() {
                 }}
               >
                 <span>{task.name}</span>
-                <small>{formatTaskStatus(task.status)}</small>
+                <small>{formatTaskStatus(getEffectiveTaskStatus(task))}</small>
               </button>
               <button
                 className="sidebar-task-delete"

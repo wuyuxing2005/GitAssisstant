@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { analyticsReportUrl } from "../services/api";
 import type { ComparisonItem, ComparisonResponse, EvaluationTask, MetricScore } from "../types/task";
+import { formatTaskStatus, getEffectiveTaskStatus } from "../utils/taskStatus";
 
 interface ComparePageProps {
   tasks: EvaluationTask[];
@@ -12,18 +13,6 @@ function formatMetricValue(value: number): string {
     return value.toString();
   }
   return value.toFixed(2);
-}
-
-function statusText(status: EvaluationTask["status"]): string {
-  const mapping: Record<EvaluationTask["status"], string> = {
-    draft: "草稿",
-    scheduled: "排队中",
-    running: "执行中",
-    completed: "已完成",
-    failed: "失败"
-  };
-
-  return mapping[status];
 }
 
 function taskIssueDescription(task: EvaluationTask): string {
@@ -38,10 +27,11 @@ function metricDisplayValue(score: MetricScore | undefined): string {
 }
 
 function comparisonItemFromTask(task: EvaluationTask): ComparisonItem {
+  const effectiveStatus = getEffectiveTaskStatus(task);
   return {
     task_id: task.id,
     task_name: task.name,
-    status: task.status,
+    status: effectiveStatus,
     summary: task.result?.summary || task.description || "该任务暂无对比摘要。",
     scores: task.result?.metrics ?? []
   };
@@ -121,7 +111,7 @@ export function ComparePage({ tasks, comparison }: ComparePageProps) {
                 <span className="compare-task-card-body">
                   <span className="compare-task-card-title">
                     <strong>{task.name}</strong>
-                    <span className={`status-badge ${task.status}`}>{statusText(task.status)}</span>
+                    <span className={`status-badge ${getEffectiveTaskStatus(task)}`}>{formatTaskStatus(getEffectiveTaskStatus(task))}</span>
                   </span>
                   <small title={taskIssueDescription(task)}>{taskIssueDescription(task)}</small>
                 </span>
@@ -179,7 +169,7 @@ export function ComparePage({ tasks, comparison }: ComparePageProps) {
                     <td>状态</td>
                     {selectedComparisonItems.map((item) => (
                       <td key={`${item.task_id}-status`}>
-                        <span className={`status-badge ${item.status}`}>{statusText(item.status)}</span>
+                        <span className={`status-badge ${item.status}`}>{formatTaskStatus(item.status)}</span>
                       </td>
                     ))}
                   </tr>

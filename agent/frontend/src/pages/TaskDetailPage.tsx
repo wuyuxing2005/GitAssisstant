@@ -19,6 +19,7 @@ import type {
   TaskMessage
 } from "../types/task";
 import { formatDisplayTime } from "../utils/time";
+import { formatTaskStatus, getEffectiveTaskStatus } from "../utils/taskStatus";
 
 interface TaskDetailPageProps {
   task: EvaluationTask | null;
@@ -759,6 +760,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
   const hasChanges = !!diffInfo?.has_changes;
   const parsedDiffFiles = parseUnifiedDiff(diffInfo?.diff);
   const displayedMessages = mergeConversationMessages(messages, localMessages);
+  const effectiveTaskStatus = getEffectiveTaskStatus(task);
   const issueStateLabel = issueLoading
     ? "加载中"
     : issueInfo
@@ -768,17 +770,9 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       : "未关联";
   const canCloseIssue = !!issueInfo && issueInfo.state !== "closed" && task.status === "completed";
   const publishStateLabel =
-    task.status === "draft"
-      ? "草稿"
-      : task.status === "scheduled"
-        ? "排队中"
-        : task.status === "running"
-          ? "执行中"
-          : task.status === "failed"
-            ? "失败"
-            : hasChanges
-              ? "等待发布"
-              : "已完成";
+    effectiveTaskStatus === "completed" && hasChanges
+      ? "等待发布"
+      : formatTaskStatus(effectiveTaskStatus);
 
   return (
     <>

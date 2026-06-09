@@ -1,5 +1,6 @@
 import type { EvaluationTask, RunMode } from "../types/task";
 import { formatDisplayTime } from "../utils/time";
+import { formatTaskStatus, getEffectiveTaskStatus } from "../utils/taskStatus";
 
 interface TaskTableProps {
   tasks: EvaluationTask[];
@@ -9,14 +10,6 @@ interface TaskTableProps {
   onRunTask: (taskId: string, mode: RunMode, reset?: boolean) => Promise<void>;
   onDeleteTask: (taskId: string) => Promise<void>;
 }
-
-const statusTextMap: Record<EvaluationTask["status"], string> = {
-  draft: "草稿",
-  scheduled: "排队中",
-  running: "执行中",
-  completed: "已完成",
-  failed: "失败"
-};
 
 export function TaskTable({
   tasks,
@@ -67,6 +60,7 @@ export function TaskTable({
         <tbody>
           {tasks.map((task) => {
             const snapshot = task.result?.current_state;
+            const effectiveStatus = getEffectiveTaskStatus(task);
             const isSelected = task.id === selectedTaskId;
             const isBusy = busyTaskId === task.id;
             const disableActions = Boolean(busyTaskId && busyTaskId !== task.id);
@@ -90,8 +84,8 @@ export function TaskTable({
                   <small className="meta-inline">模式：{task.config.run_mode}</small>
                 </td>
                 <td>
-                  <span className={`status-badge ${task.status}`}>
-                    {statusTextMap[task.status]}
+                  <span className={`status-badge ${effectiveStatus}`}>
+                    {formatTaskStatus(effectiveStatus)}
                   </span>
                 </td>
                 <td>
