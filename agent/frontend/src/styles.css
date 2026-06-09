@@ -3020,6 +3020,10 @@ button.floating-env-row:hover:not(:disabled) {
   animation: skill-modal-in 220ms ease both;
 }
 
+.skill-modal-close-button {
+  margin-top: -2px;
+}
+
 .skill-create-modal .skill-create-form {
   margin-left: 0;
   padding: 20px 24px 24px;
@@ -3177,35 +3181,39 @@ button.floating-env-row:hover:not(:disabled) {
   transform: none;
 }
 
-.trash-button span {
-  position: relative;
-  width: 13px;
-  height: 14px;
-  border: 2px solid currentColor;
-  border-top: 0;
-  border-radius: 0 0 3px 3px;
+.edit-button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
 }
 
-.trash-button span::before {
-  content: "";
-  position: absolute;
-  top: -6px;
-  left: -3px;
-  width: 15px;
-  height: 2px;
-  border-radius: 999px;
-  background: currentColor;
+.edit-button:hover {
+  background: #e5e7eb;
+  transform: translateY(-1px);
 }
 
-.trash-button span::after {
-  content: "";
-  position: absolute;
-  top: -9px;
-  left: 3px;
-  width: 5px;
-  height: 2px;
-  border-radius: 999px;
-  background: currentColor;
+.edit-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.edit-button img {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.trash-button img {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 @keyframes skill-backdrop-in {

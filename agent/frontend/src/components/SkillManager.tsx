@@ -53,6 +53,7 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
   const [createErrorMessage, setCreateErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<SkillRecord | null>(null);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -61,7 +62,7 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
       setCreateErrorMessage("请填写名称、描述和正文。");
       return;
     }
-    const confirmed = window.confirm(`确定创建 Skill "${payload.name}" 吗？`);
+    const confirmed = window.confirm(editingSkill ? `确定保存对 Skill "${editingSkill.name}" 的修改吗？` : `确定创建 Skill "${payload.name}" 吗？`);
     if (!confirmed) {
       return;
     }
@@ -70,32 +71,62 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
       setSubmitting(true);
       setCreateErrorMessage(null);
       setSuccessMessage(null);
-      const skill = await createSkill(payload);
+      let skill: SkillRecord;
+      if (editingSkill) {
+        if (payload.name === editingSkill.name) {
+          await deleteSkill(editingSkill.name);
+          skill = await createSkill(payload);
+        } else {
+          skill = await createSkill(payload);
+          await deleteSkill(editingSkill.name);
+        }
+      } else {
+        skill = await createSkill(payload);
+      }
       setFormState(emptyForm);
       setExpanded(skill.name);
       setCreateModalOpen(false);
-      setSuccessMessage(`已添加 Skill：${skill.name}`);
+      setEditingSkill(null);
+      setSuccessMessage(editingSkill ? `已更新 Skill：${skill.name}` : `已添加 Skill：${skill.name}`);
       await onChanged();
     } catch (error) {
-      setCreateErrorMessage(error instanceof Error ? error.message : "新增 Skill 失败");
+      setCreateErrorMessage(error instanceof Error ? error.message : editingSkill ? "编辑 Skill 失败" : "新增 Skill 失败");
     } finally {
       setSubmitting(false);
     }
   }
 
   function handleOpenCreateModal() {
+    setFormState(emptyForm);
+    setEditingSkill(null);
     setCreateErrorMessage(null);
     setCreateModalOpen(true);
   }
 
   function handleCloseCreateModal() {
     setCreateModalOpen(false);
+    setEditingSkill(null);
+    setCreateErrorMessage(null);
   }
 
-  async function handleDelete(skill: SkillRecord) {
-    const confirmed = window.confirm(`确定删除 Skill "${skill.name}" 吗？这会删除对应的 SKILL.md 文件。`);
+  function handleOpenEditModal(skill: SkillRecord) {
+    setEditingSkill(skill);
+    setFormState({
+      name: skill.name,
+      description: skill.description,
+      allowedTools: skill.allowed_tools.join(", "),
+      priorityTools: skill.priority_tools.join(", "),
+      body: skill.body,
+      enabled: skill.enabled
+    });
+    setCreateErrorMessage(null);
+    setCreateModalOpen(true);
+  }
+
+  async function handleDelete(skill: SkillRecord, errorTarget: "page" | "modal" = "page"): Promise<boolean> {
+    const confirmed = window.confirm(`确定删除 Skill "${skill.name}" 吗?此操作不可恢复。`);
     if (!confirmed) {
-      return;
+      return false;
     }
 
     try {
@@ -106,10 +137,33 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
       setExpanded((current) => (current === skill.name ? null : current));
       setSuccessMessage(`已删除 Skill：${skill.name}`);
       await onChanged();
+      return true;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "删除 Skill 失败");
+      const message = error instanceof Error ? error.message : "删除 Skill 失败";
+      if (errorTarget === "modal") {
+        setCreateErrorMessage(message);
+      } else {
+        setErrorMessage(message);
+      }
+      return false;
     } finally {
       setBusySkill(null);
+    }
+  }
+
+  async function handleDeleteEditingSkill() {
+    if (!editingSkill) {
+      return;
+    }
+    try {
+      setCreateErrorMessage(null);
+      const deleted = await handleDelete(editingSkill, "modal");
+      if (deleted) {
+        setCreateModalOpen(false);
+        setEditingSkill(null);
+      }
+    } catch (error) {
+      setCreateErrorMessage(error instanceof Error ? error.message : "删除 Skill 失败");
     }
   }
 
@@ -133,10 +187,10 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
           <section className="settings-modal skill-create-modal" role="dialog" aria-modal="true" aria-labelledby="skill-create-title">
             <div className="settings-modal-header">
               <div>
-                <h2 id="skill-create-title">自定义 Skill</h2>
-                <p>创建新的 Skill，并按现有格式生成 SKILL.md。</p>
+                <h2 id="skill-create-title">{editingSkill ? "编辑 Skill" : "自定义 Skill"}</h2>
+                <p>{editingSkill ? "" : ""}</p>
               </div>
-              <button className="modal-close-button" type="button" onClick={handleCloseCreateModal} aria-label="关闭自定义 Skill 弹窗">
+              <button className="modal-close-button skill-modal-close-button" type="button" onClick={handleCloseCreateModal} aria-label="关闭 Skill 弹窗">
                 ×
               </button>
             </div>
@@ -187,6 +241,18 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
             </label>
 
             <div className="skill-modal-actions">
+              {editingSkill ? (
+                <button
+                  className="trash-button"
+                  type="button"
+                  aria-label="删除skill"
+                  title="删除skill"
+                  onClick={() => void handleDeleteEditingSkill()}
+                  disabled={submitting}
+                >
+                  <img src="/assets/删除.svg" alt="" aria-hidden="true" />
+                </button>
+              ) : null}
               <button className="primary-button" type="submit" disabled={submitting}>
                 {submitting ? "保存中" : "确定"}
               </button>
@@ -219,14 +285,14 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
                 </div>
                 <div className="action-row">
                   <button
-                    className="trash-button"
+                    className="edit-button"
                     type="button"
-                    aria-label={`删除 ${skill.name}`}
-                    title="删除"
-                    onClick={() => void handleDelete(skill)}
+                    aria-label={`编辑 ${skill.name}`}
+                    title="编辑skill"
+                    onClick={() => handleOpenEditModal(skill)}
                     disabled={busySkill === skill.name}
                   >
-                    <span aria-hidden="true" />
+                    <img src="/assets/edit.svg" alt="" aria-hidden="true" />
                   </button>
                 </div>
               </div>
