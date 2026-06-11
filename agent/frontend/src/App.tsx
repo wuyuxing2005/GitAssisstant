@@ -28,6 +28,8 @@ import type {
   CreateTaskPayload,
   EvaluationTask,
   GitHubIssueInfo,
+  AgentTrace,
+  TraceEvent,
   SkillRecord,
   RunMode
 } from "./types/task";
@@ -62,6 +64,44 @@ function pageTitle(page: PageKey, task: EvaluationTask | null): string {
   return "对比结果";
 }
 
+function formatTraceDuration(durationMs?: number | null): string {
+  if (durationMs === null || durationMs === undefined) {
+    return "-";
+  }
+  if (durationMs < 1000) {
+    return `${durationMs}ms`;
+  }
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+function formatTraceTime(value?: string | null): string {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function traceEventStatusLabel(event: TraceEvent): string {
+  return [event.phase, event.status].filter(Boolean).join(" / ") || "-";
+}
+
+function isKeyTraceEvent(event: TraceEvent): boolean {
+  const text = `${event.event_type} ${event.phase} ${event.status} ${event.title}`.toLowerCase();
+  return (
+    event.actor === "user" ||
+    event.actor === "agent" ||
+    !!event.tool_call ||
+    event.status !== "success" ||
+    text.includes("final") ||
+    text.includes("error") ||
+    text.includes("fail") ||
+    text.includes("完成") ||
+    text.includes("失败") ||
+    text.includes("错误")
+  );
+}
+
 export default function App() {
   const [tasks, setTasks] = useState<EvaluationTask[]>([]);
   const [comparison, setComparison] = useState<ComparisonResponse | null>(null);
@@ -80,6 +120,9 @@ export default function App() {
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [taskMenu, setTaskMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
+  const [traceModal, setTraceModal] = useState<{ taskId: string; taskName: string; trace: AgentTrace } | null>(null);
+  const [traceDetailsOpen, setTraceDetailsOpen] = useState(false);
+  const [traceShowAllEvents, setTraceShowAllEvents] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
     const parsed = stored ? Number(stored) : DEFAULT_SIDEBAR_WIDTH;
@@ -246,22 +289,29 @@ export default function App() {
     }
   }
 
-  async function handleDownloadTaskTrace(taskId: string) {
+  function downloadTaskTrace(trace: AgentTrace) {
+    const blob = new Blob([JSON.stringify(trace, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${trace.task_id}-trace.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleOpenTaskTrace(taskId: string) {
     try {
       setTaskMenu(null);
       setBusyTaskId(taskId);
       const trace = await fetchTaskTrace(taskId);
-      const blob = new Blob([JSON.stringify(trace, null, 2)], { type: "application/json;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${taskId}-trace.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      const task = tasks.find((item) => item.id === taskId);
+      setTraceDetailsOpen(false);
+      setTraceShowAllEvents(false);
+      setTraceModal({ taskId, taskName: task?.name ?? taskId, trace });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "下载 trace 失败");
+      setErrorMessage(error instanceof Error ? error.message : "加载 trace 失败");
     } finally {
       setBusyTaskId(null);
     }
@@ -355,6 +405,9 @@ export default function App() {
   const appShellStyle = {
     "--sidebar-width": `${sidebarWidth}px`
   } as CSSProperties;
+  const traceEvents = traceModal?.trace.events ?? [];
+  const keyTraceEvents = traceEvents.filter(isKeyTraceEvent);
+  const visibleTraceEvents = traceShowAllEvents || keyTraceEvents.length === 0 ? traceEvents : keyTraceEvents;
 
   return (
     <div className={`app-shell ${currentPage === "detail" ? "detail-shell" : ""} ${resizingSidebar ? "resizing-sidebar" : ""}`} style={appShellStyle}>
@@ -492,14 +545,148 @@ export default function App() {
         <>
           <button className="task-action-menu-backdrop" type="button" aria-label="关闭任务菜单" onClick={() => setTaskMenu(null)} />
           <div className="task-action-menu" style={{ left: taskMenu.x, top: taskMenu.y }}>
-            <button type="button" onClick={() => void handleDownloadTaskTrace(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
-              下载 trace
+            <button type="button" onClick={() => void handleOpenTaskTrace(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
+              查看 trace
             </button>
             <button type="button" className="danger" onClick={() => void handleDeleteTask(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
               删除任务对话
             </button>
           </div>
         </>
+      ) : null}
+      {traceModal ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setTraceModal(null)}>
+          <section className={`settings-modal trace-modal ${traceDetailsOpen ? "details-open" : ""}`} role="dialog" aria-modal="true" aria-labelledby="trace-modal-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="settings-modal-header">
+              <div>
+                <h2 id="trace-modal-title">Trace 详情</h2>
+                <p>{traceModal.taskName}</p>
+              </div>
+              <button className="modal-close-button" type="button" onClick={() => setTraceModal(null)}>关闭</button>
+            </div>
+
+            <div className="trace-modal-body">
+              <section className="trace-summary-grid" aria-label="Trace 摘要">
+                <article>
+                  <span>状态</span>
+                  <strong>{traceModal.trace.status || "-"}</strong>
+                </article>
+                <article>
+                  <span>事件数</span>
+                  <strong>{traceModal.trace.events.length}</strong>
+                </article>
+                <article>
+                  <span>总耗时</span>
+                  <strong>{formatTraceDuration(traceModal.trace.total_latency_ms)}</strong>
+                </article>
+                <article>
+                  <span>工具调用</span>
+                  <strong>{traceModal.trace.events.filter((event) => event.tool_call).length}</strong>
+                </article>
+              </section>
+
+              <section className="trace-info-panel">
+                <div>
+                  <span>开始时间</span>
+                  <strong>{formatTraceTime(traceModal.trace.started_at)}</strong>
+                </div>
+                <div>
+                  <span>结束时间</span>
+                  <strong>{formatTraceTime(traceModal.trace.ended_at)}</strong>
+                </div>
+              </section>
+
+              {traceModal.trace.failure_reason || traceModal.trace.suggested_fix ? (
+                <section className="trace-note-panel">
+                  {traceModal.trace.failure_reason ? (
+                    <div>
+                      <span>失败原因</span>
+                      <p>{traceModal.trace.failure_reason}</p>
+                    </div>
+                  ) : null}
+                  {traceModal.trace.suggested_fix ? (
+                    <div>
+                      <span>建议修复</span>
+                      <p>{traceModal.trace.suggested_fix}</p>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              <section className="trace-overview-actions">
+                <div>
+                  <strong>事件时间线</strong>
+                  <span>默认隐藏详细事件。需要排查执行过程时再打开右侧详情。</span>
+                </div>
+                <button className="primary-button" type="button" onClick={() => setTraceDetailsOpen(true)}>
+                  查看详情
+                </button>
+                <button className="secondary-button" type="button" onClick={() => downloadTaskTrace(traceModal.trace)}>
+                  下载 trace
+                </button>
+              </section>
+            </div>
+
+            {traceDetailsOpen ? (
+              <aside className="trace-detail-drawer" aria-label="Trace 事件详情">
+                <div className="trace-section-title">
+                  <div>
+                    <h3>事件时间线</h3>
+                    <p>{traceShowAllEvents ? `显示全部 ${traceEvents.length} 个事件` : `显示关键 ${visibleTraceEvents.length} / ${traceEvents.length} 个事件`}</p>
+                  </div>
+                  <div className="trace-section-actions">
+                    <button
+                      className={`trace-filter-button ${!traceShowAllEvents ? "active" : ""}`}
+                      type="button"
+                      onClick={() => setTraceShowAllEvents(false)}
+                    >
+                      关键事件
+                    </button>
+                    <button
+                      className={`trace-filter-button ${traceShowAllEvents ? "active" : ""}`}
+                      type="button"
+                      onClick={() => setTraceShowAllEvents(true)}
+                    >
+                      全部事件
+                    </button>
+                    <button className="modal-close-button trace-drawer-close" type="button" onClick={() => setTraceDetailsOpen(false)}>
+                      关闭
+                    </button>
+                  </div>
+                </div>
+                <div className="trace-event-list">
+                  {visibleTraceEvents.map((event) => (
+                    <article key={event.event_id} className={`trace-timeline-item ${event.status}`}>
+                      <div className="trace-timeline-marker" aria-hidden="true" />
+                      <div className="trace-timeline-content">
+                        <div className="trace-event-header">
+                          <span>#{event.seq}</span>
+                          <strong>{event.title || event.event_type}</strong>
+                          <small>{formatTraceTime(event.timestamp)}</small>
+                        </div>
+                        <div className="trace-event-meta">
+                          <span>{event.actor}</span>
+                          <span>{traceEventStatusLabel(event)}</span>
+                          <span>{formatTraceDuration(event.duration_ms)}</span>
+                        </div>
+                        {event.content ? <p>{event.content}</p> : null}
+                        {event.tool_call ? (
+                          <div className="trace-tool-call">
+                            <strong>工具：{event.tool_call.name}</strong>
+                            <span>{event.tool_call.error_message || event.tool_call.result_preview || "无输出摘要"}</span>
+                            {event.tool_call.affected_files.length ? (
+                              <small>影响文件：{event.tool_call.affected_files.join("，")}</small>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </aside>
+            ) : null}
+          </section>
+        </div>
       ) : null}
     </div>
   );
