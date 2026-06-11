@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   commentTaskIssue,
   createTaskPullRequest,
@@ -245,6 +245,111 @@ function mergeConversationMessages(remoteMessages: TaskMessage[], localMessages:
   return Array.from(byId.values()).sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
+      return <code key={index}>{part.slice(1, -1)}</code>;
+    }
+    if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
+function renderMarkdownMessage(content: string): ReactNode[] {
+  const lines = content.split("\n");
+  const blocks: ReactNode[] = [];
+  let paragraphLines: string[] = [];
+  let listItems: string[] = [];
+  let index = 0;
+
+  const flushParagraph = () => {
+    if (!paragraphLines.length) {
+      return;
+    }
+    const text = paragraphLines.join("\n");
+    blocks.push(<p key={`p-${blocks.length}`}>{renderInlineMarkdown(text)}</p>);
+    paragraphLines = [];
+  };
+
+  const flushList = () => {
+    if (!listItems.length) {
+      return;
+    }
+    blocks.push(
+      <ul key={`ul-${blocks.length}`}>
+        {listItems.map((item, itemIndex) => (
+          <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
+        ))}
+      </ul>
+    );
+    listItems = [];
+  };
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const fenceMatch = line.match(/^```(\S*)\s*$/);
+    if (fenceMatch) {
+      flushParagraph();
+      flushList();
+      const language = fenceMatch[1];
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].startsWith("```")) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) {
+        index += 1;
+      }
+      blocks.push(
+        <pre key={`code-${blocks.length}`}>
+          <code className={language ? `language-${language}` : undefined}>{codeLines.join("\n")}</code>
+        </pre>
+      );
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      const level = headingMatch[1].length;
+      const text = headingMatch[2];
+      blocks.push(level === 1
+        ? <h2 key={`h-${blocks.length}`}>{renderInlineMarkdown(text)}</h2>
+        : <h3 key={`h-${blocks.length}`}>{renderInlineMarkdown(text)}</h3>);
+      index += 1;
+      continue;
+    }
+
+    const listMatch = line.match(/^\s*[-*]\s+(.+)$/);
+    if (listMatch) {
+      flushParagraph();
+      listItems.push(listMatch[1]);
+      index += 1;
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      index += 1;
+      continue;
+    }
+
+    flushList();
+    paragraphLines.push(line);
+    index += 1;
+  }
+
+  flushParagraph();
+  flushList();
+  return blocks;
 }
 
 function taskHasLiveConversation(task: EvaluationTask | null): boolean {
@@ -816,7 +921,9 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
                     <span>{messageRoleLabel(message.role)}</span>
                     <small>{messageRoleHint(message.role)}</small>
                   </div>
-                  <p>{message.content}</p>
+                  <div className="conversation-markdown">
+                    {renderMarkdownMessage(message.content)}
+                  </div>
                   {message.replan ? <em>触发重新规划</em> : null}
                 </div>
               </article>

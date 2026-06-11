@@ -14,6 +14,7 @@ import {
   fetchHealth,
   fetchSettings,
   fetchSkills,
+  fetchTaskTrace,
   fetchTaskIssue,
   fetchTasks,
   runTask,
@@ -78,6 +79,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [taskMenu, setTaskMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
     const parsed = stored ? Number(stored) : DEFAULT_SIDEBAR_WIDTH;
@@ -221,6 +223,7 @@ export default function App() {
   }
 
   async function handleDeleteTask(taskId: string) {
+    setTaskMenu(null);
     const task = tasks.find((item) => item.id === taskId);
     const confirmed = window.confirm(`确定删除任务 "${task?.name ?? taskId}" 吗？此操作不可恢复。`);
     if (!confirmed) {
@@ -238,6 +241,27 @@ export default function App() {
       await refreshData(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "删除任务失败");
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  async function handleDownloadTaskTrace(taskId: string) {
+    try {
+      setTaskMenu(null);
+      setBusyTaskId(taskId);
+      const trace = await fetchTaskTrace(taskId);
+      const blob = new Blob([JSON.stringify(trace, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${taskId}-trace.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "下载 trace 失败");
     } finally {
       setBusyTaskId(null);
     }
@@ -305,6 +329,16 @@ export default function App() {
     window.addEventListener("pointerup", handlePointerUp, { once: true });
   }
 
+  function handleTaskMenuClick(event: MouseEvent<HTMLButtonElement>, taskId: string) {
+    event.stopPropagation();
+    setTaskMenu((current) => {
+      if (current?.taskId === taskId) {
+        return null;
+      }
+      return { taskId, x: event.clientX, y: event.clientY };
+    });
+  }
+
   const currentTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   const currentIssueInfo = currentTask ? issueInfoCache[currentTask.id] ?? null : null;
   const handleIssueInfoChanged = useCallback((taskId: string, issueInfo: GitHubIssueInfo | null) => {
@@ -356,14 +390,14 @@ export default function App() {
                 <small>{formatTaskStatus(getEffectiveTaskStatus(task))}</small>
               </button>
               <button
-                className="sidebar-task-delete"
+                className="sidebar-task-menu-button"
                 type="button"
-                aria-label={`删除任务 ${task.name}`}
-                title="删除任务"
+                aria-label={`打开任务菜单 ${task.name}`}
+                title="更多操作"
                 disabled={busyTaskId === task.id}
-                onClick={() => void handleDeleteTask(task.id)}
+                onClick={(event) => handleTaskMenuClick(event, task.id)}
               >
-                ×
+                ⋯
               </button>
             </div>
           ))}
@@ -454,6 +488,19 @@ export default function App() {
         onSave={handleSaveSettings}
         onLoadModels={handleLoadModels}
       />
+      {taskMenu ? (
+        <>
+          <button className="task-action-menu-backdrop" type="button" aria-label="关闭任务菜单" onClick={() => setTaskMenu(null)} />
+          <div className="task-action-menu" style={{ left: taskMenu.x, top: taskMenu.y }}>
+            <button type="button" onClick={() => void handleDownloadTaskTrace(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
+              下载 trace
+            </button>
+            <button type="button" className="danger" onClick={() => void handleDeleteTask(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
+              删除任务对话
+            </button>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

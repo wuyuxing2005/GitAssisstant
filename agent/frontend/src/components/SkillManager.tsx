@@ -191,7 +191,7 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
                 <p>{editingSkill ? "" : ""}</p>
               </div>
               <button className="modal-close-button skill-modal-close-button" type="button" onClick={handleCloseCreateModal} aria-label="关闭 Skill 弹窗">
-                ×
+                关闭
               </button>
             </div>
           <form className="skill-create-form" onSubmit={(event) => void handleCreate(event)}>

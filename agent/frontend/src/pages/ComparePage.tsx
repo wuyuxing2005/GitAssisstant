@@ -149,7 +149,7 @@ export function ComparePage({ tasks, comparison }: ComparePageProps) {
                   </div>
                 </details>
                 <button className="modal-close-button" type="button" onClick={() => setComparisonModalOpen(false)} aria-label="关闭任务对比弹窗">
-                  ×
+                  关闭
                 </button>
               </div>
             </div>

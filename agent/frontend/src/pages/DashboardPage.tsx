@@ -68,6 +68,7 @@ export function DashboardPage({
   const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | null>(null);
   const [selectedIssueBody, setSelectedIssueBody] = useState<string>("");
   const [issuesModalOpen, setIssuesModalOpen] = useState(false);
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const issuesFetchAbortRef = useRef<AbortController | null>(null);
   const skillSuggestions = useMemo(() => {
     if (!skillTrigger) {
@@ -224,6 +225,19 @@ export function DashboardPage({
     });
   }
 
+  function handleToggleExposedSkill(skillName: string, checked: boolean) {
+    setFormState((current) => {
+      const currentSkills = current.config.enabled_skills ?? [];
+      const nextSkills = checked
+        ? Array.from(new Set([...currentSkills, skillName]))
+        : currentSkills.filter((name) => name !== skillName);
+      return {
+        ...current,
+        config: { ...current.config, enabled_skills: nextSkills }
+      };
+    });
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
@@ -257,6 +271,7 @@ export function DashboardPage({
       setSelectedIssueNumber(null);
       setSelectedIssueBody("");
       setIssuesModalOpen(false);
+      setSkillPickerOpen(false);
     } catch {
       // App already surfaces the error banner.
     }
@@ -265,10 +280,6 @@ export function DashboardPage({
   return (
     <section className="card composer-card">
       <div className="section-header">
-        <div>
-          <h2>创建新任务</h2>
-          <p>输入仓库地址或本地路径，再给出 Issue 文本、编号或 GitHub issue 链接。</p>
-        </div>
       </div>
 
       <form className="task-form" onSubmit={handleSubmit}>
@@ -312,7 +323,7 @@ export function DashboardPage({
           <span>Issue 描述 / 编号 / 链接</span>
           <textarea
             required
-            rows={4}
+            rows={2}
             value={formState.config.issue_input}
             onChange={(event) =>
               setFormState((current) => ({
@@ -329,7 +340,7 @@ export function DashboardPage({
           <div className="skill-suggest-wrapper">
             <textarea
               ref={descriptionTextareaRef}
-              rows={3}
+              rows={2}
               value={formState.description}
               onChange={(event) =>
                 handleDescriptionChange(event.target.value, event.target.selectionStart)
@@ -402,35 +413,19 @@ export function DashboardPage({
 
         </div>
 
-        <div className="skill-picker">
-          <span className="field-label">启用 Skill</span>
-          <div className="skill-picker-grid">
-            {skills.map((skill) => {
-              const checked = formState.config.enabled_skills?.includes(skill.name) ?? false;
-              return (
-                <label key={skill.name} className="checkbox-row skill-choice" data-summary={skill.description}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(event) =>
-                      setFormState((current) => {
-                        const currentSkills = current.config.enabled_skills ?? [];
-                        const nextSkills = event.target.checked
-                          ? Array.from(new Set([...currentSkills, skill.name]))
-                          : currentSkills.filter((name) => name !== skill.name);
-                        return {
-                          ...current,
-                          config: { ...current.config, enabled_skills: nextSkills }
-                        };
-                      })
-                    }
-                  />
-                  <span>{skill.name}</span>
-                </label>
-              );
-            })}
-            {!skills.length ? <p className="muted-copy">未检测到可用 Skill。</p> : null}
-          </div>
+        <div className="skill-exposure-picker">
+          <span className="field-label">暴露给 Agent 的 Skill</span>
+          <button
+            className="skill-picker-entry"
+            type="button"
+            onClick={() => setSkillPickerOpen(true)}
+          >
+            <span>选择 Skill</span>
+            <strong>
+              {formState.config.enabled_skills?.length ?? 0}/{skills.length || 0} 已选择
+            </strong>
+          </button>
+          <p className="muted-copy">只有选中的 Skill 会暴露给 Agent 选择使用。</p>
         </div>
 
         <div className="action-row">
@@ -501,6 +496,84 @@ export function DashboardPage({
                   <p className="muted-copy">暂无 Issues</p>
                 </div>
               )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {skillPickerOpen ? (
+        <div className="modal-backdrop skill-modal-backdrop" role="presentation" onMouseDown={() => setSkillPickerOpen(false)}>
+          <section
+            className="settings-modal skill-exposure-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="skill-exposure-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="settings-modal-header">
+              <div>
+                <h2 id="skill-exposure-title">选择暴露给 Agent 的 Skill</h2>
+                <p>Agent 只会从这里选中的 Skill 中进行路由选择。</p>
+              </div>
+              <button className="modal-close-button" type="button" onClick={() => setSkillPickerOpen(false)}>关闭</button>
+            </div>
+
+            <div className="skill-exposure-body">
+              <div className="skill-exposure-summary">
+                <span>已选择 {formState.config.enabled_skills?.length ?? 0} 个</span>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormState((current) => ({
+                        ...current,
+                        config: { ...current.config, enabled_skills: skills.map((skill) => skill.name) }
+                      }))
+                    }
+                    disabled={!skills.length}
+                  >
+                    全选
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormState((current) => ({
+                        ...current,
+                        config: { ...current.config, enabled_skills: [] }
+                      }))
+                    }
+                    disabled={!skills.length}
+                  >
+                    清空
+                  </button>
+                </div>
+              </div>
+
+              <div className="skill-exposure-list">
+                {skills.map((skill) => {
+                  const checked = formState.config.enabled_skills?.includes(skill.name) ?? false;
+                  return (
+                    <label key={skill.name} className="checkbox-row skill-exposure-choice">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => handleToggleExposedSkill(skill.name, event.target.checked)}
+                      />
+                      <span>
+                        <strong>{skill.name}</strong>
+                        <small>{skill.description}</small>
+                      </span>
+                    </label>
+                  );
+                })}
+                {!skills.length ? <p className="muted-copy">未检测到可用 Skill。</p> : null}
+              </div>
+
+              <div className="skill-modal-actions">
+                <button className="primary-button" type="button" onClick={() => setSkillPickerOpen(false)}>
+                  完成
+                </button>
+              </div>
             </div>
           </section>
         </div>
