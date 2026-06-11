@@ -618,8 +618,8 @@ export default function App() {
                   <strong>事件时间线</strong>
                   <span>默认隐藏详细事件。需要排查执行过程时再打开右侧详情。</span>
                 </div>
-                <button className="primary-button" type="button" onClick={() => setTraceDetailsOpen(true)}>
-                  查看详情
+                <button className="primary-button" type="button" onClick={() => setTraceDetailsOpen((current) => !current)}>
+                  {traceDetailsOpen ? "收起" : "查看详情"}
                 </button>
                 <button className="secondary-button" type="button" onClick={() => downloadTaskTrace(traceModal.trace)}>
                   下载 trace
