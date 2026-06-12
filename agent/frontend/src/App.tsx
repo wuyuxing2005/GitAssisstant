@@ -42,6 +42,7 @@ const MAX_SIDEBAR_WIDTH = 560;
 const SIDEBAR_WIDTH_STORAGE_KEY = "agent-console-sidebar-width";
 const CURRENT_PAGE_STORAGE_KEY = "agent-console-current-page";
 const SELECTED_TASK_STORAGE_KEY = "agent-console-selected-task-id";
+const TASK_LIST_COLLAPSED_STORAGE_KEY = "agent-console-task-list-collapsed";
 
 function isPageKey(value: string | null): value is PageKey {
   return value === "new-task" || value === "detail" || value === "skills" || value === "compare";
@@ -114,6 +115,8 @@ export default function App() {
   const [issueInfoCache, setIssueInfoCache] = useState<Record<string, GitHubIssueInfo>>({});
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [backendStatus, setBackendStatus] = useState<"loading" | "online" | "offline">("loading");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -129,6 +132,10 @@ export default function App() {
     return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : DEFAULT_SIDEBAR_WIDTH;
   });
   const [resizingSidebar, setResizingSidebar] = useState(false);
+  const [taskListCollapsed, setTaskListCollapsed] = useState(() => {
+    const stored = window.localStorage.getItem(TASK_LIST_COLLAPSED_STORAGE_KEY);
+    return stored === "true";
+  });
   const hasActiveTask = tasks.some((task) => {
     const status = getEffectiveTaskStatus(task);
     return status === "running" || status === "scheduled";
@@ -149,6 +156,10 @@ export default function App() {
       window.localStorage.removeItem(SELECTED_TASK_STORAGE_KEY);
     }
   }, [selectedTaskId]);
+
+  useEffect(() => {
+    window.localStorage.setItem(TASK_LIST_COLLAPSED_STORAGE_KEY, taskListCollapsed.toString());
+  }, [taskListCollapsed]);
 
   useEffect(() => {
     if (!hasActiveTask) {
@@ -190,7 +201,9 @@ export default function App() {
 
   async function refreshData(_keepBanner = false) {
     try {
+      setRefreshing(true);
       setErrorMessage(null);
+      setSuccessMessage(null);
       const [health, taskList, settingsResponse, skillResponse] = await Promise.all([
         fetchHealth(),
         fetchTasks(),
@@ -210,9 +223,14 @@ export default function App() {
         setComparison(null);
       }
 
+      setSuccessMessage("数据刷新成功");
+      setTimeout(() => setSuccessMessage(null), 3000);
+
     } catch (error) {
       setBackendStatus("offline");
       setErrorMessage(error instanceof Error ? error.message : "加载数据失败");
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -425,38 +443,51 @@ export default function App() {
           <a href="#compare" onClick={(event) => handleNavClick(event, "compare")}>对比结果</a>
         </nav>
 
-        <div className="sidebar-task-list">
-          {tasks.map((task) => (
-            <div
-              key={task.id}
-              className={`sidebar-task-item ${task.id === selectedTaskId ? "active" : ""}`}
-            >
-              <button
-                className="sidebar-task-select"
-                type="button"
-                onClick={() => {
-                  setSelectedTaskId(task.id);
-                  setCurrentPage("detail");
-                }}
-              >
-                <span>{task.name}</span>
-                <small>{formatTaskStatus(getEffectiveTaskStatus(task))}</small>
-              </button>
-              <button
-                className="sidebar-task-menu-button"
-                type="button"
-                aria-label={`打开任务菜单 ${task.name}`}
-                title="更多操作"
-                disabled={busyTaskId === task.id}
-                onClick={(event) => handleTaskMenuClick(event, task.id)}
-              >
-                ⋯
-              </button>
+        <div className="sidebar-task-section">
+          <button
+            className="sidebar-task-header"
+            type="button"
+            onClick={() => setTaskListCollapsed(!taskListCollapsed)}
+          >
+            <span>任务列表 ({tasks.length})</span>
+            <span className="collapse-icon">{taskListCollapsed ? "▸" : "▾"}</span>
+          </button>
+
+          {!taskListCollapsed && (
+            <div className="sidebar-task-list">
+              {tasks.map((task) => (
+                <div
+                  key={task.id}
+                  className={`sidebar-task-item ${task.id === selectedTaskId ? "active" : ""}`}
+                >
+                  <button
+                    className="sidebar-task-select"
+                    type="button"
+                    onClick={() => {
+                      setSelectedTaskId(task.id);
+                      setCurrentPage("detail");
+                    }}
+                  >
+                    <span>{task.name}</span>
+                    <small>{formatTaskStatus(getEffectiveTaskStatus(task))}</small>
+                  </button>
+                  <button
+                    className="sidebar-task-menu-button"
+                    type="button"
+                    aria-label={`打开任务菜单 ${task.name}`}
+                    title="更多操作"
+                    disabled={busyTaskId === task.id}
+                    onClick={(event) => handleTaskMenuClick(event, task.id)}
+                  >
+                    ⋯
+                  </button>
+                </div>
+              ))}
+              {tasks.length === 0 ? (
+                <div className="sidebar-empty">还没有任务</div>
+              ) : null}
             </div>
-          ))}
-          {tasks.length === 0 ? (
-            <div className="sidebar-empty">还没有任务</div>
-          ) : null}
+          )}
         </div>
 
         <button className="sidebar-settings" type="button" onClick={() => void handleOpenSettings()}>设置</button>
@@ -490,13 +521,14 @@ export default function App() {
 
           <div className="hero-actions">
             <span className={`health-pill ${backendStatus}`}>后端：{backendStatus}</span>
-            <button className="primary-button" type="button" onClick={() => void refreshData()}>
-              刷新数据
+            <button className="primary-button" type="button" onClick={() => void refreshData()} disabled={refreshing}>
+              {refreshing ? "刷新中..." : "刷新数据"}
             </button>
           </div>
         </header>
 
         {errorMessage ? <div className="banner error">{errorMessage}</div> : null}
+        {successMessage ? <div className="banner success">{successMessage}</div> : null}
 
         {currentPage === "new-task" ? (
           <DashboardPage
