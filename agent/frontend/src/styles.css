@@ -2521,7 +2521,6 @@ button.floating-env-row:hover:not(:disabled) {
   place-items: center;
   padding: 24px;
   background: rgba(15, 23, 42, 0.22);
-  backdrop-filter: blur(6px);
 }
 
 .settings-modal {
@@ -2581,7 +2580,50 @@ button.floating-env-row:hover:not(:disabled) {
   background: rgba(15, 23, 42, 0.06);
 }
 
+.delete-confirm-modal {
+  width: min(620px, calc(100vw - 48px));
+}
+
+.delete-confirm-body {
+  display: grid;
+  gap: 18px;
+  padding: 20px 24px 24px;
+}
+
+.delete-confirm-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid #e5e9ec;
+  border-radius: 16px;
+  background: #fbfcfc;
+}
+
+.delete-confirm-card span {
+  color: #647077;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.delete-confirm-card strong {
+  color: #17212b;
+  font-size: 18px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.delete-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.delete-confirm-button {
+  background: linear-gradient(135deg, #b42318, #dc2626);
+}
+
 .trace-modal {
+  --trace-drawer-width: clamp(560px, calc(100vw - 760px), 980px);
   position: relative;
   width: min(640px, calc(100vw - 96px));
   height: min(760px, calc(100vh - 48px));
@@ -2597,7 +2639,7 @@ button.floating-env-row:hover:not(:disabled) {
 .trace-modal.details-open {
   border-right: 0;
   border-radius: 22px 0 0 22px;
-  transform: translateX(clamp(-380px, -26vw, -300px));
+  transform: translateX(calc(var(--trace-drawer-width) * -0.5));
 }
 
 .trace-modal.details-open .settings-modal-header {
@@ -2725,7 +2767,7 @@ button.floating-env-row:hover:not(:disabled) {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
-  width: clamp(560px, calc(100vw - 760px), 980px);
+  width: var(--trace-drawer-width);
   height: 100%;
   padding: 18px;
   border: 1px solid #e5e9ec;

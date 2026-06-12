@@ -123,6 +123,7 @@ export default function App() {
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [taskMenu, setTaskMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
+  const [pendingDeleteTask, setPendingDeleteTask] = useState<{ taskId: string; taskName: string } | null>(null);
   const [traceModal, setTraceModal] = useState<{ taskId: string; taskName: string; trace: AgentTrace } | null>(null);
   const [traceDetailsOpen, setTraceDetailsOpen] = useState(false);
   const [traceShowAllEvents, setTraceShowAllEvents] = useState(false);
@@ -276,13 +277,18 @@ export default function App() {
     }
   }
 
-  async function handleDeleteTask(taskId: string) {
+  function handleRequestDeleteTask(taskId: string) {
     setTaskMenu(null);
     const task = tasks.find((item) => item.id === taskId);
-    const confirmed = window.confirm(`确定删除任务 "${task?.name ?? taskId}" 吗？此操作不可恢复。`);
-    if (!confirmed) {
+    setPendingDeleteTask({ taskId, taskName: task?.name ?? taskId });
+  }
+
+  async function handleDeleteTask() {
+    if (!pendingDeleteTask) {
       return;
     }
+
+    const { taskId } = pendingDeleteTask;
 
     try {
       setBusyTaskId(taskId);
@@ -297,6 +303,7 @@ export default function App() {
       setErrorMessage(error instanceof Error ? error.message : "删除任务失败");
     } finally {
       setBusyTaskId(null);
+      setPendingDeleteTask(null);
     }
   }
 
@@ -572,11 +579,38 @@ export default function App() {
             <button type="button" onClick={() => void handleOpenTaskTrace(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
               查看 trace
             </button>
-            <button type="button" className="danger" onClick={() => void handleDeleteTask(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
+            <button type="button" className="danger" onClick={() => handleRequestDeleteTask(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
               删除任务对话
             </button>
           </div>
         </>
+      ) : null}
+      {pendingDeleteTask ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setPendingDeleteTask(null)}>
+          <section className="settings-modal delete-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-task-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="settings-modal-header">
+              <div>
+                <h2 id="delete-task-title">删除任务对话</h2>
+                <p>确认后将删除该任务及其当前对话记录，此操作不可恢复。</p>
+              </div>
+              <button className="modal-close-button" type="button" onClick={() => setPendingDeleteTask(null)}>关闭</button>
+            </div>
+            <div className="delete-confirm-body">
+              <div className="delete-confirm-card">
+                <span>任务名称</span>
+                <strong>{pendingDeleteTask.taskName}</strong>
+              </div>
+              <div className="delete-confirm-actions">
+                <button className="secondary-button" type="button" onClick={() => setPendingDeleteTask(null)}>
+                  取消
+                </button>
+                <button className="primary-button delete-confirm-button" type="button" onClick={() => void handleDeleteTask()} disabled={busyTaskId === pendingDeleteTask.taskId}>
+                  {busyTaskId === pendingDeleteTask.taskId ? "删除中..." : "确认删除"}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
       ) : null}
       {traceModal ? (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setTraceModal(null)}>
