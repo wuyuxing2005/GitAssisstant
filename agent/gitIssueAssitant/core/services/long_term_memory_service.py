@@ -190,7 +190,7 @@ class LongTermMemoryService:
                 f"Issue:\n{task.config.issue_input}",
                 f"用户补充说明:\n{task.description or '无'}",
                 f"结果摘要:\n{result.summary or '无'}",
-                f"指标:\n" + ("\n".join(metric_lines) or "无"),
+                "指标:\n" + ("\n".join(metric_lines) or "无"),
                 f"修复报告:\n{report or '无'}",
                 "最近执行轨迹:\n" + ("\n\n".join(timeline_lines) or "无"),
             ]
