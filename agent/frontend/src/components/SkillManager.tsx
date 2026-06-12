@@ -274,7 +274,7 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
                   aria-label={isExpanded ? "收起 Skill" : "展开 Skill"}
                   onClick={() => setExpanded(isExpanded ? null : skill.name)}
                 >
-                  {isExpanded ? "‹" : "›"}
+                  {isExpanded ? "▾" : "▸"}
                 </button>
                 <div>
                   <div className="skill-title-line">
