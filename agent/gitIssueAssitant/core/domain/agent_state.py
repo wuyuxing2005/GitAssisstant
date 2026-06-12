@@ -29,6 +29,8 @@ class AgentState(TypedDict):
 
     # 消息流与轨迹
     messages: Annotated[List[BaseMessage], operator.add]
+    acknowledged_user_insert_keys: List[str]
+    ignored_user_insert_keys: List[str]
     trajectory: Annotated[List[Dict[str, Any]], operator.add]
 
     # 上下文压缩元数据

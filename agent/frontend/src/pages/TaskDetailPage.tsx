@@ -26,6 +26,7 @@ interface TaskDetailPageProps {
   task: EvaluationTask | null;
   busyTaskId: string | null;
   onRunTask: (taskId: string, mode: RunMode, reset?: boolean, allowLocalFallback?: boolean) => Promise<void>;
+  onInterruptTask?: (taskId: string) => Promise<void>;
   onTerminateSandboxTask?: (taskId: string) => Promise<void>;
   cachedIssueInfo?: GitHubIssueInfo | null;
   onIssueInfoChanged?: (taskId: string, issueInfo: GitHubIssueInfo | null) => void;
@@ -239,7 +240,16 @@ function messageRoleHint(role: TaskMessage["role"]): string {
 
 function mergeConversationMessages(remoteMessages: TaskMessage[], localMessages: TaskMessage[]): TaskMessage[] {
   const byId = new Map<string, TaskMessage>();
+  const seenLocalFallbackSelections = new Set<string>();
   for (const message of [...remoteMessages, ...localMessages]) {
+    const normalizedContent = message.content.trim();
+    if (message.role === "user" && normalizedContent === "选择：Docker 不可用，改为本地执行") {
+      const taskId = message.id.split("-msg-")[0].split("-local-run-local-")[0];
+      if (seenLocalFallbackSelections.has(taskId)) {
+        continue;
+      }
+      seenLocalFallbackSelections.add(taskId);
+    }
     byId.set(message.id, message);
   }
   return Array.from(byId.values()).sort(
@@ -398,7 +408,7 @@ function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
   );
 }
 
-export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandboxTask, cachedIssueInfo, onIssueInfoChanged, onTaskChanged }: TaskDetailPageProps) {
+export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, onTerminateSandboxTask, cachedIssueInfo, onIssueInfoChanged, onTaskChanged }: TaskDetailPageProps) {
   const conversationListRef = useRef<HTMLDivElement | null>(null);
   const messageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [diffInfo, setDiffInfo] = useState<GitDiffResponse | null>(null);
@@ -835,17 +845,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     }
     setConversationPinnedToBottom(true);
     setSandboxDecisionAcknowledged(true);
-    setLocalMessages((current) => [
-      ...current,
-      {
-        id: `${task.id}-local-run-local-${Date.now()}`,
-        role: "user",
-        content: "选择：Docker 不可用，改为本地执行",
-        created_at: new Date().toISOString(),
-        replan: false
-      }
-    ]);
-    await onRunTask(task.id, "auto", true, true);
+    await onRunTask(task.id, "auto", false, true);
   }
 
   async function handleTerminateAfterSandboxFailure() {
@@ -855,6 +855,47 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     setConversationPinnedToBottom(true);
     setSandboxDecisionAcknowledged(true);
     await onTerminateSandboxTask(task.id);
+  }
+
+  async function handleInterruptTask() {
+    if (!task || !onInterruptTask) {
+      return;
+    }
+    const confirmed = window.confirm("确定要强制中断当前任务吗？尚未被 Agent 读取的插入对话会被丢弃。");
+    if (!confirmed) {
+      return;
+    }
+    setConversationPinnedToBottom(true);
+    await onInterruptTask(task.id);
+    await onTaskChanged?.();
+  }
+
+  async function handleRestartTask() {
+    if (!task) {
+      return;
+    }
+    const effectiveStatus = getEffectiveTaskStatus(task);
+    const taskIsActive = effectiveStatus === "running" || effectiveStatus === "scheduled";
+    const confirmed = window.confirm(
+      taskIsActive
+        ? "确定要中断当前执行并从头开始吗？尚未被 Agent 读取的插入对话会被丢弃。"
+        : "确定要从头开始重新执行该任务吗？"
+    );
+    if (!confirmed) {
+      return;
+    }
+    setConversationPinnedToBottom(true);
+    await onRunTask(task.id, "auto", true);
+    await onTaskChanged?.();
+  }
+
+  async function handleContinueInterruptedTask() {
+    if (!task) {
+      return;
+    }
+    setConversationPinnedToBottom(true);
+    await onRunTask(task.id, "auto", false);
+    await onTaskChanged?.();
   }
 
   async function openDiffModal() {
@@ -900,6 +941,8 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
   const parsedDiffFiles = parseUnifiedDiff(diffInfo?.diff);
   const displayedMessages = mergeConversationMessages(messages, localMessages);
   const effectiveTaskStatus = getEffectiveTaskStatus(task);
+  const taskIsActive = effectiveTaskStatus === "running" || effectiveTaskStatus === "scheduled";
+  const taskIsInterrupted = effectiveTaskStatus === "interrupted";
   const issueStateLabel = issueLoading
     ? "加载中"
     : issueInfo
@@ -1046,10 +1089,22 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
       <div className="floating-env-header">
         <div>
           <span>环境信息</span>
-          <strong className={task.status === "failed" ? "failed" : ""}>{publishStateLabel}</strong>
+          <strong className={task.status === "failed" ? "failed" : taskIsInterrupted ? "interrupted" : ""}>{publishStateLabel}</strong>
         </div>
         <button type="button" onClick={() => void handleRefreshDiff()} disabled={!canPublish || diffLoading}>
           刷新
+        </button>
+      </div>
+
+      <div className="floating-task-actions" aria-label="任务控制">
+        <button type="button" className="primary" onClick={() => void handleRestartTask()} disabled={isBusy}>
+          ↺ 从头开始
+        </button>
+        <button type="button" className="danger" onClick={() => void handleInterruptTask()} disabled={isBusy || !taskIsActive || !onInterruptTask}>
+          ■ 强制中断
+        </button>
+        <button type="button" onClick={() => void handleContinueInterruptedTask()} disabled={isBusy || !taskIsInterrupted}>
+          ▶ 继续执行
         </button>
       </div>
 

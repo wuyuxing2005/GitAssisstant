@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 
 from gitIssueAssitant.core.utils.time import now_local
 
-TaskStatus = Literal["draft", "scheduled", "running", "completed", "failed"]
+TaskStatus = Literal["draft", "scheduled", "running", "interrupted", "completed", "failed"]
 RunMode = Literal["auto"]
-ExecutionOutcome = Literal["not_started", "running", "completed", "failed"]
+ExecutionOutcome = Literal["not_started", "running", "interrupted", "completed", "failed"]
 
 
 class TaskConfig(BaseModel):

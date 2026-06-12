@@ -53,6 +53,8 @@ def _trace_status(task_status: str, runtime_status: str = "") -> str:
         return "success"
     if task_status == "failed" or runtime_status == "FAILED":
         return "failed"
+    if task_status == "interrupted" or runtime_status == "INTERRUPTED":
+        return "interrupted"
     if runtime_status == "SANDBOX_UNAVAILABLE":
         return "waiting_confirmation"
     if task_status == "draft":

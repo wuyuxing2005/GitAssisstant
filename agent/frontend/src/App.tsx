@@ -18,6 +18,7 @@ import {
   fetchTaskTrace,
   fetchTaskIssue,
   fetchTasks,
+  interruptTask,
   runTask,
   terminateSandboxTask,
   updateSettings
@@ -287,6 +288,21 @@ export default function App() {
     }
   }
 
+  async function handleInterruptTask(taskId: string) {
+    try {
+      setBusyTaskId(taskId);
+      setSelectedTaskId(taskId);
+      setCurrentPage("detail");
+      await interruptTask(taskId);
+      await refreshData(true);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "中断任务失败");
+      throw error;
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
   async function handleDeleteTask(taskId: string) {
     setTaskMenu(null);
     const task = tasks.find((item) => item.id === taskId);
@@ -533,7 +549,6 @@ export default function App() {
         </header>
 
         {errorMessage ? <div className="banner error">{errorMessage}</div> : null}
-        {successMessage ? <div className="banner success">{successMessage}</div> : null}
 
         {currentPage === "new-task" ? (
           <DashboardPage
@@ -550,6 +565,7 @@ export default function App() {
             task={currentTask}
             busyTaskId={busyTaskId}
             onRunTask={handleRunTask}
+            onInterruptTask={handleInterruptTask}
             onTerminateSandboxTask={handleTerminateSandboxTask}
             cachedIssueInfo={currentIssueInfo}
             onIssueInfoChanged={handleIssueInfoChanged}
@@ -570,6 +586,8 @@ export default function App() {
           <ComparePage tasks={tasks} comparison={comparison} />
         ) : null}
       </main>
+
+      {successMessage ? <div className="toast success" role="status">{successMessage}</div> : null}
 
       <SettingsModal
         open={settingsOpen}

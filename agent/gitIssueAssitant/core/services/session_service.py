@@ -422,6 +422,8 @@ class SessionService:
             "reflexion_notes": "",
             "sandbox_id": sandbox_id,  # 迭代三第二组新增
             "tool_call_events": [],    # 迭代三第二组新增
+            "acknowledged_user_insert_keys": [],
+            "ignored_user_insert_keys": [],
             "messages": [
                 HumanMessage(
                     content=(

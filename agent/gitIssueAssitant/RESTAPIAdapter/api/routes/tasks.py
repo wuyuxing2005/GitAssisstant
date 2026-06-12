@@ -108,6 +108,17 @@ def terminate_sandbox_unavailable_task(task_id: str) -> TaskResponse:
     return refreshed
 
 
+@router.post("/{task_id}/interrupt", response_model=TaskResponse)
+def interrupt_task(task_id: str) -> TaskResponse:
+    task = issue_assistant_service.interrupt_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    refreshed = issue_assistant_service.get_task(task.id)
+    if refreshed is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return refreshed
+
+
 @router.get("/{task_id}/results", response_model=TaskResult)
 def get_task_result(task_id: str) -> TaskResult:
     result = issue_assistant_service.get_task_result(task_id)

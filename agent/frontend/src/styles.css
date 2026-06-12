@@ -182,6 +182,11 @@ ul {
   color: #bfdbfe;
 }
 
+.sidebar-task-status.interrupted {
+  background: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
+}
+
 .sidebar-task-status.completed {
   background: rgba(34, 197, 94, 0.18);
   color: #bbf7d0;
@@ -345,6 +350,27 @@ ul {
 .banner.info {
   background: #dbeafe;
   color: #1e40af;
+}
+
+.toast {
+  position: fixed;
+  top: 22px;
+  right: 28px;
+  z-index: 80;
+  max-width: min(360px, calc(100vw - 40px));
+  padding: 12px 16px;
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  border-radius: 14px;
+  background: rgba(240, 253, 244, 0.96);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
+  color: #166534;
+  font-weight: 800;
+  backdrop-filter: blur(12px);
+}
+
+.toast.success {
+  background: rgba(240, 253, 244, 0.96);
+  color: #166534;
 }
 
 .health-pill {
@@ -581,6 +607,11 @@ ul {
 .status-badge.running {
   background: var(--brand-soft);
   color: var(--brand);
+}
+
+.status-badge.interrupted {
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .status-badge.draft,
@@ -2245,6 +2276,10 @@ body {
   color: #dc2626;
 }
 
+.floating-env-header strong.interrupted {
+  color: #475569;
+}
+
 .floating-env-header button {
   border: 1px solid #e2e7ea;
   border-radius: 12px;
@@ -2288,6 +2323,11 @@ body {
 .floating-task-actions button.primary {
   background: #2f7d79;
   color: #ffffff;
+}
+
+.floating-task-actions button.danger {
+  background: #fee2e2;
+  color: #b42318;
 }
 
 .floating-task-actions button:disabled {

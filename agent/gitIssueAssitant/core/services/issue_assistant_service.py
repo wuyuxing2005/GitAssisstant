@@ -227,6 +227,9 @@ class IssueAssistantService:
     def inject_message(self, thread_id: str, content: str, *, replan: bool = False) -> None:
         self._orchestrator.inject_message(thread_id, content, replan=replan)
 
+    def discard_pending_user_insertions(self, thread_id: str) -> int:
+        return self._orchestrator.discard_pending_user_insertions(thread_id)
+
     def reopen_after_terminal(self, thread_id: str) -> None:
         self._orchestrator.reopen_after_terminal(thread_id)
 
@@ -329,6 +332,9 @@ class IssueAssistantService:
 
     async def run_task(self, task_id: str, request):
         return await self._tasks().run(task_id, request)
+
+    def interrupt_task(self, task_id: str):
+        return self._tasks().interrupt(task_id)
 
     def clear_task_state(self, task_id: str) -> None:
         self._tasks().clear_task_state(task_id)
