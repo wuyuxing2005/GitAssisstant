@@ -1621,12 +1621,49 @@ body {
   background: rgba(255, 255, 255, 0.58);
 }
 
+.sidebar-task-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.sidebar-task-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #344448;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.sidebar-task-header:hover {
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.sidebar-task-header span {
+  font-size: inherit;
+}
+
+.collapse-icon {
+  font-size: 16px;
+  line-height: 1;
+  color: #7b8a8d;
+  transition: transform 160ms ease;
+}
+
 .sidebar-task-list {
   display: grid;
   align-content: start;
   gap: 6px;
   overflow: auto;
-  padding: 0 4px 8px;
+  padding: 8px 4px 8px 16px;
 }
 
 .sidebar-task-item {
@@ -1634,9 +1671,9 @@ body {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   width: 100%;
-  min-height: 44px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
   background: transparent;
   color: #314347;
 }
@@ -1670,9 +1707,11 @@ body {
   font-weight: 700;
 }
 
-.sidebar-task-select small,
 .sidebar-empty {
   color: #85989a;
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
 }
 
 .sidebar-task-menu-button {
@@ -2558,7 +2597,7 @@ button.floating-env-row:hover:not(:disabled) {
 .trace-modal.details-open {
   border-right: 0;
   border-radius: 22px 0 0 22px;
-  transform: translateX(clamp(-460px, -32vw, -360px));
+  transform: translateX(clamp(-380px, -26vw, -300px));
 }
 
 .trace-modal.details-open .settings-modal-header {
@@ -3579,6 +3618,88 @@ button.floating-env-row:hover:not(:disabled) {
   cursor: not-allowed;
   background: #aeb8bd;
   color: #eef2f4;
+}
+
+.send-button-group {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.send-method-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #5b6476;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.send-method-toggle:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.send-method-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.send-method-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: transparent;
+}
+
+.send-method-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 160px;
+  padding: 6px;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e9ec;
+}
+
+.send-method-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #18212f;
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.send-method-menu button:hover {
+  background: #f1f5f9;
+}
+
+.send-method-menu button.active {
+  background: #dbeafe;
+  color: #174ea6;
+  font-weight: 600;
+}
+
+.send-method-menu button span:last-child {
+  color: #174ea6;
+  font-weight: 700;
 }
 
 .skill-manager-list {

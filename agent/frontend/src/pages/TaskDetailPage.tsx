@@ -408,6 +408,11 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
   const [messageReplan, setMessageReplan] = useState(true);
   const [messageBusy, setMessageBusy] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
+  const [sendMethod, setSendMethod] = useState<"enter" | "ctrl-enter">(() => {
+    const stored = window.localStorage.getItem("message-send-method");
+    return stored === "ctrl-enter" ? "ctrl-enter" : "enter";
+  });
+  const [sendMethodMenuOpen, setSendMethodMenuOpen] = useState(false);
   const [diffLoading, setDiffLoading] = useState(false);
   const [gitActionBusy, setGitActionBusy] = useState(false);
   const [gitMessage, setGitMessage] = useState<string | null>(null);
@@ -799,6 +804,22 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
     }
   }
 
+  function handleMessageKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (sendMethod === "enter" && event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      void handleSubmitMessage();
+    } else if (sendMethod === "ctrl-enter" && event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      void handleSubmitMessage();
+    }
+  }
+
+  function handleChangeSendMethod(method: "enter" | "ctrl-enter") {
+    setSendMethod(method);
+    window.localStorage.setItem("message-send-method", method);
+    setSendMethodMenuOpen(false);
+  }
+
   function handleConversationScroll() {
     const list = conversationListRef.current;
     if (!list) {
@@ -958,6 +979,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
               rows={1}
               value={messageContent}
               onChange={(event) => setMessageContent(event.target.value)}
+              onKeyDown={handleMessageKeyDown}
               placeholder="例如：根据刚才的测试失败继续修。"
               disabled={messageBusy}
             />
@@ -970,15 +992,50 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onTerminateSandbox
               >
                 重新规划
               </button>
-              <button
-                className="conversation-send-button"
-                type="button"
-                aria-label="发送补充要求"
-                onClick={() => void handleSubmitMessage()}
-                disabled={messageBusy || !messageContent.trim()}
-              >
-                ↑
-              </button>
+              <div className="send-button-group">
+                <button
+                  className="conversation-send-button"
+                  type="button"
+                  aria-label="发送补充要求"
+                  onClick={() => void handleSubmitMessage()}
+                  disabled={messageBusy || !messageContent.trim()}
+                >
+                  ↑
+                </button>
+                <button
+                  className="send-method-toggle"
+                  type="button"
+                  aria-label="切换发送方式"
+                  title={sendMethod === "enter" ? "当前：Enter 发送" : "当前：Ctrl+Enter 发送"}
+                  onClick={() => setSendMethodMenuOpen(!sendMethodMenuOpen)}
+                  disabled={messageBusy}
+                >
+                  ⋮
+                </button>
+                {sendMethodMenuOpen ? (
+                  <>
+                    <div className="send-method-backdrop" onClick={() => setSendMethodMenuOpen(false)} />
+                    <div className="send-method-menu">
+                      <button
+                        type="button"
+                        className={sendMethod === "enter" ? "active" : ""}
+                        onClick={() => handleChangeSendMethod("enter")}
+                      >
+                        <span>Enter 发送</span>
+                        {sendMethod === "enter" ? <span>✓</span> : null}
+                      </button>
+                      <button
+                        type="button"
+                        className={sendMethod === "ctrl-enter" ? "active" : ""}
+                        onClick={() => handleChangeSendMethod("ctrl-enter")}
+                      >
+                        <span>Ctrl+Enter 发送</span>
+                        {sendMethod === "ctrl-enter" ? <span>✓</span> : null}
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
