@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
 import { SettingsModal } from "./components/SettingsModal";
 import { SkillManager } from "./components/SkillManager";
-import { ComparePage } from "./pages/ComparePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { isGitHubIssueReference } from "./utils/githubIssue";
 import { formatTaskStatus, getEffectiveTaskStatus } from "./utils/taskStatus";
 import {
-  compareTasks,
   createTask,
   deleteTask,
   fetchOpenAIModels,
@@ -25,7 +23,6 @@ import {
 import type {
   AppSettings,
   AppSettingsUpdate,
-  ComparisonResponse,
   CreateTaskPayload,
   EvaluationTask,
   GitHubIssueInfo,
@@ -35,7 +32,7 @@ import type {
   RunMode
 } from "./types/task";
 
-type PageKey = "new-task" | "detail" | "skills" | "memories" | "compare";
+type PageKey = "new-task" | "detail" | "skills" | "memories";
 
 const DEFAULT_SIDEBAR_WIDTH = 386;
 const MIN_SIDEBAR_WIDTH = 260;
@@ -46,7 +43,7 @@ const SELECTED_TASK_STORAGE_KEY = "agent-console-selected-task-id";
 const TASK_LIST_COLLAPSED_STORAGE_KEY = "agent-console-task-list-collapsed";
 
 function isPageKey(value: string | null): value is PageKey {
-  return value === "new-task" || value === "detail" || value === "skills" || value === "memories" || value === "compare";
+  return value === "new-task" || value === "detail" || value === "skills" || value === "memories";
 }
 
 function clampSidebarWidth(value: number): number {
@@ -66,7 +63,7 @@ function pageTitle(page: PageKey, task: EvaluationTask | null): string {
   if (page === "memories") {
     return "长期记忆";
   }
-  return "对比结果";
+  return "创建新任务";
 }
 
 function formatTraceDuration(durationMs?: number | null): string {
@@ -109,7 +106,6 @@ function isKeyTraceEvent(event: TraceEvent): boolean {
 
 export default function App() {
   const [tasks, setTasks] = useState<EvaluationTask[]>([]);
-  const [comparison, setComparison] = useState<ComparisonResponse | null>(null);
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [currentPage, setCurrentPage] = useState<PageKey>(() => {
     const stored = window.localStorage.getItem(CURRENT_PAGE_STORAGE_KEY);
@@ -219,13 +215,6 @@ export default function App() {
       syncTaskList(taskList);
       setSettings(settingsResponse);
       setSkills(skillResponse.items);
-
-      if (taskList.length > 0) {
-        const comparisonResponse = await compareTasks(taskList.map((task) => task.id));
-        setComparison(comparisonResponse);
-      } else {
-        setComparison(null);
-      }
 
       setSuccessMessage("数据刷新成功");
       setTimeout(() => setSuccessMessage(null), 3000);
@@ -445,7 +434,6 @@ export default function App() {
           <a href="#dashboard" onClick={(event) => handleNavClick(event, "new-task")}>新任务</a>
           <a href="#skills" onClick={(event) => handleNavClick(event, "skills")}>Skill</a>
           <a href="#memories" onClick={(event) => handleNavClick(event, "memories")}>长期记忆</a>
-          <a href="#compare" onClick={(event) => handleNavClick(event, "compare")}>对比结果</a>
         </nav>
 
         <div className="sidebar-task-section">
@@ -566,9 +554,6 @@ export default function App() {
 
         {currentPage === "memories" ? <MemoryPage /> : null}
 
-        {currentPage === "compare" ? (
-          <ComparePage tasks={tasks} comparison={comparison} />
-        ) : null}
       </main>
 
       <SettingsModal

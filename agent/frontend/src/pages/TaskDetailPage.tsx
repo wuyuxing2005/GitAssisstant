@@ -369,31 +369,33 @@ function StructuredDiffView({ files }: { files: ParsedDiffFile[] }) {
   }
 
   return (
-    <div className="structured-diff-view">
-      {visibleFiles.map((file, fileIndex) => (
-        <article key={`${file.displayPath}-${fileIndex}`} className="structured-diff-file">
-          <div className="structured-diff-file-header">
-            <strong>{file.displayPath}</strong>
-            <span>
-              <span className="diff-added">+{file.added}</span>
-              <span className="diff-removed">-{file.removed}</span>
-            </span>
-          </div>
-
-          {file.hunks.map((hunk, hunkIndex) => (
-            <div key={`${file.displayPath}-hunk-${hunkIndex}`} className="structured-diff-hunk">
-              <div className="structured-diff-hunk-header">{hunk.header}</div>
-              {hunk.lines.map((line, lineIndex) => (
-                <div key={`${file.displayPath}-${hunkIndex}-${lineIndex}`} className={`structured-diff-line ${line.type}`}>
-                  <span className="diff-line-number old">{line.oldLine ?? ""}</span>
-                  <span className="diff-line-number new">{line.newLine ?? ""}</span>
-                  <code>{line.content || " "}</code>
-                </div>
-              ))}
+    <div className="modal-diff-viewer">
+      <div className="structured-diff-view">
+        {visibleFiles.map((file, fileIndex) => (
+          <article key={`${file.displayPath}-${fileIndex}`} className="structured-diff-file">
+            <div className="structured-diff-file-header">
+              <strong>{file.displayPath}</strong>
+              <span>
+                <span className="diff-added">+{file.added}</span>
+                <span className="diff-removed">-{file.removed}</span>
+              </span>
             </div>
-          ))}
-        </article>
-      ))}
+
+            {file.hunks.map((hunk, hunkIndex) => (
+              <div key={`${file.displayPath}-hunk-${hunkIndex}`} className="structured-diff-hunk">
+                <div className="structured-diff-hunk-header">{hunk.header}</div>
+                {hunk.lines.map((line, lineIndex) => (
+                  <div key={`${file.displayPath}-${hunkIndex}-${lineIndex}`} className={`structured-diff-line ${line.type}`}>
+                    <span className="diff-line-number old">{line.oldLine ?? ""}</span>
+                    <span className="diff-line-number new">{line.newLine ?? ""}</span>
+                    <code>{line.content || " "}</code>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </article>
+        ))}
+      </div>
     </div>
   );
 }

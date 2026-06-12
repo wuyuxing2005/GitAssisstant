@@ -3175,21 +3175,23 @@ button.floating-env-row:hover:not(:disabled) {
 
 .modal-diff-viewer {
   max-height: min(620px, calc(100vh - 190px));
-}
-
-.structured-diff-view {
-  display: grid;
-  gap: 16px;
-  max-height: min(650px, calc(100vh - 190px));
   overflow: auto;
   border: 1px solid #e5e9ec;
   border-radius: 16px;
   background: #ffffff;
 }
 
+.structured-diff-view {
+  display: grid;
+  gap: 16px;
+  min-width: max-content;
+  min-height: 100%;
+}
+
 .structured-diff-file {
   overflow: hidden;
   border-bottom: 1px solid #edf0f2;
+  min-width: max-content;
 }
 
 .structured-diff-file:last-child {
@@ -3227,7 +3229,7 @@ button.floating-env-row:hover:not(:disabled) {
 
 .structured-diff-hunk {
   display: grid;
-  min-width: 720px;
+  min-width: max-content;
 }
 
 .structured-diff-hunk-header {
@@ -3283,7 +3285,7 @@ button.floating-env-row:hover:not(:disabled) {
 .structured-diff-line code {
   min-width: 0;
   padding: 2px 12px;
-  overflow-x: auto;
+  overflow: visible;
   color: #1f2933;
   white-space: pre;
 }
