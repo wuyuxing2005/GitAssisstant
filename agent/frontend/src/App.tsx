@@ -3,6 +3,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { SkillManager } from "./components/SkillManager";
 import { ComparePage } from "./pages/ComparePage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { MemoryPage } from "./pages/MemoryPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { isGitHubIssueReference } from "./utils/githubIssue";
 import { formatTaskStatus, getEffectiveTaskStatus } from "./utils/taskStatus";
@@ -34,7 +35,7 @@ import type {
   RunMode
 } from "./types/task";
 
-type PageKey = "new-task" | "detail" | "skills" | "compare";
+type PageKey = "new-task" | "detail" | "skills" | "memories" | "compare";
 
 const DEFAULT_SIDEBAR_WIDTH = 386;
 const MIN_SIDEBAR_WIDTH = 260;
@@ -44,7 +45,7 @@ const CURRENT_PAGE_STORAGE_KEY = "agent-console-current-page";
 const SELECTED_TASK_STORAGE_KEY = "agent-console-selected-task-id";
 
 function isPageKey(value: string | null): value is PageKey {
-  return value === "new-task" || value === "detail" || value === "skills" || value === "compare";
+  return value === "new-task" || value === "detail" || value === "skills" || value === "memories" || value === "compare";
 }
 
 function clampSidebarWidth(value: number): number {
@@ -60,6 +61,9 @@ function pageTitle(page: PageKey, task: EvaluationTask | null): string {
   }
   if (page === "skills") {
     return "Skill 管理";
+  }
+  if (page === "memories") {
+    return "长期记忆";
   }
   return "对比结果";
 }
@@ -422,6 +426,7 @@ export default function App() {
         <nav>
           <a href="#dashboard" onClick={(event) => handleNavClick(event, "new-task")}>新任务</a>
           <a href="#skills" onClick={(event) => handleNavClick(event, "skills")}>Skill</a>
+          <a href="#memories" onClick={(event) => handleNavClick(event, "memories")}>长期记忆</a>
           <a href="#compare" onClick={(event) => handleNavClick(event, "compare")}>对比结果</a>
         </nav>
 
@@ -526,6 +531,8 @@ export default function App() {
             onChanged={() => refreshData(true)}
           />
         ) : null}
+
+        {currentPage === "memories" ? <MemoryPage /> : null}
 
         {currentPage === "compare" ? (
           <ComparePage tasks={tasks} comparison={comparison} />

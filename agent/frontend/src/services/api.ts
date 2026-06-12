@@ -18,6 +18,8 @@ import type {
   GitPushRequest,
   GitPushResponse,
   ModelListResponse,
+  LongTermMemoryListResponse,
+  LongTermMemoryRebuildResponse,
   SkillCreateRequest,
   SkillListResponse,
   SkillRecord,
@@ -215,6 +217,25 @@ export async function updateSettings(payload: AppSettingsUpdate): Promise<AppSet
 
 export async function fetchOpenAIModels(): Promise<ModelListResponse> {
   return request<ModelListResponse>("/settings/models");
+}
+
+export async function fetchMemories(limit: number = 50): Promise<LongTermMemoryListResponse> {
+  return request<LongTermMemoryListResponse>(`/memories/?limit=${limit}`);
+}
+
+export async function rebuildMemories(limit: number = 20): Promise<LongTermMemoryRebuildResponse> {
+  return request<LongTermMemoryRebuildResponse>("/memories/rebuild", {
+    method: "POST",
+    body: JSON.stringify({ limit })
+  });
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  await request(`/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE" });
+}
+
+export async function clearMemories(): Promise<{ count: number }> {
+  return request<{ count: number }>("/memories/", { method: "DELETE" });
 }
 
 export async function fetchRepoIssues(

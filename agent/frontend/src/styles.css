@@ -342,6 +342,11 @@ ul {
   color: #991b1b;
 }
 
+.banner.info {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
 .health-pill {
   display: inline-flex;
   align-items: center;
@@ -3733,6 +3738,62 @@ button.floating-env-row:hover:not(:disabled) {
 
 .skill-manager-item .action-row button {
   flex: 0 0 auto;
+}
+
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.memory-item {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e4e8eb;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.memory-item.expanded {
+  background: #fbfcfd;
+}
+
+.memory-detail {
+  display: grid;
+  gap: 12px;
+}
+
+.memory-source-note {
+  padding: 10px 12px;
+  border: 1px solid #f1d18a;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #7a5600;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.memory-markdown {
+  padding: 12px;
+  border: 1px solid #e4e8eb;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.memory-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.memory-tags span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #edf2f7;
+  color: #52616a;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .trash-button {

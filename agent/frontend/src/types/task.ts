@@ -362,3 +362,27 @@ export interface AppSettingsUpdate {
 export interface ModelListResponse {
   models: string[];
 }
+
+export interface LongTermMemoryRecord {
+  id: string;
+  task_id: string;
+  task_name: string;
+  repo_source: string;
+  issue_input: string;
+  outcome: string;
+  content: string;
+  tags: string[];
+  source: "llm" | "rule" | string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LongTermMemoryListResponse {
+  items: LongTermMemoryRecord[];
+}
+
+export interface LongTermMemoryRebuildResponse {
+  count: number;
+  skipped_count: number;
+  items: LongTermMemoryRecord[];
+}

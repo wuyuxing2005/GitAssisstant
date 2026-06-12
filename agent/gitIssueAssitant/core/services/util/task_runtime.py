@@ -33,6 +33,7 @@ from gitIssueAssitant.core.schemas.task import (
     ToolUsageItem,
 )
 from gitIssueAssitant.core.services.skill_service import skill_service
+from gitIssueAssitant.core.services.long_term_memory_service import long_term_memory_service
 from gitIssueAssitant.core.services.issue_assistant_service import IssueAssistantService
 from gitIssueAssitant.core.agent.tools.sandbox_manager import SandboxManager
 from gitIssueAssitant.core.services.task_service import task_service
@@ -257,9 +258,18 @@ class _IssueAssistantTaskRuntime:
     def _build_agent_issue_description(self, task: TaskRecord, session_service: Any) -> str:
         issue_description = session_service.resolve_issue_description(task.config.issue_input)
         extra_description = task.description.strip()
-        if not extra_description:
-            return issue_description
-        return f"{issue_description}\n\n用户补充说明：\n{extra_description}"
+        parts = [issue_description]
+        if extra_description:
+            parts.append(f"用户补充说明：\n{extra_description}")
+
+        memory_context = long_term_memory_service.build_prompt_context(
+            repo_source=task.config.repo_source,
+            issue_input=task.config.issue_input,
+            description=task.description,
+        )
+        if memory_context:
+            parts.append(f"长期记忆：\n{memory_context}")
+        return "\n\n".join(parts)
 
     def _build_runtime_sync(
         self,
@@ -750,6 +760,7 @@ class _IssueAssistantTaskRuntime:
         result.current_state.status = "FAILED"
         self._refresh_result(task)
         self._refresh_agent_trace(task)
+        long_term_memory_service.remember_task(task)
         task_service.save_task_record(task)
 
     def _clear_previous_failure(self, task: TaskRecord) -> None:
@@ -793,6 +804,11 @@ class _IssueAssistantTaskRuntime:
         handle.assistant.persist_state(handle.thread_id)
         self._sync_state(task, final_state)
         self._refresh_result(task)
+        if task.status in TERMINAL_TASK_STATUSES:
+            await long_term_memory_service.remember_task_with_llm(
+                task,
+                handle.assistant._orchestrator.agent.llm,
+            )
         task_service.save_task_record(task)
 
     async def _execute(
