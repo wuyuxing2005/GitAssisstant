@@ -105,11 +105,59 @@ class AgentOrchestrator:
         text = (output or "").strip()
         return bool(text and text != "Command finished with exit code 0.")
 
+    def _user_insert_key(self, index: int, content: str) -> str:
+        return f"{index}:{content}"
+
+    def _ignored_user_insert_keys(self, state: AgentState) -> set[str]:
+        return {
+            str(key)
+            for key in (state.get("ignored_user_insert_keys") or state.get("ignored_user_insert_contents") or [])
+            if str(key).strip()
+        }
+
+    def _acknowledged_user_insert_keys(self, state: AgentState) -> set[str]:
+        return {
+            str(key)
+            for key in (state.get("acknowledged_user_insert_keys") or state.get("acknowledged_user_insert_contents") or [])
+            if str(key).strip()
+        }
+
+    def _user_insert_items(self, state: AgentState) -> list[tuple[str, str]]:
+        return [
+            (self._user_insert_key(index, content), content)
+            for index, message in enumerate(state.get("messages", []))
+            if isinstance((content := getattr(message, "content", "") or ""), str)
+            and content.startswith(USER_INSERT_PREFIX)
+        ]
+
+    def _user_insert_keys(self, state: AgentState) -> list[str]:
+        return [key for key, _content in self._user_insert_items(state)]
+
+    def _is_ignored_user_insert_message(self, index: int, message, ignored_keys: set[str]) -> bool:
+        content = getattr(message, "content", "") or ""
+        return (
+            isinstance(content, str)
+            and (self._user_insert_key(index, content) in ignored_keys or content in ignored_keys)
+        )
+
+    def _active_messages(self, state: AgentState) -> list:
+        ignored_keys = self._ignored_user_insert_keys(state)
+        if not ignored_keys:
+            return list(state.get("messages", []))
+        return [
+            message
+            for index, message in enumerate(state.get("messages", []))
+            if not self._is_ignored_user_insert_message(index, message, ignored_keys)
+        ]
+
     def user_added_requirements(self, state: AgentState) -> list[str]:
         requirements: list[str] = []
-        for message in state.get("messages", []):
+        ignored_keys = self._ignored_user_insert_keys(state)
+        for index, message in enumerate(state.get("messages", [])):
             content = getattr(message, "content", "") or ""
             if not isinstance(content, str):
+                continue
+            if self._user_insert_key(index, content) in ignored_keys or content in ignored_keys:
                 continue
             if not content.startswith(USER_INSERT_PREFIX):
                 continue
@@ -363,6 +411,7 @@ class AgentOrchestrator:
                 "replan_trigger": "",
                 "trajectory": trajectory_entries,
                 "token_usage": self._accumulate_token_usage(state),
+                "acknowledged_user_insert_keys": self._user_insert_keys(state),
                 "status": "PLANNING",
             }
 
@@ -390,6 +439,7 @@ class AgentOrchestrator:
                 "replan_trigger": "",
                 "trajectory": [{"type": "plan", "content": json.dumps(goals, ensure_ascii=False)}],
                 "token_usage": self._accumulate_token_usage(state),
+                "acknowledged_user_insert_keys": self._user_insert_keys(state),
                 "status": "PLANNING",
             }
 
@@ -418,7 +468,7 @@ class AgentOrchestrator:
                 "status") == "done" else "→" if i == current_goal_index + 1 else " "
             plan_lines.append(f"{status_mark} {i}. {g.get('description', '')}")
 
-        raw_messages = state["messages"]
+        raw_messages = self._active_messages(state)
         compressed_messages = await self.compressor.compress(raw_messages)
 
         compression_stats = {
@@ -452,6 +502,7 @@ class AgentOrchestrator:
             "iteration_count": state["iteration_count"] + 1,
             "compression_stats": compression_stats,
             "token_usage": self._accumulate_token_usage(state),
+            "acknowledged_user_insert_keys": self._user_insert_keys(state),
             "status": "RUNNING",
         }
 
@@ -696,6 +747,31 @@ class AgentOrchestrator:
             update["replan_trigger"] = "user_intervention"
         self.graph.update_state(config, update)
         self.persist_state(thread_id)
+
+    def discard_pending_user_insertions(self, thread_id: str) -> int:
+        """让当前已注入但尚未被后续继续执行消费的用户插入指令失效。"""
+        config = {"configurable": {"thread_id": thread_id}}
+        current_state = self.graph.get_state(config).values
+        ignored_keys = self._ignored_user_insert_keys(current_state)
+        acknowledged_keys = self._acknowledged_user_insert_keys(current_state)
+        inserted_keys = [
+            key
+            for key, _content in self._user_insert_items(current_state)
+            if key not in ignored_keys
+            and key not in acknowledged_keys
+        ]
+        if not inserted_keys:
+            return 0
+        next_ignored = [*current_state.get("ignored_user_insert_keys", []), *inserted_keys]
+        self.graph.update_state(
+            config,
+            {
+                "ignored_user_insert_keys": next_ignored,
+                "replan_trigger": "",
+            },
+        )
+        self.persist_state(thread_id)
+        return len(inserted_keys)
 
     def persist_state(self, thread_id: str, last_node: str | None = None) -> None:
         if self.state_persist_hook is None:

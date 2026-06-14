@@ -90,6 +90,12 @@ export async function terminateSandboxTask(taskId: string): Promise<EvaluationTa
   });
 }
 
+export async function interruptTask(taskId: string): Promise<EvaluationTask> {
+  return request<EvaluationTask>(`/tasks/${taskId}/interrupt`, {
+    method: "POST"
+  });
+}
+
 export async function deleteTask(taskId: string): Promise<void> {
   await request(`/tasks/${taskId}`, { method: "DELETE" });
 }

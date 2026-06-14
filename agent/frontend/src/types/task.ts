@@ -1,6 +1,6 @@
-export type TaskStatus = "draft" | "scheduled" | "running" | "completed" | "failed";
+export type TaskStatus = "draft" | "scheduled" | "running" | "interrupted" | "completed" | "failed";
 export type RunMode = "auto";
-export type ExecutionOutcome = "not_started" | "running" | "completed" | "failed";
+export type ExecutionOutcome = "not_started" | "running" | "interrupted" | "completed" | "failed";
 
 export interface EvaluationConfig {
   repo_source: string;

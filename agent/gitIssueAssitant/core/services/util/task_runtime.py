@@ -48,6 +48,9 @@ EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
 TEST_TOOL_NAMES = {"run_pytest"}
 TERMINAL_TASK_STATUSES = {"completed", "failed"}
 SANDBOX_UNAVAILABLE_STATUS = "SANDBOX_UNAVAILABLE"
+INTERRUPTED_STATUS = "INTERRUPTED"
+LOCAL_FALLBACK_SELECTION_MESSAGE = "选择：Docker 不可用，改为本地执行"
+LOCAL_FALLBACK_ACK_MESSAGE = "已选择本地执行，正在重新初始化任务。"
 AGENT_CONTROL_MESSAGE_LINES = {"GOAL_DONE", "TASK_SUCCESS", "TASK_FAILED"}
 
 
@@ -252,6 +255,58 @@ class _IssueAssistantTaskRuntime:
         self._append_task_message(task, "system", content)
         task_service.save_task_record(task)
 
+    def _append_unique_task_message(
+        self,
+        task: TaskRecord,
+        role: str,
+        content: str,
+        *,
+        replan: bool = False,
+    ) -> TaskMessage | None:
+        result = self._ensure_result(task)
+        if any(message.role == role and message.content.strip() == content for message in result.messages):
+            return None
+        return self._append_task_message(task, role, content, replan=replan)
+
+    def _prepare_reset_run(self, task: TaskRecord, message: str, *, preserve_local_fallback_selection: bool = False) -> None:
+        previous_messages = self._ensure_result(task).messages if task.result else []
+        preserved_messages = [
+            message
+            for message in previous_messages
+            if (
+                preserve_local_fallback_selection
+                and message.role == "user"
+                and message.content.strip() == LOCAL_FALLBACK_SELECTION_MESSAGE
+            )
+        ]
+        task.result = self._blank_result(task)
+        task.result.messages.extend(preserved_messages)
+        task.status = "scheduled"
+        task.started_at = _utcnow()
+        task.finished_at = None
+        result = self._ensure_result(task)
+        result.summary = message
+        result.outcome = "running"
+        result.error_message = None
+        if result.current_state:
+            result.current_state.status = "INIT"
+            result.current_state.iteration_count = 0
+            result.current_state.plan = []
+            result.current_state.reflexion_notes = ""
+            result.current_state.last_message = ""
+        self._append_unique_task_message(task, "system", message)
+        task_service.save_task_record(task)
+
+    def _discard_pending_insertions(self, task_id: str) -> int:
+        handle = self._runtime_handles.get(task_id)
+        if handle is None:
+            return 0
+        try:
+            self._activate_runtime(handle)
+            return handle.assistant.discard_pending_user_insertions(handle.thread_id)
+        except Exception:
+            return 0
+
     def _activate_runtime(self, handle: _AssistantRuntimeHandle) -> None:
         handle.assistant.activate_runtime(handle.thread_id)
 
@@ -400,6 +455,8 @@ class _IssueAssistantTaskRuntime:
         # 本地回退时需要强制重建 runtime（禁用沙箱、重置 graph state）
         needs_rebuild = reset or allow_local_fallback or task.id not in self._runtime_handles or task.status in TERMINAL_TASK_STATUSES
         if needs_rebuild:
+            if reset:
+                self._prepare_reset_run(task, "正在从头开始重新执行，请等待。")
             previous_handle = self._runtime_handles.pop(task.id, None)
             if previous_handle is not None:
                 try:
@@ -424,7 +481,11 @@ class _IssueAssistantTaskRuntime:
             result.error_message = None
             task.result = result
             task.status = "scheduled"
-            task.started_at = None
+            if reset or allow_local_fallback:
+                task.started_at = task.started_at or _utcnow()
+            else:
+                task.started_at = None
+            result.outcome = "running" if task.started_at else "not_started"
             task.finished_at = None
             task_service.save_task_record(task)
             return handle
@@ -460,6 +521,8 @@ class _IssueAssistantTaskRuntime:
             return "completed"
         if runtime_status == "FAILED":
             return "failed"
+        if runtime_status == INTERRUPTED_STATUS:
+            return "interrupted"
         if runtime_status == SANDBOX_UNAVAILABLE_STATUS:
             return "scheduled"
         if runtime_status == "INIT":
@@ -705,6 +768,9 @@ class _IssueAssistantTaskRuntime:
             result.summary = (
                 f"任务执行中，当前已完成 {result.current_state.iteration_count if result.current_state else 0} 轮推理。"
             )
+        elif task.status == "interrupted":
+            result.outcome = "interrupted"
+            result.summary = "任务已被强制中断，可继续执行或从头开始。"
         elif task.status == "scheduled":
             result.outcome = "running" if task.started_at else "not_started"
             result.summary = "任务上下文已初始化，等待执行。"
@@ -763,6 +829,28 @@ class _IssueAssistantTaskRuntime:
         long_term_memory_service.remember_task(task)
         task_service.save_task_record(task)
 
+    def _mark_interrupted(self, task: TaskRecord, reason: str, *, discarded_insertions: int = 0) -> None:
+        result = self._ensure_result(task)
+        task.status = "interrupted"
+        task.finished_at = None
+        result.error_message = None
+        result.current_state = result.current_state or RuntimeSnapshot(
+            thread_id=task.thread_id,
+            repo_path=task.repo_path,
+            issue_description=task.config.issue_input,
+            status=INTERRUPTED_STATUS,
+        )
+        result.current_state.status = INTERRUPTED_STATUS
+        suffix = (
+            f" 已丢弃 {discarded_insertions} 条尚未被 Agent 读取的插入指令。"
+            if discarded_insertions
+            else ""
+        )
+        self._append_task_message(task, "system", f"{reason}{suffix}")
+        self._refresh_result(task)
+        self._refresh_agent_trace(task)
+        task_service.save_task_record(task)
+
     def _clear_previous_failure(self, task: TaskRecord) -> None:
         result = self._ensure_result(task)
         result.error_message = None
@@ -771,12 +859,12 @@ class _IssueAssistantTaskRuntime:
     def _acknowledge_local_fallback(self, task: TaskRecord) -> None:
         result = self._ensure_result(task)
         snapshot = result.current_state
-        if snapshot is None or snapshot.status != SANDBOX_UNAVAILABLE_STATUS:
-            return
-
-        snapshot.status = "INIT"
-        snapshot.sandbox_id = ""
-        self._append_task_message(task, "system", "已选择本地执行，正在重新初始化任务。")
+        if snapshot is not None:
+            snapshot.status = "INIT"
+            snapshot.sandbox_id = ""
+        self._append_unique_task_message(task, "user", LOCAL_FALLBACK_SELECTION_MESSAGE)
+        self._append_unique_task_message(task, "system", LOCAL_FALLBACK_ACK_MESSAGE)
+        task_service.save_task_record(task)
 
     async def _run_graph(
         self,
@@ -828,11 +916,16 @@ class _IssueAssistantTaskRuntime:
                     allow_local_fallback=request.allow_local_fallback,
                 )
                 if handle.sandbox_error and not request.allow_local_fallback:
+                    result = self._ensure_result(task)
+                    if result.current_state:
+                        result.current_state.status = SANDBOX_UNAVAILABLE_STATUS
                     task.status = "scheduled"
                     self._refresh_result(task)
                     task_service.save_task_record(task)
                     return
                 await self._run_graph(task, handle, mode=request.mode or task.config.run_mode)
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 self._mark_failed(task, str(exc))
             finally:
@@ -856,6 +949,19 @@ class _IssueAssistantTaskRuntime:
         job = self._background_jobs.get(task_id)
         if job is not None and not job.done():
             self._pending_run_requests[task_id] = run_request
+            if run_request.reset:
+                discarded_insertions = self._discard_pending_insertions(task_id)
+                message = "正在中断当前执行，并从头开始重新运行，请等待。"
+                if discarded_insertions:
+                    message += f" 已丢弃 {discarded_insertions} 条尚未被 Agent 读取的插入指令。"
+                self._prepare_reset_run(
+                    task,
+                    message,
+                    preserve_local_fallback_selection=run_request.allow_local_fallback,
+                )
+                if run_request.allow_local_fallback:
+                    self._acknowledge_local_fallback(task)
+                job.cancel()
             return task
 
         if request_mode == "auto":
@@ -864,10 +970,20 @@ class _IssueAssistantTaskRuntime:
             if any(not background_job.done() for task_key, background_job in self._background_jobs.items() if task_key != task_id):
                 raise RuntimeError("当前已有其他任务在运行，gitIssueAssitant 运行时暂不支持并发执行。")
 
+            if run_request.reset:
+                self._prepare_reset_run(
+                    task,
+                    "正在从头开始重新执行，请等待。",
+                    preserve_local_fallback_selection=run_request.allow_local_fallback,
+                )
+            else:
+                task.status = "scheduled"
+                result = self._ensure_result(task)
+                if result.current_state and result.current_state.status == INTERRUPTED_STATUS:
+                    result.current_state.status = "INIT"
+                self._refresh_result(task)
             if run_request.allow_local_fallback:
                 self._acknowledge_local_fallback(task)
-            task.status = "scheduled"
-            self._refresh_result(task)
             task_service.save_task_record(task)
             self._track_background_job(
                 task_id,
@@ -880,6 +996,38 @@ class _IssueAssistantTaskRuntime:
         if latest_task is None:
             raise ValueError("Task not found")
         return latest_task
+
+    def interrupt(self, task_id: str) -> TaskRecord | None:
+        task = task_service.get_task_record(task_id)
+        if task is None:
+            return None
+
+        self._pending_run_requests.pop(task_id, None)
+        job = self._background_jobs.pop(task_id, None)
+        if job is not None and not job.done():
+            job.cancel()
+
+        discarded_insertions = 0
+        handle = self._runtime_handles.get(task_id)
+        if handle is not None:
+            try:
+                self._activate_runtime(handle)
+                discarded_insertions = handle.assistant.discard_pending_user_insertions(handle.thread_id)
+                state = handle.assistant.graph_state(handle.thread_id)
+                if state:
+                    self._ensure_result(task).current_state = self._state_snapshot(task, state)
+                    task.thread_id = handle.thread_id
+                    task.repo_path = state.get("repo_path") or task.repo_path
+            except Exception:
+                discarded_insertions = 0
+
+        self._mark_interrupted(
+            task,
+            "用户强制中断任务。可以继续执行，或从头开始重新运行。",
+            discarded_insertions=discarded_insertions,
+        )
+        latest_task = task_service.get_task_record(task_id)
+        return latest_task or task
 
     def get_result(self, task_id: str) -> TaskResult | None:
         task = task_service.get_task_record(task_id)
