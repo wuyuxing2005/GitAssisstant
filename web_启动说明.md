@@ -12,3 +12,6 @@ uvicorn gitIssueAssitant.RESTAPIAdapter.main:app --reload --reload-dir gitIssueA
 cd frontend
 npm install
 npm.cmd run dev
+
+一键运行脚本：
+.\start.ps1
