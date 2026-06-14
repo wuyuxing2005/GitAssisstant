@@ -5,7 +5,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { isGitHubIssueReference } from "./utils/githubIssue";
-import { formatTaskStatus, getEffectiveTaskStatus } from "./utils/taskStatus";
+import { getEffectiveTaskStatus, getTaskDisplayStatus } from "./utils/taskStatus";
 import {
   createTask,
   deleteTask,
@@ -485,7 +485,7 @@ export default function App() {
                     }}
                   >
                     <span>{task.name}</span>
-                    <small>{formatTaskStatus(getEffectiveTaskStatus(task))}</small>
+                    <small>{getTaskDisplayStatus(task)}</small>
                   </button>
                   <button
                     className="sidebar-task-menu-button"

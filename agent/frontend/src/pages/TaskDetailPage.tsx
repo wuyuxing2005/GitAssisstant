@@ -20,7 +20,7 @@ import type {
 } from "../types/task";
 import { formatDisplayTime } from "../utils/time";
 import { isGitHubIssueReference } from "../utils/githubIssue";
-import { formatTaskStatus, getEffectiveTaskStatus } from "../utils/taskStatus";
+import { getEffectiveTaskStatus, getTaskDisplayStatus } from "../utils/taskStatus";
 
 interface TaskDetailPageProps {
   task: EvaluationTask | null;
@@ -943,10 +943,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
         : "进行中"
       : "未关联";
   const canCloseIssue = !!issueInfo && issueInfo.state !== "closed" && task.status === "completed";
-  const publishStateLabel =
-    effectiveTaskStatus === "completed" && hasChanges
-      ? "等待发布"
-      : formatTaskStatus(effectiveTaskStatus);
+  const publishStateLabel = getTaskDisplayStatus(task, diffInfo?.has_changes ?? task.has_unpublished_changes);
 
   return (
     <>

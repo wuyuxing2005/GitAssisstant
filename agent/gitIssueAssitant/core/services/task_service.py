@@ -1,18 +1,64 @@
 ﻿from uuid import uuid4
 
 from gitIssueAssitant.core.repositories.task_repository import task_repository
+from pathlib import Path
 from gitIssueAssitant.core.schemas.task import (
     TaskCreate,
     TaskRecord,
     TaskResponse,
     TaskUpdate,
 )
+from gitIssueAssitant.core.utils.git import git_status_short, is_git_repo
 from gitIssueAssitant.core.utils.time import now_local
 
 
 class TaskService:
     @staticmethod
-    def _to_response(task: TaskRecord) -> TaskResponse:
+    def _meaningful_status_files(status_output: str) -> list[str]:
+        junk_patterns = (
+            "__pycache__/",
+            "/__pycache__/",
+            ".pytest_cache/",
+            ".mypy_cache/",
+            ".ruff_cache/",
+            ".tox/",
+            "node_modules/",
+        )
+        file_paths: list[str] = []
+        for line in status_output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) < 2:
+                continue
+            file_paths.append(parts[1].strip())
+        return [
+            file_path
+            for file_path in file_paths
+            if file_path
+            and not any(pattern in file_path for pattern in junk_patterns)
+            and not file_path.endswith((".pyc", ".pyo"))
+        ]
+
+    def _has_unpublished_changes(self, task: TaskRecord) -> bool:
+        if task.status != "completed":
+            return False
+        repo_path = (
+            task.repo_path
+            or (task.result.current_state.repo_path if task.result and task.result.current_state else None)
+        )
+        if not repo_path:
+            return False
+        try:
+            repo = Path(repo_path).expanduser().resolve()
+            if not repo.exists() or not is_git_repo(repo):
+                return False
+            return bool(self._meaningful_status_files(git_status_short(repo)))
+        except Exception:
+            return False
+
+    def _to_response(self, task: TaskRecord) -> TaskResponse:
         return TaskResponse(
             id=task.id,
             name=task.name,
@@ -22,6 +68,7 @@ class TaskService:
             created_at=task.created_at,
             updated_at=task.updated_at,
             result=task.result,
+            has_unpublished_changes=self._has_unpublished_changes(task),
         )
 
     def get_task_record(self, task_id: str) -> TaskRecord | None:

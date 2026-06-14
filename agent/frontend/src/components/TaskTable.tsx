@@ -1,6 +1,6 @@
 import type { EvaluationTask, RunMode } from "../types/task";
 import { formatDisplayTime } from "../utils/time";
-import { formatTaskStatus, getEffectiveTaskStatus } from "../utils/taskStatus";
+import { getEffectiveTaskStatus, getTaskDisplayStatus } from "../utils/taskStatus";
 
 interface TaskTableProps {
   tasks: EvaluationTask[];
@@ -85,7 +85,7 @@ export function TaskTable({
                 </td>
                 <td>
                   <span className={`status-badge ${effectiveStatus}`}>
-                    {formatTaskStatus(effectiveStatus)}
+                    {getTaskDisplayStatus(task)}
                   </span>
                 </td>
                 <td>

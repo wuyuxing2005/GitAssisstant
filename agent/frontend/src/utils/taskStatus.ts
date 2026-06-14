@@ -44,3 +44,11 @@ export function formatTaskStatus(status: TaskStatus): string {
 
   return labels[status];
 }
+
+export function getTaskDisplayStatus(task: EvaluationTask, hasUnpublishedChanges = !!task.has_unpublished_changes): string {
+  const effectiveStatus = getEffectiveTaskStatus(task);
+  if (effectiveStatus === "completed" && hasUnpublishedChanges) {
+    return "等待发布";
+  }
+  return formatTaskStatus(effectiveStatus);
+}

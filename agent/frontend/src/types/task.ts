@@ -165,6 +165,7 @@ export interface EvaluationTask {
   updated_at: string;
   config: EvaluationConfig;
   result?: EvaluationResult | null;
+  has_unpublished_changes?: boolean;
 }
 
 export interface GitDiffResponse {

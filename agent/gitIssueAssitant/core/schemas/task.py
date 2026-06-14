@@ -198,6 +198,7 @@ class TaskResponse(TaskBase):
     created_at: datetime
     updated_at: datetime
     result: TaskResult | None = None
+    has_unpublished_changes: bool = False
 
 
 @dataclass
