@@ -213,10 +213,30 @@ export default function App() {
         fetchSkills()
       ]);
 
+      let loadedModels: string[] = [];
+      let modelLoadError: string | null = null;
+      if (settingsResponse.openai_api_key_set) {
+        try {
+          setLoadingModels(true);
+          const modelResponse = await fetchOpenAIModels();
+          loadedModels = modelResponse.models;
+        } catch (error) {
+          modelLoadError = error instanceof Error ? error.message : "获取模型列表失败";
+        } finally {
+          setLoadingModels(false);
+        }
+      }
+
       setBackendStatus(health.status === "ok" ? "online" : "offline");
       syncTaskList(taskList);
       setSettings(settingsResponse);
       setSkills(skillResponse.items);
+      setModels(loadedModels);
+
+      if (modelLoadError) {
+        setErrorMessage(modelLoadError);
+        return;
+      }
 
       setSuccessMessage("数据刷新成功");
       setTimeout(() => setSuccessMessage(null), 3000);
