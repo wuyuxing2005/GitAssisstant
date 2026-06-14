@@ -487,6 +487,40 @@ ul {
   position: relative;
 }
 
+.skill-highlight-input {
+  position: relative;
+}
+
+.skill-highlight-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  color: #0f172a;
+  line-height: normal;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.task-form textarea.skill-highlight-textarea {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  color: transparent;
+  caret-color: #0f172a;
+}
+
+.task-form textarea.skill-highlight-textarea::placeholder {
+  color: #94a3b8;
+}
+
+.skill-inline-token {
+  color: #2563eb;
+  font-weight: 800;
+}
+
 .skill-suggest-menu {
   position: absolute;
   z-index: 30;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import type {
   AppSettings,
   CreateTaskPayload,
@@ -21,6 +21,12 @@ interface SkillTriggerState {
   end: number;
 }
 
+interface SkillMentionRange {
+  start: number;
+  end: number;
+  text: string;
+}
+
 function looksLikeGitHubUrl(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
@@ -40,6 +46,75 @@ function findSkillTrigger(value: string, caretPosition: number): SkillTriggerSta
   };
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isSkillMentionBoundary(value: string | undefined): boolean {
+  return !value || /[\s.,;:!?()[\]{}"'`，。！？；：（）【】]/.test(value);
+}
+
+function findSkillMentionRanges(value: string, skillNames: string[]): SkillMentionRange[] {
+  if (!value || !skillNames.length) {
+    return [];
+  }
+
+  const pattern = skillNames
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length)
+    .map(escapeRegExp)
+    .join("|");
+
+  if (!pattern) {
+    return [];
+  }
+
+  const regex = new RegExp(pattern, "g");
+  const ranges: SkillMentionRange[] = [];
+
+  for (const match of value.matchAll(regex)) {
+    const start = match.index ?? 0;
+    const text = match[0];
+    const end = start + text.length;
+
+    if (!isSkillMentionBoundary(value[start - 1]) || !isSkillMentionBoundary(value[end])) {
+      continue;
+    }
+
+    ranges.push({ start, end, text });
+  }
+
+  return ranges;
+}
+
+function renderSkillHighlightedText(value: string, skillNames: string[]): ReactNode {
+  if (!value || !skillNames.length) {
+    return value;
+  }
+
+  const nodes: ReactNode[] = [];
+  const ranges = findSkillMentionRanges(value, skillNames);
+  let lastIndex = 0;
+
+  for (const range of ranges) {
+    if (range.start > lastIndex) {
+      nodes.push(value.slice(lastIndex, range.start));
+    }
+    nodes.push(
+      <span className="skill-inline-token" key={`${range.text}-${range.start}`}>
+        {range.text}
+      </span>
+    );
+    lastIndex = range.end;
+  }
+
+  if (lastIndex < value.length) {
+    nodes.push(value.slice(lastIndex));
+  }
+
+  return nodes.length ? nodes : value;
+}
+
 export function DashboardPage({
   busyTaskId,
   settings,
@@ -48,6 +123,7 @@ export function DashboardPage({
   onCreateTask
 }: DashboardPageProps) {
   const descriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const descriptionHighlightRef = useRef<HTMLDivElement | null>(null);
   const [skillTrigger, setSkillTrigger] = useState<SkillTriggerState | null>(null);
   const [formState, setFormState] = useState<CreateTaskPayload>({
     name: "",
@@ -70,6 +146,7 @@ export function DashboardPage({
   const [issuesModalOpen, setIssuesModalOpen] = useState(false);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const issuesFetchAbortRef = useRef<AbortController | null>(null);
+  const descriptionSkillNames = useMemo(() => skills.map((skill) => skill.name), [skills]);
   const skillSuggestions = useMemo(() => {
     if (!skillTrigger) {
       return [];
@@ -202,7 +279,65 @@ export function DashboardPage({
     if (event.key === "Escape" && skillTrigger) {
       event.preventDefault();
       setSkillTrigger(null);
+      return;
     }
+
+    if (event.key !== "Backspace") {
+      return;
+    }
+
+    const textarea = descriptionTextareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
+    if (selectionStart != selectionEnd) {
+      return;
+    }
+
+    const mentions = findSkillMentionRanges(formState.description, descriptionSkillNames);
+    const matchedMention = mentions.find((mention) => {
+      if (mention.end === selectionStart) {
+        return true;
+      }
+      return mention.end + 1 === selectionStart && /\s/.test(formState.description[mention.end] ?? "");
+    });
+
+    if (!matchedMention) {
+      return;
+    }
+
+    event.preventDefault();
+    const deleteUntil = matchedMention.end + (
+      matchedMention.end + 1 === selectionStart && /\s/.test(formState.description[matchedMention.end] ?? "")
+        ? 1
+        : 0
+    );
+    const nextDescription = (
+      `${formState.description.slice(0, matchedMention.start)}${formState.description.slice(deleteUntil)}`
+    );
+    setFormState((current) => ({ ...current, description: nextDescription }));
+    setSkillTrigger(findSkillTrigger(nextDescription, matchedMention.start));
+    window.requestAnimationFrame(() => {
+      const activeTextarea = descriptionTextareaRef.current;
+      if (!activeTextarea) {
+        return;
+      }
+      activeTextarea.focus();
+      activeTextarea.setSelectionRange(matchedMention.start, matchedMention.start);
+    });
+  }
+
+  function handleDescriptionScroll() {
+    const textarea = descriptionTextareaRef.current;
+    const highlight = descriptionHighlightRef.current;
+    if (!textarea || !highlight) {
+      return;
+    }
+    highlight.scrollTop = textarea.scrollTop;
+    highlight.scrollLeft = textarea.scrollLeft;
   }
 
   function handleSelectSkill(skill: SkillRecord) {
@@ -210,9 +345,9 @@ export function DashboardPage({
       return;
     }
     const nextDescription = (
-      `${formState.description.slice(0, skillTrigger.start)}$${skill.name} ${formState.description.slice(skillTrigger.end)}`
+      `${formState.description.slice(0, skillTrigger.start)}${skill.name} ${formState.description.slice(skillTrigger.end)}`
     );
-    const nextCaretPosition = skillTrigger.start + skill.name.length + 2;
+    const nextCaretPosition = skillTrigger.start + skill.name.length + 1;
     setFormState((current) => ({ ...current, description: nextDescription }));
     setSkillTrigger(null);
     window.requestAnimationFrame(() => {
@@ -338,18 +473,25 @@ export function DashboardPage({
         <label>
           <span>补充说明</span>
           <div className="skill-suggest-wrapper">
-            <textarea
-              ref={descriptionTextareaRef}
-              rows={2}
-              value={formState.description}
-              onChange={(event) =>
-                handleDescriptionChange(event.target.value, event.target.selectionStart)
-              }
-              onKeyUp={handleDescriptionKeyUp}
-              onKeyDown={handleDescriptionKeyDown}
-              onClick={handleDescriptionKeyUp}
-              placeholder="记录预期修复范围、限制条件或上下文说明。输入 $ 选择 Skill，例如：使用 $i-am-a-cat skill"
-            />
+            <div className="skill-highlight-input">
+              <div className="skill-highlight-layer" ref={descriptionHighlightRef} aria-hidden="true">
+                {renderSkillHighlightedText(formState.description, descriptionSkillNames)}
+              </div>
+              <textarea
+                ref={descriptionTextareaRef}
+                className="skill-highlight-textarea"
+                rows={2}
+                value={formState.description}
+                onChange={(event) =>
+                  handleDescriptionChange(event.target.value, event.target.selectionStart)
+                }
+                onKeyUp={handleDescriptionKeyUp}
+                onKeyDown={handleDescriptionKeyDown}
+                onScroll={handleDescriptionScroll}
+                onClick={handleDescriptionKeyUp}
+                placeholder="记录预期修复范围、限制条件或上下文说明。输入 $ 选择 Skill，例如：使用 $i-am-a-cat skill"
+              />
+            </div>
             {skillTrigger ? (
               <div className="skill-suggest-menu" role="listbox" aria-label="选择 Skill">
                 {skillSuggestions.map((skill) => (
