@@ -3732,6 +3732,20 @@ button.floating-env-row:hover:not(:disabled) {
   cursor: pointer;
 }
 
+.conversation-send-button.interrupt {
+  background: #f3f4f6;
+  color: #17212b;
+  font-size: 15px;
+}
+
+.conversation-stop-icon {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
 .conversation-send-button:disabled {
   cursor: not-allowed;
   background: #aeb8bd;

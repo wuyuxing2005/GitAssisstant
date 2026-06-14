@@ -863,10 +863,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     if (!task || !onInterruptTask) {
       return;
     }
-    const confirmed = window.confirm("确定要强制中断当前任务吗？尚未被 Agent 读取的插入对话会被丢弃。");
-    if (!confirmed) {
-      return;
-    }
     setConversationPinnedToBottom(true);
     await onInterruptTask(task.id);
     await onTaskChanged?.();
@@ -888,15 +884,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     }
     setConversationPinnedToBottom(true);
     await onRunTask(task.id, "auto", true);
-    await onTaskChanged?.();
-  }
-
-  async function handleContinueInterruptedTask() {
-    if (!task) {
-      return;
-    }
-    setConversationPinnedToBottom(true);
-    await onRunTask(task.id, "auto", false);
     await onTaskChanged?.();
   }
 
@@ -1034,13 +1021,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
               </button>
               <div className="send-button-group">
                 <button
-                  className="conversation-send-button"
+                  className={`conversation-send-button ${taskIsActive ? "interrupt" : ""}`}
                   type="button"
-                  aria-label="发送补充要求"
-                  onClick={() => void handleSubmitMessage()}
-                  disabled={messageBusy || !messageContent.trim()}
+                  aria-label={taskIsActive ? "中断当前任务" : "发送补充要求"}
+                  title={taskIsActive ? "中断当前任务" : "发送补充要求"}
+                  onClick={() => void (taskIsActive ? handleInterruptTask() : handleSubmitMessage())}
+                  disabled={taskIsActive ? messageBusy || isBusy || !onInterruptTask : messageBusy || !messageContent.trim()}
                 >
-                  ↑
+                  {taskIsActive ? <span className="conversation-stop-icon" aria-hidden="true" /> : "↑"}
                 </button>
                 <button
                   className="send-method-toggle"
@@ -1095,13 +1083,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
 
       <div className="floating-task-actions" aria-label="任务控制">
         <button type="button" className="primary" onClick={() => void handleRestartTask()} disabled={isBusy}>
-          ↺ 从头开始
-        </button>
-        <button type="button" className="danger" onClick={() => void handleInterruptTask()} disabled={isBusy || !taskIsActive || !onInterruptTask}>
-          ■ 强制中断
-        </button>
-        <button type="button" onClick={() => void handleContinueInterruptedTask()} disabled={isBusy || !taskIsInterrupted}>
-          ▶ 继续执行
+          从头开始
         </button>
       </div>
 
