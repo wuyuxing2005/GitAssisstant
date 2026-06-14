@@ -798,12 +798,13 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     if (!task || !messageContent.trim()) {
       return;
     }
+    const trimmedContent = messageContent.trim();
     try {
       setMessageBusy(true);
       setMessageError(null);
       setConversationPinnedToBottom(true);
       const response = await submitTaskMessage(task.id, {
-        content: messageContent.trim(),
+        content: trimmedContent,
         replan: messageReplan
       });
       setMessages(response.messages);
@@ -817,11 +818,18 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
   }
 
   function handleMessageKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    const taskIsActive = task ? ["running", "scheduled"].includes(getEffectiveTaskStatus(task)) : false;
     if (sendMethod === "enter" && event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
+      if (taskIsActive) {
+        return;
+      }
       void handleSubmitMessage();
     } else if (sendMethod === "ctrl-enter" && event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
+      if (taskIsActive) {
+        return;
+      }
       void handleSubmitMessage();
     }
   }
