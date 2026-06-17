@@ -3347,6 +3347,18 @@ button.floating-env-row:hover:not(:disabled) {
   padding: 18px 24px 24px;
 }
 
+.live-diff-notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
 .modal-diff-viewer {
   max-height: min(620px, calc(100vh - 190px));
   overflow: auto;

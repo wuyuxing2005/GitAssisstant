@@ -572,7 +572,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
   }, [task?.id, task?.status]);
 
   useEffect(() => {
-    if (!task || task.status !== "completed") {
+    if (!task || getEffectiveTaskStatus(task) !== "completed") {
       return undefined;
     }
 
@@ -600,7 +600,50 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     return () => {
       cancelled = true;
     };
-  }, [task?.id, task?.status]);
+  }, [task?.id, task?.status, task?.result?.current_state?.status, task?.result?.outcome, task?.result?.started_at]);
+
+  useEffect(() => {
+    if (!task) {
+      return undefined;
+    }
+
+    const status = getEffectiveTaskStatus(task);
+    const shouldPollDiff = status === "running" || status === "scheduled" || status === "interrupted";
+    if (!shouldPollDiff) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+
+    async function refreshLiveDiff() {
+      if (!task || inFlight) {
+        return;
+      }
+      inFlight = true;
+      try {
+        const response = await fetchTaskDiff(task.id);
+        if (!cancelled) {
+          setDiffInfo(response);
+        }
+      } catch {
+        // The runtime may not have a repo path yet when a task has just started.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    void refreshLiveDiff();
+
+    const timer = window.setInterval(() => {
+      void refreshLiveDiff();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [task?.id, task?.status, task?.result?.current_state?.status, task?.result?.outcome, task?.result?.started_at]);
 
   useEffect(() => {
     if (!task) {
@@ -897,14 +940,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
 
   async function openDiffModal() {
     setDiffModalOpen(true);
-    if (task && task.status === "completed" && !diffInfo && !diffLoading) {
+    if (task && !diffLoading) {
       await handleRefreshDiff();
     }
   }
 
   async function openPublishDialog(mode: Exclude<PublishDialogMode, null>) {
     setPublishDialogMode(mode);
-    if (task && task.status === "completed" && !diffInfo && !diffLoading) {
+    if (task && !diffLoading) {
       await handleRefreshDiff();
     }
   }
@@ -925,7 +968,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
   const executionEnvLabel = snapshot?.sandbox_id ? "Docker 沙箱" : "本地执行";
   const waitingForSandboxDecision = snapshot?.status === "SANDBOX_UNAVAILABLE" && !sandboxDecisionAcknowledged;
   const isBusy = busyTaskId === task.id;
-  const canPublish = task.status === "completed";
   const stats = diffStats(diffInfo?.diff);
   const localRepoPath = diffInfo?.repo_path || snapshot?.repo_path || "-";
   const repoSourceLabel = formatRepoSource(task.config.repo_source);
@@ -935,6 +977,8 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
   const effectiveTaskStatus = getEffectiveTaskStatus(task);
   const taskIsActive = effectiveTaskStatus === "running" || effectiveTaskStatus === "scheduled";
   const taskIsInterrupted = effectiveTaskStatus === "interrupted";
+  const canPublish = task.status === "completed";
+  const canViewDiff = ["running", "scheduled", "completed", "interrupted"].includes(effectiveTaskStatus);
   const issueStateLabel = issueLoading
     ? "加载中"
     : issueInfo
@@ -1081,7 +1125,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
           <span>环境信息</span>
           <strong className={task.status === "failed" ? "failed" : taskIsInterrupted ? "interrupted" : ""}>{publishStateLabel}</strong>
         </div>
-        <button type="button" onClick={() => void handleRefreshDiff()} disabled={!canPublish || diffLoading}>
+        <button type="button" onClick={() => void handleRefreshDiff()} disabled={!canViewDiff || diffLoading}>
           刷新
         </button>
       </div>
@@ -1093,7 +1137,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
       </div>
 
       <div className="floating-env-list">
-        <button className="floating-env-row" type="button" onClick={() => void openDiffModal()} disabled={!canPublish}>
+        <button className="floating-env-row" type="button" onClick={() => void openDiffModal()} disabled={!canViewDiff}>
           <span className="floating-env-icon">±</span>
           <span>变更</span>
           <strong className="floating-diff-stats">
@@ -1195,6 +1239,9 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
             <button className="modal-close-button" type="button" onClick={() => setDiffModalOpen(false)}>关闭</button>
           </div>
           <div className="task-modal-body">
+            {taskIsActive ? (
+              <p className="live-diff-notice">任务执行中，当前变更会持续更新，最终结果以任务结束后为准。</p>
+            ) : null}
             {diffLoading ? (
               <div className="structured-diff-empty">正在加载 diff...</div>
             ) : (

@@ -318,14 +318,15 @@ def _search_code_impl(
         result = subprocess.run(
             command,
             capture_output=True,
-            **_text_output_kwargs(),
             cwd=str(_repo_root()),
         )
+        stdout = _decode_process_output(result.stdout)
+        stderr = _decode_process_output(result.stderr)
         if result.returncode == 0:
-            return _truncate_output(result.stdout.strip())
+            return _truncate_output(stdout.strip())
         if result.returncode == 1:
             return "No matches found."
-        stderr = result.stderr.strip() or "Unknown ripgrep error."
+        stderr = stderr.strip() or "Unknown ripgrep error."
         return f"Error searching code.\n[STDERR]\n{stderr}"
 
     return _truncate_output(
@@ -499,17 +500,18 @@ def _build_untracked_diff(repo_path: Path) -> str:
     result = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
         capture_output=True,
-        **_text_output_kwargs(),
         timeout=30,
         cwd=str(repo_path),
     )
+    stdout = _decode_process_output(result.stdout)
+    stderr = _decode_process_output(result.stderr)
     if result.returncode != 0:
-        stderr = result.stderr.strip() or result.stdout.strip() or "Unknown git error."
+        stderr = stderr.strip() or stdout.strip() or "Unknown git error."
         return f"Error listing untracked files.\n[STDERR]\n{stderr}"
 
     parts = [
         diff
-        for line in result.stdout.splitlines()
+        for line in stdout.splitlines()
         if (diff := _new_file_diff(repo_path, line))
     ]
     return "\n".join(parts)
@@ -523,14 +525,22 @@ def _git_diff_impl(repo_path: str = ".", staged: bool = False) -> str:
     result = subprocess.run(
         command,
         capture_output=True,
-        **_text_output_kwargs(),
         timeout=60,
         cwd=str(resolved_repo_path),
     )
+    stdout = _decode_process_output(result.stdout)
+    stderr = _decode_process_output(result.stderr)
     if result.returncode != 0:
-        return _format_command_result(result)
+        return _format_command_result(
+            subprocess.CompletedProcess(
+                args=result.args,
+                returncode=result.returncode,
+                stdout=stdout,
+                stderr=stderr,
+            )
+        )
 
-    parts = [result.stdout.strip()]
+    parts = [stdout.strip()]
     if not staged:
         parts.append(_build_untracked_diff(resolved_repo_path).strip())
 
@@ -585,13 +595,14 @@ def _git_push_impl(
             result = subprocess.run(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 capture_output=True,
-                **_text_output_kwargs(),
                 cwd=str(_repo_root()),
                 timeout=10,
             )
+            stdout = _decode_process_output(result.stdout)
+            stderr = _decode_process_output(result.stderr)
             if result.returncode != 0:
-                return f"Error: failed to get current branch: {result.stderr.strip()}"
-            branch = result.stdout.strip()
+                return f"Error: failed to get current branch: {stderr.strip()}"
+            branch = stdout.strip()
         except subprocess.TimeoutExpired:
             return "Error: timed out while getting current branch."
         except Exception as exc:
