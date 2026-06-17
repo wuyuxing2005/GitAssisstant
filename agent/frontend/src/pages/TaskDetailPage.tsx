@@ -447,6 +447,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
   const [issueCommentBody, setIssueCommentBody] = useState("");
   const [issueCloseReason, setIssueCloseReason] = useState<"completed" | "not_planned">("completed");
   const [sandboxDecisionAcknowledged, setSandboxDecisionAcknowledged] = useState(false);
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false);
   const taskResultMessages = task?.result?.messages ?? [];
   const latestTaskResultMessage = taskResultMessages[taskResultMessages.length - 1];
   const taskResultMessagesVersion = `${taskResultMessages.length}:${latestTaskResultMessage?.id ?? ""}`;
@@ -477,6 +478,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     setIssueCommentBody(cachedIssueInfo?.default_comment ?? "");
     setIssueCloseReason("completed");
     setSandboxDecisionAcknowledged(false);
+    setRestartDialogOpen(false);
   }, [task?.id]);
 
   useEffect(() => {
@@ -880,16 +882,14 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     if (!task) {
       return;
     }
-    const effectiveStatus = getEffectiveTaskStatus(task);
-    const taskIsActive = effectiveStatus === "running" || effectiveStatus === "scheduled";
-    const confirmed = window.confirm(
-      taskIsActive
-        ? "确定要中断当前执行并从头开始吗？尚未被 Agent 读取的插入对话会被丢弃。"
-        : "确定要从头开始重新执行该任务吗？"
-    );
-    if (!confirmed) {
+    setRestartDialogOpen(true);
+  }
+
+  async function handleConfirmRestartTask() {
+    if (!task) {
       return;
     }
+    setRestartDialogOpen(false);
     setConversationPinnedToBottom(true);
     await onRunTask(task.id, "auto", true);
     await onTaskChanged?.();
@@ -1338,6 +1338,31 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
               </button>
               <button className="primary-button" type="button" onClick={() => void handleSubmitIssueState()} disabled={issueBusy}>
                 确认更新
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    ) : null}
+
+    {restartDialogOpen ? (
+      <div className="modal-backdrop" role="presentation" onMouseDown={() => setRestartDialogOpen(false)}>
+        <section className="settings-modal restart-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="settings-modal-header">
+            <div>
+              <h2>从头开始</h2>
+              <p>
+                {taskIsActive
+                  ? "确定要中断当前执行并从头开始吗？尚未被 Agent 读取的插入对话会被丢弃。"
+                  : "确定要从头开始重新执行该任务吗？"}
+              </p>
+            </div>
+            <button className="modal-close-button" type="button" onClick={() => setRestartDialogOpen(false)}>关闭</button>
+          </div>
+          <div className="settings-form">
+            <div className="settings-actions">
+              <button className="primary-button" type="button" onClick={() => void handleConfirmRestartTask()} disabled={isBusy}>
+                确定
               </button>
             </div>
           </div>

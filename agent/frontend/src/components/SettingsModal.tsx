@@ -138,8 +138,8 @@ export function SettingsModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="settings-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="modal-backdrop settings-root-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="settings-modal settings-root-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <div className="settings-modal-header">
           <div>
             <h2>设置</h2>

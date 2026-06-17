@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
@@ -15,6 +16,12 @@ from .tools.sandbox_manager import SandboxManager
 
 
 EDIT_TOOL_NAMES = {"write_file", "replace_in_file", "patch_file"}
+COMMAND_EXIT_RE = re.compile(r"Command finished with exit code (-?\d+)\.")
+
+
+def _tool_result_exit_code(result: object) -> int | None:
+    match = COMMAND_EXIT_RE.search(str(result))
+    return int(match.group(1)) if match else None
 USER_INSERT_PREFIX = "[用户插入指令]"
 
 
@@ -600,7 +607,15 @@ class AgentOrchestrator:
                 result = await tool_func.ainvoke(tool_args)
                 status = "success"
                 error_msg = ""
-                exit_code_val = 0
+                exit_code_val = _tool_result_exit_code(result) or 0
+                result_text = str(result)
+                if exit_code_val != 0:
+                    status = "error"
+                    error_msg = result_text[:300]
+                elif result_text.startswith(("Error executing command", "Error executing command in sandbox", "Error: command timed out")):
+                    status = "error"
+                    error_msg = result_text[:300]
+                    exit_code_val = -1
             except Exception as exc:
                 result = f"Error: {exc}"
                 status = "error"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import locale
 import os
 import re
 import shlex
@@ -98,13 +99,30 @@ def _format_command_result(result: subprocess.CompletedProcess[str]) -> str:
         parts.append(result.stdout.strip())
     if result.stderr:
         parts.append(f"[STDERR]\n{result.stderr.strip()}")
-    if not parts:
+    if result.returncode != 0:
+        parts.append(f"Command finished with exit code {result.returncode}.")
+    elif not parts:
         parts.append(f"Command finished with exit code {result.returncode}.")
     return _truncate_output("\n".join(part for part in parts if part))
 
 
-def _text_output_kwargs() -> dict[str, str | bool]:
-    return {"text": True, "encoding": "utf-8", "errors": "replace"}
+def _decode_process_output(data: bytes | None) -> str:
+    if not data:
+        return ""
+
+    encodings = ["utf-8", locale.getpreferredencoding(False), "gbk", "cp936"]
+    seen: set[str] = set()
+    for encoding in encodings:
+        normalized = encoding.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+
+    return data.decode("utf-8", errors="replace")
 
 
 def _run_command(
@@ -176,7 +194,6 @@ def _run_command(
                 command_str if shell else command,
                 shell=shell,
                 capture_output=True,
-                **_text_output_kwargs(),
                 timeout=timeout,
                 cwd=str(cwd or _repo_root()),
             )
@@ -184,6 +201,12 @@ def _run_command(
             return f"Error: command timed out after {timeout} seconds."
         except Exception as exc:
             return f"Error executing command: {exc}"
+        result = subprocess.CompletedProcess(
+            args=result.args,
+            returncode=result.returncode,
+            stdout=_decode_process_output(result.stdout),
+            stderr=_decode_process_output(result.stderr),
+        )
         return _format_command_result(result)
 
 

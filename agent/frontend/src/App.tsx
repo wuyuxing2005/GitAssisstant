@@ -537,6 +537,7 @@ export default function App() {
 
           <div className="hero-actions">
             <span className={`health-pill ${backendStatus}`}>后端：{backendStatus}</span>
+            {successMessage ? <span className="inline-toast success" role="status">{successMessage}</span> : null}
             <button className="primary-button" type="button" onClick={() => void refreshData()} disabled={refreshing}>
               {refreshing ? "刷新中..." : "刷新数据"}
             </button>
@@ -578,8 +579,6 @@ export default function App() {
         {currentPage === "memories" ? <MemoryPage /> : null}
 
       </main>
-
-      {successMessage ? <div className="toast success" role="status">{successMessage}</div> : null}
 
       <SettingsModal
         open={settingsOpen}
