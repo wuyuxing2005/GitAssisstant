@@ -5,28 +5,120 @@ $agentRoot = Join-Path $repoRoot "agent"
 $frontendRoot = Join-Path $agentRoot "frontend"
 $pythonExe = Join-Path $agentRoot ".venv\Scripts\python.exe"
 
-if (-not (Test-Path $pythonExe)) {
-  Write-Error "未找到后端虚拟环境：$pythonExe"
+if (-not (Test-Path -LiteralPath $pythonExe)) {
+  Write-Error "Backend Python venv not found: $pythonExe"
 }
 
-$backendCommand = @"
-Set-Location '$agentRoot'
-& '$pythonExe' -m uvicorn gitIssueAssitant.RESTAPIAdapter.main:app --reload --reload-dir gitIssueAssitant --port 8000
-"@
+$script:managedProcesses = @()
+$script:isStopping = $false
+$script:stopRequested = $false
 
-$frontendCommand = @"
-Set-Location '$frontendRoot'
-npm.cmd run dev
-"@
+function Write-PrefixedLine {
+  param(
+    [string]$Prefix,
+    [string]$Message,
+    [ConsoleColor]$Color = [ConsoleColor]::Gray
+  )
 
-Start-Process powershell -WorkingDirectory $agentRoot -ArgumentList @(
-  "-NoExit",
-  "-Command",
-  $backendCommand
-)
+  if ([string]::IsNullOrWhiteSpace($Message)) {
+    return
+  }
 
-Start-Process powershell -WorkingDirectory $frontendRoot -ArgumentList @(
-  "-NoExit",
-  "-Command",
-  $frontendCommand
-)
+  Write-Host "[$Prefix] $Message" -ForegroundColor $Color
+}
+
+function Stop-ManagedProcesses {
+  if ($script:isStopping) {
+    return
+  }
+
+  $script:isStopping = $true
+
+  foreach ($entry in $script:managedProcesses) {
+    $process = $entry.Process
+    if ($null -eq $process) {
+      continue
+    }
+
+    if (-not $process.HasExited) {
+      Write-PrefixedLine -Prefix "system" -Message "Stopping $($entry.Name) process tree (PID=$($process.Id))" -Color DarkYellow
+      taskkill.exe /PID $process.Id /T /F | Out-Null
+      $process.WaitForExit(5000) | Out-Null
+    }
+  }
+
+}
+
+function Start-ManagedProcess {
+  param(
+    [string]$Name,
+    [string]$FilePath,
+    [string]$Arguments,
+    [string]$WorkingDirectory
+  )
+
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $FilePath
+  $startInfo.Arguments = $Arguments
+  $startInfo.WorkingDirectory = $WorkingDirectory
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+
+  $process = [System.Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  $process.EnableRaisingEvents = $true
+
+  $null = $process.Start()
+
+  $entry = [pscustomobject]@{
+    Name = $Name
+    Process = $process
+  }
+  $script:managedProcesses += $entry
+
+  Write-PrefixedLine -Prefix "system" -Message "Started $Name, PID=$($process.Id)" -Color DarkGreen
+
+  return $entry
+}
+
+$backendArgs = "-m uvicorn gitIssueAssitant.RESTAPIAdapter.main:app --reload --reload-dir gitIssueAssitant --port 8000"
+$frontendArgs = '/c "npm.cmd run dev"'
+$cancelHandler = [ConsoleCancelEventHandler] {
+  param($sender, $eventArgs)
+  $eventArgs.Cancel = $true
+  $script:stopRequested = $true
+}
+
+[Console]::add_CancelKeyPress($cancelHandler)
+
+try {
+  Write-PrefixedLine -Prefix "system" -Message "Starting backend and frontend in this terminal. Press Ctrl+C to stop both." -Color Cyan
+
+  $backend = Start-ManagedProcess -Name "backend" -FilePath $pythonExe -Arguments $backendArgs -WorkingDirectory $agentRoot
+  $frontend = Start-ManagedProcess -Name "frontend" -FilePath "cmd.exe" -Arguments $frontendArgs -WorkingDirectory $frontendRoot
+
+  Write-PrefixedLine -Prefix "system" -Message "Backend: http://127.0.0.1:8000  Frontend: http://127.0.0.1:5173" -Color Yellow
+
+  while ($true) {
+    if ($script:stopRequested) {
+      Write-PrefixedLine -Prefix "system" -Message "Interrupt received; cleaning up child processes." -Color DarkYellow
+      break
+    }
+
+    $exited = $script:managedProcesses | Where-Object { $_.Process.HasExited }
+    if ($exited.Count -gt 0) {
+      $firstExited = $exited[0]
+      Write-PrefixedLine -Prefix "system" -Message "$($firstExited.Name) exited; stopping remaining processes." -Color DarkYellow
+      break
+    }
+
+    Start-Sleep -Seconds 1
+  }
+}
+catch [System.Management.Automation.PipelineStoppedException] {
+  Write-PrefixedLine -Prefix "system" -Message "Interrupt received; cleaning up child processes." -Color DarkYellow
+}
+finally {
+  [Console]::remove_CancelKeyPress($cancelHandler)
+  Stop-ManagedProcesses
+}
