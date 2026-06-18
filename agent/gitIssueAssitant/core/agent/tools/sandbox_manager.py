@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 from ..sandbox import DockerSandbox
 
@@ -36,13 +36,21 @@ class SandboxManager:
         manager.stop_all()
     """
 
-    def __init__(self, workspace_root: Optional[Path] = None):
+    def __init__(
+        self,
+        workspace_root: Optional[Path] = None,
+        progress_callback: Callable[[dict], None] | None = None,
+    ):
         """
         :param workspace_root: 沙箱工作区根目录，默认为当前目录下的 workspaces/
         """
         self.workspace_root = (Path(workspace_root) if workspace_root else Path.cwd()).resolve()
         # thread_id → DockerSandbox
         self._sandboxes: Dict[str, DockerSandbox] = {}
+        self.progress_callback = progress_callback
+
+    def set_progress_callback(self, progress_callback: Callable[[dict], None] | None) -> None:
+        self.progress_callback = progress_callback
 
     def get_or_create(self, thread_id: str, repo_path: str) -> DockerSandbox:
         """根据 thread_id 获取已有沙箱，不存在则创建并启动新的。
@@ -65,6 +73,7 @@ class SandboxManager:
             task_id=thread_id,
             repo_path=Path(repo_path),
             workspace_root=self.workspace_root,
+            progress_callback=self.progress_callback,
         )
         sandbox.start()
         self._sandboxes[thread_id] = sandbox

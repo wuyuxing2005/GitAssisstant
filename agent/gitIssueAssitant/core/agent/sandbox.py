@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
+import time
 import uuid
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Callable, Optional, Dict, Any
 
 import yaml  # 需要安装 pyyaml
 
@@ -80,6 +82,7 @@ class DockerSandbox:
         task_id: str,
         repo_path: Path,
         workspace_root: Optional[Path] = None,
+        progress_callback: Callable[[dict], None] | None = None,
     ):
         """
         :param task_id: 唯一任务 ID，用于隔离工作目录
@@ -93,16 +96,55 @@ class DockerSandbox:
         self.config: Dict[str, Any] = {}
         self.container_name = f"sandbox-{task_id}-{uuid.uuid4().hex[:8]}"
         self._started = False
+        self.progress_callback = progress_callback
+
+    def _emit_progress(
+        self,
+        *,
+        phase: str,
+        status: str,
+        title: str,
+        command: str = "",
+        output_tail: list[str] | None = None,
+        error_message: str = "",
+    ) -> None:
+        if self.progress_callback is None:
+            return
+        self.progress_callback(
+            {
+                "phase": phase,
+                "status": status,
+                "title": title,
+                "command": command,
+                "output_tail": output_tail or [],
+                "error_message": error_message,
+            }
+        )
 
     def _image_exists(self, image: str) -> bool:
         """检查本地是否已有镜像"""
         if shutil.which("docker") is None:
             raise SandboxError(_docker_not_found_message())
+        command = f"docker images -q {image}"
+        self._emit_progress(
+            phase="check_image",
+            status="running",
+            title="检查 Docker 镜像",
+            command=command,
+        )
         result = subprocess.run(
             ["docker", "images", "-q", image],
             capture_output=True, text=True
         )
-        return bool(result.stdout.strip())
+        exists = bool(result.stdout.strip())
+        self._emit_progress(
+            phase="check_image",
+            status="success",
+            title="镜像已存在" if exists else "镜像不存在",
+            command=command,
+            output_tail=[result.stdout.strip()] if result.stdout.strip() else [],
+        )
+        return exists
     
     def _pull_image_with_fallback(self, image: str, timeout: int = 120) -> str:
         """
@@ -117,7 +159,13 @@ class DockerSandbox:
         # 2. 尝试直接拉取
         print(f"[sandbox.py] 本地未找到镜像，尝试直接拉取: {image}")
         try:
-            self._run_docker_command(["pull", image], timeout=timeout)
+            self._run_docker_command(
+                ["pull", image],
+                timeout=timeout,
+                phase="pull_image",
+                title="拉取 Docker 镜像",
+                raise_on_error=True,
+            )
             print(f"[sandbox.py] 镜像 {image} 拉取成功")
             return image
         except SandboxError as e:
@@ -138,10 +186,21 @@ class DockerSandbox:
             fallback_image = f"{prefix}{image}"
             print(f"[sandbox.py] 尝试回退镜像: {fallback_image}")
             try:
-                self._run_docker_command(["pull", fallback_image], timeout=300)
+                self._run_docker_command(
+                    ["pull", fallback_image],
+                    timeout=300,
+                    phase="pull_image",
+                    title="拉取 Docker 镜像",
+                    raise_on_error=True,
+                )
                 print(f"[sandbox.py] 镜像 {fallback_image} 拉取成功")
                 # 关键：拉取后，为后续使用添加本地 tag，使 image 指向刚拉取的镜像
-                self._run_docker_command(["tag", fallback_image, image])
+                self._run_docker_command(
+                    ["tag", fallback_image, image],
+                    phase="pull_image",
+                    title="标记 Docker 镜像",
+                    raise_on_error=True,
+                )
                 return image
             except SandboxError:
                 continue
@@ -195,49 +254,109 @@ class DockerSandbox:
         - 执行 install 命令
         - 容器保持运行，供后续 exec 使用
         """
-        self.load_config()
-        self.prepare_workspace()
+        try:
+            self._emit_progress(
+                phase="load_config",
+                status="running",
+                title="读取沙箱配置",
+                command=str(self.repo_path / ".agent-sandbox.yml"),
+            )
+            self.load_config()
+            self._emit_progress(
+                phase="load_config",
+                status="success",
+                title="已读取沙箱配置",
+                command=str(self.repo_path / ".agent-sandbox.yml"),
+            )
+            self._emit_progress(
+                phase="prepare_workspace",
+                status="running",
+                title="复制仓库到 workspace",
+                command=str(self.host_work_dir),
+            )
+            self.prepare_workspace()
+            self._emit_progress(
+                phase="prepare_workspace",
+                status="success",
+                title="仓库 workspace 已准备",
+                command=str(self.host_work_dir),
+            )
 
-        image = self.config["image"]
-        allow_network = self.config.get("allow_network", False)
+            image = self.config["image"]
+            allow_network = self.config.get("allow_network", False)
 
-        # 1. 确保镜像存在
-        # self._run_docker_command(["pull", image], timeout=120)
-        image = self._pull_image_with_fallback(image, timeout=300)
+            # 1. 确保镜像存在
+            # self._run_docker_command(["pull", image], timeout=120)
+            image = self._pull_image_with_fallback(image, timeout=300)
 
-        # 2. 创建容器（挂载整个 workspace 目录）
-        mount_src = str(self.host_work_dir.parent)  # 挂载 task_id 目录
-        mount_dst = "/workspace"
-        container_args = [
-            "run", "-d",                     # 后台运行
-            "--name", self.container_name,
-            "-v", f"{mount_src}:{mount_dst}",
-            "-w", "/workspace/repo",        # 工作目录为仓库根
-            "--cpus", "2",                   # CPU 限制
-            "--memory", "2g",                # 内存限制
-            "--network", "none" if not allow_network else "bridge",
-            "--rm",                          # 容器停止后自动删除
-        ]
-        # 可以添加更多安全限制，如 --cap-drop=ALL
-        container_args.append(image)
-        container_args.extend(["sleep", "infinity"])  # 保持容器运行
+            # 2. 创建容器（挂载整个 workspace 目录）
+            mount_src = str(self.host_work_dir.parent)  # 挂载 task_id 目录
+            mount_dst = "/workspace"
+            container_args = [
+                "run", "-d",                     # 后台运行
+                "--name", self.container_name,
+                "-v", f"{mount_src}:{mount_dst}",
+                "-w", "/workspace/repo",        # 工作目录为仓库根
+                "--cpus", "2",                   # CPU 限制
+                "--memory", "2g",                # 内存限制
+                "--network", "none" if not allow_network else "bridge",
+                "--rm",                          # 容器停止后自动删除
+            ]
+            # 可以添加更多安全限制，如 --cap-drop=ALL
+            container_args.append(image)
+            container_args.extend(["sleep", "infinity"])  # 保持容器运行
 
-        result_output = self._run_docker_command(container_args, timeout=60)
-        # 检查容器是否成功创建（通过输出中的 EXIT_CODE 标记或检查容器是否存在）
-        if "[EXIT_CODE: 0]" not in result_output:
-            # 如果失败，清理并抛出异常
-            raise SandboxError(f"容器创建失败: {result_output}")
-        self._started = True
-        print(f"[sandbox.py] 容器已启动: {self.container_name}")
+            result_output = self._run_docker_command(
+                container_args,
+                timeout=60,
+                phase="start_container",
+                title="启动 Docker 容器",
+            )
+            # 检查容器是否成功创建（通过输出中的 EXIT_CODE 标记或检查容器是否存在）
+            if "[EXIT_CODE: 0]" not in result_output:
+                # 如果失败，清理并抛出异常
+                raise SandboxError(f"容器创建失败: {result_output}")
+            self._started = True
+            print(f"[sandbox.py] 容器已启动: {self.container_name}")
 
-        # 3. 执行安装命令
-        install_cmds = self.config.get("install", [])
-        for cmd in install_cmds:
-            print(f"[sandbox.py] 执行安装命令: {cmd}")
-            result = self.exec_command(cmd, timeout=300)
-            print(f"[sandbox.py] 安装输出:\n{result}")
+            # 3. 执行安装命令
+            install_cmds = self.config.get("install", [])
+            install_timeout = int(self.config.get("timeout_seconds", 300))
+            for cmd in install_cmds:
+                print(f"[sandbox.py] 执行安装命令: {cmd}")
+                result = self.exec_command(
+                    cmd,
+                    timeout=install_timeout,
+                    phase="install",
+                    title="执行安装命令",
+                )
+                print(f"[sandbox.py] 安装输出:\n{result}")
+                if "[EXIT_CODE: 0]" not in result:
+                    raise SandboxError(f"安装命令失败: {cmd}\n{result}")
+            self._emit_progress(
+                phase="ready",
+                status="success",
+                title="Docker 沙箱已就绪",
+                command=self.container_name,
+            )
+        except SandboxError as exc:
+            self._emit_progress(
+                phase="failed",
+                status="failed",
+                title="Docker 沙箱不可用",
+                command=self.container_name,
+                error_message=str(exc),
+            )
+            raise
 
-    def exec_command(self, command: str, timeout: Optional[int] = None) -> str:
+    def exec_command(
+        self,
+        command: str,
+        timeout: Optional[int] = None,
+        *,
+        phase: str = "",
+        title: str = "",
+    ) -> str:
         """
         在沙箱容器内执行命令并返回输出。
         :param command: 要执行的命令字符串
@@ -250,7 +369,12 @@ class DockerSandbox:
 
         # 使用 docker exec 执行命令
         exec_args = ["exec", self.container_name, "bash", "-c", command]
-        return self._run_docker_command(exec_args, timeout=timeout)
+        return self._run_docker_command(
+            exec_args,
+            timeout=timeout,
+            phase=phase,
+            title=title,
+        )
 
     def stop(self):
         """停止并删除容器"""
@@ -405,39 +529,111 @@ class DockerSandbox:
     #         raise SandboxError(f"Docker 命令超时 ({timeout}s): {' '.join(cmd)}")
     #     except FileNotFoundError:
     #         raise SandboxError("未找到 Docker 命令，请确认 Docker 已安装并在 PATH 中。")
-    def _run_docker_command(self, args: list, timeout: int = 60) -> str:
-        """执行 Docker 命令，返回完整输出（含 stderr），并在末尾附加退出码。不再因非零退出码抛异常。"""
+    def _run_docker_command(
+        self,
+        args: list,
+        timeout: int = 60,
+        *,
+        phase: str = "",
+        title: str = "",
+        raise_on_error: bool = False,
+    ) -> str:
+        """执行 Docker 命令，实时上报最近输出，并在末尾附加退出码。"""
         cmd = ["docker"] + args
-        print(f"[sandbox.py] 执行 Docker 命令: {' '.join(cmd)}")
+        command_text = " ".join(cmd)
+        print(f"[sandbox.py] 执行 Docker 命令: {command_text}")
 
         env = os.environ.copy()
         for proxy_var in ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
                         "http_proxy", "https_proxy", "no_proxy"]:
             env.pop(proxy_var, None)
 
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',        # 强制 UTF-8 编码
-                errors='replace',        # 无法解码的字符用 � 替换
-                timeout=timeout,
-                env=env,
-                check=False,
+        output_lines: list[str] = []
+        tail_lines: list[str] = []
+        if phase:
+            self._emit_progress(
+                phase=phase,
+                status="running",
+                title=title or "执行 Docker 命令",
+                command=command_text,
             )
-            # 合并 stdout 和 stderr
-            output = result.stdout.strip()
-            if result.stderr.strip():
-                output += "\n[STDERR]\n" + result.stderr.strip()
-            # 附加退出码信息，方便调用者判断
-            output += f"\n[EXIT_CODE: {result.returncode}]"
-            print(f"[sandbox.py] 命令完成，退出码: {result.returncode}")
-            return output
-        except subprocess.TimeoutExpired:
-            raise SandboxError(f"Docker 命令超时 ({timeout}s): {' '.join(cmd)}")
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                bufsize=1,
+            )
         except FileNotFoundError:
             raise SandboxError(_docker_not_found_message())
+
+        def read_output() -> None:
+            if process.stdout is None:
+                return
+            for line in process.stdout:
+                text = line.rstrip()
+                if not text:
+                    continue
+                print(f"  {text}")
+                output_lines.append(text)
+                tail_lines.append(text)
+                del tail_lines[:-5]
+                if phase:
+                    self._emit_progress(
+                        phase=phase,
+                        status="running",
+                        title=title or "执行 Docker 命令",
+                        command=command_text,
+                        output_tail=tail_lines,
+                    )
+
+        reader = threading.Thread(target=read_output, daemon=True)
+        reader.start()
+        start_time = time.monotonic()
+        timed_out = False
+        while process.poll() is None:
+            if time.monotonic() - start_time >= timeout:
+                timed_out = True
+                process.kill()
+                break
+            time.sleep(0.2)
+        reader.join(timeout=2)
+
+        if timed_out:
+            error_message = f"Docker 命令超时 ({timeout}s): {command_text}"
+            if phase:
+                self._emit_progress(
+                    phase=phase,
+                    status="timeout",
+                    title="Docker 命令超时",
+                    command=command_text,
+                    output_tail=tail_lines,
+                    error_message=error_message,
+                )
+            raise SandboxError(error_message)
+
+        exit_code = process.returncode if process.returncode is not None else 1
+        output = "\n".join(output_lines).strip()
+        output = f"{output}\n[EXIT_CODE: {exit_code}]" if output else f"[EXIT_CODE: {exit_code}]"
+        status = "success" if exit_code == 0 else "failed"
+        if phase:
+            self._emit_progress(
+                phase=phase,
+                status=status,
+                title=title or "执行 Docker 命令",
+                command=command_text,
+                output_tail=tail_lines,
+                error_message="" if exit_code == 0 else output,
+            )
+        print(f"[sandbox.py] 命令完成，退出码: {exit_code}")
+        if raise_on_error and exit_code != 0:
+            raise SandboxError(f"Docker 命令失败: {command_text}\n{output}")
+        return output
 
     # ---------- 路径映射 ----------
 

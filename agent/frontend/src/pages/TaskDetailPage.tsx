@@ -16,6 +16,7 @@ import type {
   GitPullRequestResponse,
   GitPushResponse,
   RunMode,
+  SandboxEventRecord,
   TaskMessage,
   ToolCallRecord
 } from "../types/task";
@@ -324,6 +325,40 @@ function toolCallParamRows(toolCall: ToolCallRecord): Array<[string, string]> {
     .filter(([, value]) => value.length > 0);
 }
 
+function sandboxStatusLabel(status: string): string {
+  if (status === "running") {
+    return "运行中";
+  }
+  if (status === "success") {
+    return "已完成";
+  }
+  if (status === "failed") {
+    return "失败";
+  }
+  if (status === "timeout") {
+    return "超时";
+  }
+  return "等待中";
+}
+
+function formatElapsedMs(elapsedMs?: number | null): string {
+  if (!elapsedMs || elapsedMs < 0) {
+    return "";
+  }
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function sandboxEventSummary(event: SandboxEventRecord): string {
+  if (event.status === "failed" || event.status === "timeout") {
+    return event.title || "Docker 沙箱不可用";
+  }
+  const runningStep = [...(event.steps ?? [])].reverse().find((step) => step.status === "running");
+  return runningStep?.title || event.title || "Docker 沙箱";
+}
+
 function mergeConversationMessages(remoteMessages: TaskMessage[], localMessages: TaskMessage[]): TaskMessage[] {
   const byId = new Map<string, TaskMessage>();
   const seenLocalFallbackSelections = new Set<string>();
@@ -512,6 +547,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
   });
   const [sendMethodMenuOpen, setSendMethodMenuOpen] = useState(false);
   const [expandedToolMessages, setExpandedToolMessages] = useState<Set<string>>(() => new Set());
+  const [expandedSandboxMessages, setExpandedSandboxMessages] = useState<Set<string>>(() => new Set());
   const [diffLoading, setDiffLoading] = useState(false);
   const [gitActionBusy, setGitActionBusy] = useState(false);
   const [gitMessage, setGitMessage] = useState<string | null>(null);
@@ -554,6 +590,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     setLocalMessages([]);
     setConversationPinnedToBottom(true);
     setExpandedToolMessages(new Set());
+    setExpandedSandboxMessages(new Set());
     setMessageContent("");
     setMessageError(null);
     setIssueInfo(cachedIssueInfo ?? null);
@@ -985,6 +1022,18 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     });
   }
 
+  function toggleSandboxMessage(messageId: string) {
+    setExpandedSandboxMessages((current) => {
+      const next = new Set(current);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }
+
   function handleConversationScroll() {
     const list = conversationListRef.current;
     if (!list) {
@@ -1111,17 +1160,66 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
             {displayedMessages.map((message) => {
               const toolCalls = message.tool_calls ?? [];
               const isToolCallMessage = message.kind === "tool_call" && toolCalls.length > 0;
+              const sandboxEvent = message.sandbox_event ?? null;
+              const isSandboxEventMessage = message.kind === "sandbox_event" && sandboxEvent !== null;
               const isExpanded = expandedToolMessages.has(message.id);
+              const isSandboxExpanded = expandedSandboxMessages.has(message.id);
 
               return (
               <article
                 key={message.id}
-                className={`conversation-message ${message.role}${isToolCallMessage ? " tool-call-message" : ""}`}
+                className={`conversation-message ${message.role}${isToolCallMessage ? " tool-call-message" : ""}${isSandboxEventMessage ? " sandbox-event-message" : ""}`}
               >
                 <div className="conversation-avatar" aria-hidden="true">
                   {message.role === "assistant" ? "A" : message.role === "user" ? "U" : "S"}
                 </div>
-                {isToolCallMessage ? (
+                {isSandboxEventMessage ? (
+                  <div className={`sandbox-event-bubble ${sandboxEvent.status}`}>
+                    <button
+                      type="button"
+                      className="sandbox-event-toggle"
+                      aria-expanded={isSandboxExpanded}
+                      onClick={() => toggleSandboxMessage(message.id)}
+                    >
+                      <span className={`sandbox-event-status-dot ${sandboxEvent.status}`} aria-hidden="true" />
+                      <span className="sandbox-event-heading">Docker 沙箱</span>
+                      <span className="sandbox-event-stage">{sandboxEventSummary(sandboxEvent)}</span>
+                      {formatElapsedMs(sandboxEvent.elapsed_ms) ? (
+                        <span className="sandbox-event-elapsed">{formatElapsedMs(sandboxEvent.elapsed_ms)}</span>
+                      ) : null}
+                      <span className="sandbox-event-chevron" aria-hidden="true">›</span>
+                    </button>
+                    {sandboxEvent.command ? <code className="sandbox-event-command">{sandboxEvent.command}</code> : null}
+                    {isSandboxExpanded ? (
+                      <div className="sandbox-event-details">
+                        <ol className="sandbox-event-steps">
+                          {(sandboxEvent.steps ?? []).map((step, index) => (
+                            <li key={`${message.id}-${step.phase}-${index}`} className={step.status}>
+                              <div className="sandbox-event-step-header">
+                                <span>{index + 1}</span>
+                                <strong>{step.title}</strong>
+                                <small>{sandboxStatusLabel(step.status)}</small>
+                              </div>
+                              {step.command ? <code>{step.command}</code> : null}
+                              {step.output_tail?.length ? (
+                                <pre>{step.output_tail.join("\n")}</pre>
+                              ) : null}
+                              {step.error_message ? (
+                                <p>{shortenToolText(step.error_message, 320)}</p>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ol>
+                        {sandboxEvent.error_message ? (
+                          <div className="sandbox-event-error">
+                            <strong>错误摘要</strong>
+                            <p>{shortenToolText(sandboxEvent.error_message, 360)}</p>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : isToolCallMessage ? (
                   <div className="tool-call-bubble">
                     <button
                       type="button"

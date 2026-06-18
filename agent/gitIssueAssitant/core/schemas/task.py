@@ -51,6 +51,31 @@ class ToolCallRecord(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
+class SandboxEventStepRecord(BaseModel):
+    phase: str
+    status: str
+    title: str
+    command: str = ""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    elapsed_ms: int | None = None
+    output_tail: list[str] = Field(default_factory=list)
+    error_message: str = ""
+
+
+class SandboxEventRecord(BaseModel):
+    phase: str = ""
+    status: str = "pending"
+    title: str = "Docker 沙箱"
+    command: str = ""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    elapsed_ms: int | None = None
+    output_tail: list[str] = Field(default_factory=list)
+    error_message: str = ""
+    steps: list[SandboxEventStepRecord] = Field(default_factory=list)
+
+
 class ToolCallInfo(BaseModel):
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -124,7 +149,7 @@ class ToolUsageItem(BaseModel):
 
 
 MessageRole = Literal["user", "assistant", "system"]
-TaskMessageKind = Literal["text", "tool_call"]
+TaskMessageKind = Literal["text", "tool_call", "sandbox_event"]
 
 
 class TaskMessage(BaseModel):
@@ -135,6 +160,7 @@ class TaskMessage(BaseModel):
     replan: bool = False
     kind: TaskMessageKind = "text"
     tool_calls: list[ToolCallRecord] = Field(default_factory=list)
+    sandbox_event: SandboxEventRecord | None = None
 
 
 class TaskMessageCreate(BaseModel):

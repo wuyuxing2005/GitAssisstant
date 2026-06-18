@@ -16,6 +16,31 @@ export interface ToolCallRecord {
   args: Record<string, unknown>;
 }
 
+export interface SandboxEventStepRecord {
+  phase: string;
+  status: string;
+  title: string;
+  command: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  elapsed_ms?: number | null;
+  output_tail: string[];
+  error_message: string;
+}
+
+export interface SandboxEventRecord {
+  phase: string;
+  status: string;
+  title: string;
+  command: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  elapsed_ms?: number | null;
+  output_tail: string[];
+  error_message: string;
+  steps: SandboxEventStepRecord[];
+}
+
 export interface ToolCallInfo {
   name: string;
   arguments: Record<string, unknown>;
@@ -89,7 +114,7 @@ export interface ToolUsageItem {
 }
 
 export type TaskMessageRole = "user" | "assistant" | "system";
-export type TaskMessageKind = "text" | "tool_call";
+export type TaskMessageKind = "text" | "tool_call" | "sandbox_event";
 
 export interface TaskMessage {
   id: string;
@@ -99,6 +124,7 @@ export interface TaskMessage {
   replan: boolean;
   kind?: TaskMessageKind;
   tool_calls?: ToolCallRecord[];
+  sandbox_event?: SandboxEventRecord | null;
 }
 
 export interface TaskMessageCreate {

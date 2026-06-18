@@ -3496,7 +3496,7 @@ button.floating-env-row:hover:not(:disabled) {
 .conversation-message {
   display: grid;
   grid-template-columns: 28px minmax(0, 74%);
-  align-items: end;
+  align-items: start;
   gap: 8px;
 }
 
@@ -3770,6 +3770,213 @@ button.floating-env-row:hover:not(:disabled) {
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.sandbox-event-message .conversation-avatar {
+  background: #e7f0f7;
+  color: #256177;
+}
+
+.sandbox-event-bubble {
+  width: min(840px, 100%);
+  overflow: hidden;
+  border: 1px solid #c8dce8;
+  border-radius: 12px;
+  background: #f4f9fc;
+  color: #1e3340;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.sandbox-event-bubble.failed,
+.sandbox-event-bubble.timeout {
+  border-color: #f0b7ae;
+  background: #fff7f5;
+}
+
+.sandbox-event-toggle {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sandbox-event-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #9aa7b0;
+}
+
+.sandbox-event-status-dot.running {
+  background: #1d78a8;
+  box-shadow: 0 0 0 4px rgba(29, 120, 168, 0.12);
+}
+
+.sandbox-event-status-dot.success {
+  background: #2f7d79;
+}
+
+.sandbox-event-status-dot.failed,
+.sandbox-event-status-dot.timeout {
+  background: var(--danger);
+}
+
+.sandbox-event-heading {
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.sandbox-event-stage {
+  overflow: hidden;
+  color: #536875;
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sandbox-event-elapsed {
+  color: #6f7f89;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.sandbox-event-chevron {
+  color: #71848f;
+  font-size: 20px;
+  line-height: 1;
+  transition: transform 0.16s ease;
+}
+
+.sandbox-event-toggle[aria-expanded="true"] .sandbox-event-chevron {
+  transform: rotate(90deg);
+}
+
+.sandbox-event-command {
+  display: block;
+  margin: 0 14px 12px;
+  overflow: hidden;
+  color: #35525f;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sandbox-event-details {
+  display: grid;
+  gap: 12px;
+  padding: 0 14px 14px;
+}
+
+.sandbox-event-steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sandbox-event-steps li {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid #dbe8ef;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.sandbox-event-steps li.failed,
+.sandbox-event-steps li.timeout {
+  border-color: #efc4bc;
+  background: #fffdfc;
+}
+
+.sandbox-event-step-header {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.sandbox-event-step-header span {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #e8f1f6;
+  color: #2d667a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.sandbox-event-step-header strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sandbox-event-step-header small {
+  color: #687984;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.sandbox-event-steps code {
+  overflow: hidden;
+  color: #294958;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sandbox-event-steps pre {
+  max-height: 120px;
+  margin: 0;
+  overflow: auto;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #17212b;
+  color: #e8f2f6;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.sandbox-event-steps p,
+.sandbox-event-error p {
+  margin: 0;
+  color: #8a3328;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sandbox-event-error {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid #efc4bc;
+  border-radius: 10px;
+  background: #fff8f6;
+}
+
+.sandbox-event-error strong {
+  color: #9e2f22;
+  font-size: 13px;
 }
 
 .conversation-empty {

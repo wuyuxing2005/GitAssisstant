@@ -24,6 +24,8 @@ from gitIssueAssitant.core.schemas.task import (
     GitPushResponse,
     MetricScore,
     RuntimeSnapshot,
+    SandboxEventRecord,
+    SandboxEventStepRecord,
     TaskMessage,
     TaskMessageCreate,
     TaskMessageList,
@@ -288,6 +290,7 @@ class _IssueAssistantTaskRuntime:
         replan: bool = False,
         kind: str = "text",
         tool_calls: list[ToolCallRecord] | None = None,
+        sandbox_event: SandboxEventRecord | None = None,
     ) -> TaskMessage:
         result = self._ensure_result(task)
         message = TaskMessage(
@@ -298,6 +301,7 @@ class _IssueAssistantTaskRuntime:
             replan=replan,
             kind=kind,  # type: ignore[arg-type]
             tool_calls=tool_calls or [],
+            sandbox_event=sandbox_event,
         )
         result.messages.append(message)
         return message
@@ -305,6 +309,104 @@ class _IssueAssistantTaskRuntime:
     def _append_progress_message(self, task: TaskRecord, content: str) -> None:
         self._append_task_message(task, "system", content)
         task_service.save_task_record(task)
+
+    def _append_sandbox_event_message(self, task: TaskRecord) -> TaskMessage:
+        started_at = _utcnow()
+        message = self._append_task_message(
+            task,
+            "system",
+            "Docker 沙箱准备中",
+            kind="sandbox_event",
+            sandbox_event=SandboxEventRecord(
+                phase="load_config",
+                status="running",
+                title="Docker 沙箱",
+                started_at=started_at,
+            ),
+        )
+        task_service.save_task_record(task)
+        return message
+
+    def _make_sandbox_progress_handler(self, task: TaskRecord, message_id: str):
+        step_order = [
+            "load_config",
+            "prepare_workspace",
+            "check_image",
+            "pull_image",
+            "start_container",
+            "install",
+            "ready",
+            "failed",
+            "timeout",
+        ]
+        step_index = {phase: index for index, phase in enumerate(step_order)}
+
+        def find_message() -> TaskMessage | None:
+            result = self._ensure_result(task)
+            for message in result.messages:
+                if message.id == message_id:
+                    return message
+            return None
+
+        def handler(event: dict[str, Any]) -> None:
+            message = find_message()
+            if message is None:
+                return
+            now = _utcnow()
+            phase = str(event.get("phase") or "")
+            status = str(event.get("status") or "running")
+            title = str(event.get("title") or "Docker 沙箱")
+            command = str(event.get("command") or "")
+            output_tail = [str(line) for line in event.get("output_tail") or []][-5:]
+            error_message = str(event.get("error_message") or "")
+
+            sandbox_event = message.sandbox_event or SandboxEventRecord(
+                phase=phase,
+                status=status,
+                title="Docker 沙箱",
+                started_at=now,
+            )
+            existing_steps = {step.phase: step for step in sandbox_event.steps}
+            step = existing_steps.get(phase)
+            if step is None:
+                step = SandboxEventStepRecord(
+                    phase=phase,
+                    status=status,
+                    title=title,
+                    started_at=now,
+                )
+                sandbox_event.steps.append(step)
+            if step.started_at is None:
+                step.started_at = now
+            step.status = status
+            step.title = title
+            step.command = command or step.command
+            step.output_tail = output_tail or step.output_tail
+            step.error_message = error_message
+            if status in {"success", "failed", "timeout"}:
+                step.finished_at = now
+                if step.started_at is not None:
+                    step.elapsed_ms = int((step.finished_at - step.started_at).total_seconds() * 1000)
+
+            sandbox_event.steps.sort(key=lambda item: step_index.get(item.phase, len(step_order)))
+            sandbox_event.phase = phase
+            sandbox_event.status = status
+            sandbox_event.title = title
+            sandbox_event.command = command or sandbox_event.command
+            sandbox_event.output_tail = output_tail or sandbox_event.output_tail
+            sandbox_event.error_message = error_message
+            if sandbox_event.started_at is None:
+                sandbox_event.started_at = now
+            if status in {"success", "failed", "timeout"} and phase in {"ready", "failed", "timeout"}:
+                sandbox_event.finished_at = now
+            if sandbox_event.started_at is not None:
+                reference_time = sandbox_event.finished_at or now
+                sandbox_event.elapsed_ms = int((reference_time - sandbox_event.started_at).total_seconds() * 1000)
+            message.sandbox_event = sandbox_event
+            message.content = title
+            task_service.save_task_record(task)
+
+        return handler
 
     def _append_unique_task_message(
         self,
@@ -446,7 +548,10 @@ class _IssueAssistantTaskRuntime:
             )
             self._append_progress_message(task, f"仓库已准备：{session_service.current_repo}")
             if sandbox_manager is not None:
-                self._append_progress_message(task, "正在启动 Docker 沙箱，请等待镜像拉取、容器启动和依赖安装完成。")
+                sandbox_message = self._append_sandbox_event_message(task)
+                sandbox_manager.set_progress_callback(
+                    self._make_sandbox_progress_handler(task, sandbox_message.id)
+                )
             session_service.set_issue(
                 task.config.issue_input,
                 issue_description=self._build_agent_issue_description(task, session_service),
