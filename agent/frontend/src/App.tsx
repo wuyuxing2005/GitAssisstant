@@ -618,9 +618,6 @@ export default function App() {
                 <strong>{pendingDeleteTask.taskName}</strong>
               </div>
               <div className="delete-confirm-actions">
-                <button className="secondary-button" type="button" onClick={() => setPendingDeleteTask(null)}>
-                  取消
-                </button>
                 <button className="primary-button delete-confirm-button" type="button" onClick={() => void handleDeleteTask()} disabled={busyTaskId === pendingDeleteTask.taskId}>
                   {busyTaskId === pendingDeleteTask.taskId ? "删除中..." : "确认删除"}
                 </button>

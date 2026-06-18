@@ -17,6 +17,11 @@ type SkillFormState = {
   enabled: boolean;
 };
 
+type PendingSkillDelete = {
+  skill: SkillRecord;
+  source: "page" | "modal";
+};
+
 const emptyForm: SkillFormState = {
   name: "",
   description: "",
@@ -45,7 +50,7 @@ function toPayload(formState: SkillFormState): SkillCreateRequest {
 }
 
 export function SkillManager({ skills, onChanged }: SkillManagerProps) {
-  const [expanded, setExpanded] = useState<string | null>(skills[0]?.name ?? null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [busySkill, setBusySkill] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formState, setFormState] = useState<SkillFormState>(emptyForm);
@@ -54,6 +59,7 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<SkillRecord | null>(null);
+  const [pendingDeleteSkill, setPendingDeleteSkill] = useState<PendingSkillDelete | null>(null);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,17 +130,13 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
   }
 
   async function handleDelete(skill: SkillRecord, errorTarget: "page" | "modal" = "page"): Promise<boolean> {
-    const confirmed = window.confirm(`确定删除 Skill "${skill.name}" 吗?此操作不可恢复。`);
-    if (!confirmed) {
-      return false;
-    }
-
     try {
       setBusySkill(skill.name);
       setErrorMessage(null);
       setSuccessMessage(null);
       await deleteSkill(skill.name);
       setExpanded((current) => (current === skill.name ? null : current));
+      setPendingDeleteSkill(null);
       setSuccessMessage(`已删除 Skill：${skill.name}`);
       await onChanged();
       return true;
@@ -155,15 +157,18 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
     if (!editingSkill) {
       return;
     }
-    try {
-      setCreateErrorMessage(null);
-      const deleted = await handleDelete(editingSkill, "modal");
-      if (deleted) {
-        setCreateModalOpen(false);
-        setEditingSkill(null);
-      }
-    } catch (error) {
-      setCreateErrorMessage(error instanceof Error ? error.message : "删除 Skill 失败");
+    setCreateErrorMessage(null);
+    setPendingDeleteSkill({ skill: editingSkill, source: "modal" });
+  }
+
+  async function handleConfirmDeleteSkill() {
+    if (!pendingDeleteSkill) {
+      return;
+    }
+    const deleted = await handleDelete(pendingDeleteSkill.skill, pendingDeleteSkill.source);
+    if (deleted && pendingDeleteSkill.source === "modal") {
+      setCreateModalOpen(false);
+      setEditingSkill(null);
     }
   }
 
@@ -243,14 +248,13 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
             <div className="skill-modal-actions">
               {editingSkill ? (
                 <button
-                  className="trash-button"
+                  className="ghost-button danger"
                   type="button"
-                  aria-label="删除skill"
-                  title="删除skill"
+                  aria-label="删除 Skill"
                   onClick={() => void handleDeleteEditingSkill()}
                   disabled={submitting}
                 >
-                  <img src="/assets/删除.svg" alt="" aria-hidden="true" />
+                  删除
                 </button>
               ) : null}
               <button className="primary-button" type="submit" disabled={submitting}>
@@ -320,6 +324,36 @@ export function SkillManager({ skills, onChanged }: SkillManagerProps) {
           </div>
         ) : null}
       </div>
+
+      {pendingDeleteSkill ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setPendingDeleteSkill(null)}>
+          <section className="settings-modal delete-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-skill-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="settings-modal-header">
+              <div>
+                <h2 id="delete-skill-title">删除 Skill</h2>
+                <p>确认后将删除该 Skill，此操作不可恢复。</p>
+              </div>
+              <button className="modal-close-button" type="button" onClick={() => setPendingDeleteSkill(null)}>关闭</button>
+            </div>
+            <div className="delete-confirm-body">
+              <div className="delete-confirm-card">
+                <span>Skill 名称</span>
+                <strong>{pendingDeleteSkill.skill.name}</strong>
+              </div>
+              <div className="delete-confirm-actions">
+                <button
+                  className="primary-button delete-confirm-button"
+                  type="button"
+                  onClick={() => void handleConfirmDeleteSkill()}
+                  disabled={busySkill === pendingDeleteSkill.skill.name}
+                >
+                  {busySkill === pendingDeleteSkill.skill.name ? "删除中..." : "确认删除"}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
