@@ -38,7 +38,12 @@ function Stop-PortProcess {
 
 $backendCommand = @"
 Set-Location -LiteralPath '$agentRoot'
-& '$pythonExe' -m uvicorn gitIssueAssitant.RESTAPIAdapter.main:app --reload --reload-dir gitIssueAssitant --port 8000 *> '$backendLog'
+`$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001 > `$null
+`$env:PYTHONUTF8 = '1'
+`$env:PYTHONIOENCODING = 'utf-8'
+cmd.exe /d /c '"$pythonExe" -X utf8 -m uvicorn gitIssueAssitant.RESTAPIAdapter.main:app --reload --reload-dir gitIssueAssitant --port 8000 > "$backendLog" 2>&1'
 "@
 
 $frontendCommand = @"

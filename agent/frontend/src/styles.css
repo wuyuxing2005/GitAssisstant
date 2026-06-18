@@ -3653,6 +3653,125 @@ button.floating-env-row:hover:not(:disabled) {
   font-weight: 700;
 }
 
+.tool-call-message .conversation-avatar {
+  background: #374151;
+  color: #ffffff;
+}
+
+.tool-call-bubble {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #d7e1e3;
+  border-radius: 12px;
+  background: #f4f8f8;
+  box-shadow: 0 5px 12px rgba(15, 23, 42, 0.035);
+}
+
+.tool-call-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: #1f2933;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tool-call-title {
+  overflow: hidden;
+  color: #1f2933;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call-count {
+  color: #647077;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tool-call-chevron {
+  color: #647077;
+  font-size: 20px;
+  line-height: 1;
+  transition: transform 140ms ease;
+}
+
+.tool-call-toggle[aria-expanded="true"] .tool-call-chevron {
+  transform: rotate(90deg);
+}
+
+.tool-call-details {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.tool-call-path {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.tool-call-path li {
+  color: #3b4750;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tool-call-path strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #22323a;
+  font-size: 13px;
+}
+
+.tool-call-path dl {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.tool-call-path dl div {
+  display: grid;
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.tool-call-path dt {
+  color: #708089;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tool-call-path dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.tool-call-path code {
+  display: block;
+  overflow-x: auto;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: #e8eef0;
+  color: #1f2933;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .conversation-empty {
   display: grid;
   gap: 6px;

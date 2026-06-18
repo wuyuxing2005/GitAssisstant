@@ -16,7 +16,8 @@ import type {
   GitPullRequestResponse,
   GitPushResponse,
   RunMode,
-  TaskMessage
+  TaskMessage,
+  ToolCallRecord
 } from "../types/task";
 import { formatDisplayTime } from "../utils/time";
 import { isGitHubIssueReference } from "../utils/githubIssue";
@@ -238,6 +239,91 @@ function messageRoleHint(role: TaskMessage["role"]): string {
   return "系统提示";
 }
 
+function formatToolValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+function shortenToolText(value: unknown, limit = 120): string {
+  const text = formatToolValue(value).trim();
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+}
+
+function firstToolArg(args: Record<string, unknown>, names: string[]): string {
+  for (const name of names) {
+    const value = shortenToolText(args[name]);
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function summarizeToolCall(toolCall: ToolCallRecord): string {
+  const args = toolCall.args ?? {};
+
+  if (toolCall.name === "bash_terminal") {
+    const command = firstToolArg(args, ["command"]);
+    return command ? `运行命令：${command}` : "运行命令";
+  }
+  if (toolCall.name === "read_file") {
+    const filePath = firstToolArg(args, ["file_path", "path"]);
+    return filePath ? `读取文件：${filePath}` : "读取文件";
+  }
+  if (toolCall.name === "search_code") {
+    const pattern = firstToolArg(args, ["pattern", "query"]);
+    return pattern ? `搜索代码：${pattern}` : "搜索代码";
+  }
+  if (toolCall.name === "git_status") {
+    return "检查 Git 状态";
+  }
+  if (toolCall.name === "git_diff") {
+    return "查看代码差异";
+  }
+  if (toolCall.name === "run_pytest") {
+    const pytestArgs = firstToolArg(args, ["pytest_args", "path"]);
+    return pytestArgs ? `运行测试：${pytestArgs}` : "运行测试：pytest";
+  }
+  return `调用工具：${toolCall.name}`;
+}
+
+function toolCallParamKeys(toolName: string, args: Record<string, unknown>): string[] {
+  if (toolName === "bash_terminal") {
+    return ["command", "timeout_seconds"];
+  }
+  if (toolName === "read_file") {
+    return ["file_path", "path", "start_line", "end_line"];
+  }
+  if (toolName === "search_code") {
+    return ["pattern", "query", "search_path", "file_glob", "case_sensitive", "max_results"];
+  }
+  if (toolName === "git_status") {
+    return ["repo_path"];
+  }
+  if (toolName === "git_diff") {
+    return ["repo_path", "staged"];
+  }
+  if (toolName === "run_pytest") {
+    return ["pytest_args", "working_dir", "path"];
+  }
+  return Object.keys(args);
+}
+
+function toolCallParamRows(toolCall: ToolCallRecord): Array<[string, string]> {
+  const args = toolCall.args ?? {};
+  return toolCallParamKeys(toolCall.name, args)
+    .map((key): [string, string] => [key, formatToolValue(args[key]).trim()])
+    .filter(([, value]) => value.length > 0);
+}
+
 function mergeConversationMessages(remoteMessages: TaskMessage[], localMessages: TaskMessage[]): TaskMessage[] {
   const byId = new Map<string, TaskMessage>();
   const seenLocalFallbackSelections = new Set<string>();
@@ -425,6 +511,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     return stored === "ctrl-enter" ? "ctrl-enter" : "enter";
   });
   const [sendMethodMenuOpen, setSendMethodMenuOpen] = useState(false);
+  const [expandedToolMessages, setExpandedToolMessages] = useState<Set<string>>(() => new Set());
   const [diffLoading, setDiffLoading] = useState(false);
   const [gitActionBusy, setGitActionBusy] = useState(false);
   const [gitMessage, setGitMessage] = useState<string | null>(null);
@@ -466,6 +553,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     setMessages(task?.result?.messages ?? []);
     setLocalMessages([]);
     setConversationPinnedToBottom(true);
+    setExpandedToolMessages(new Set());
     setMessageContent("");
     setMessageError(null);
     setIssueInfo(cachedIssueInfo ?? null);
@@ -885,6 +973,18 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
     setSendMethodMenuOpen(false);
   }
 
+  function toggleToolMessage(messageId: string) {
+    setExpandedToolMessages((current) => {
+      const next = new Set(current);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }
+
   function handleConversationScroll() {
     const list = conversationListRef.current;
     if (!list) {
@@ -1008,11 +1108,57 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
             aria-label="多轮对话历史"
             onScroll={handleConversationScroll}
           >
-            {displayedMessages.map((message) => (
-              <article key={message.id} className={`conversation-message ${message.role}`}>
+            {displayedMessages.map((message) => {
+              const toolCalls = message.tool_calls ?? [];
+              const isToolCallMessage = message.kind === "tool_call" && toolCalls.length > 0;
+              const isExpanded = expandedToolMessages.has(message.id);
+
+              return (
+              <article
+                key={message.id}
+                className={`conversation-message ${message.role}${isToolCallMessage ? " tool-call-message" : ""}`}
+              >
                 <div className="conversation-avatar" aria-hidden="true">
                   {message.role === "assistant" ? "A" : message.role === "user" ? "U" : "S"}
                 </div>
+                {isToolCallMessage ? (
+                  <div className="tool-call-bubble">
+                    <button
+                      type="button"
+                      className="tool-call-toggle"
+                      aria-expanded={isExpanded}
+                      onClick={() => toggleToolMessage(message.id)}
+                    >
+                      <span className="tool-call-title">{message.content || summarizeToolCall(toolCalls[0])}</span>
+                      <span className="tool-call-count">{toolCalls.length} 步</span>
+                      <span className="tool-call-chevron" aria-hidden="true">›</span>
+                    </button>
+                    {isExpanded ? (
+                      <div className="tool-call-details">
+                        <ol className="tool-call-path">
+                          {toolCalls.map((toolCall, index) => {
+                            const rows = toolCallParamRows(toolCall);
+                            return (
+                              <li key={`${message.id}-${index}`}>
+                                <strong>{summarizeToolCall(toolCall)}</strong>
+                                {rows.length ? (
+                                  <dl>
+                                    {rows.map(([key, value]) => (
+                                      <div key={key}>
+                                        <dt>{key}</dt>
+                                        <dd><code>{value}</code></dd>
+                                      </div>
+                                    ))}
+                                  </dl>
+                                ) : null}
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
                 <div className="conversation-bubble">
                   <div className="conversation-meta">
                     <span>{messageRoleLabel(message.role)}</span>
@@ -1023,8 +1169,10 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
                   </div>
                   {message.replan ? <em>触发重新规划</em> : null}
                 </div>
+                )}
               </article>
-            ))}
+              );
+            })}
             {!displayedMessages.length ? (
               <div className="conversation-empty">
                 <strong>暂无对话历史</strong>

@@ -1,8 +1,19 @@
+import sys
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from gitIssueAssitant.RESTAPIAdapter.api.router import api_router
 from gitIssueAssitant.core.services.issue_assistant_service import issue_assistant_service
+
+
+def _configure_utf8_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
+_configure_utf8_stdio()
 
 app = FastAPI(
     title="gitIssueAssitant",

@@ -124,6 +124,7 @@ class ToolUsageItem(BaseModel):
 
 
 MessageRole = Literal["user", "assistant", "system"]
+TaskMessageKind = Literal["text", "tool_call"]
 
 
 class TaskMessage(BaseModel):
@@ -132,6 +133,8 @@ class TaskMessage(BaseModel):
     content: str
     created_at: datetime
     replan: bool = False
+    kind: TaskMessageKind = "text"
+    tool_calls: list[ToolCallRecord] = Field(default_factory=list)
 
 
 class TaskMessageCreate(BaseModel):

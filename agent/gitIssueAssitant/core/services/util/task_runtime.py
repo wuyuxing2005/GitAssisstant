@@ -107,6 +107,53 @@ def _to_tool_call_records(tool_calls: list[dict[str, Any]]) -> list[ToolCallReco
     ]
 
 
+def _shorten_tool_text(value: Any, limit: int = 120) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 1]}…"
+
+
+def _first_tool_arg(args: dict[str, Any], *names: str) -> str:
+    for name in names:
+        value = args.get(name)
+        if value not in (None, ""):
+            return _shorten_tool_text(value)
+    return ""
+
+
+def _summarize_tool_call_record(tool_call: ToolCallRecord) -> str:
+    name = tool_call.name
+    args = tool_call.args
+
+    if name == "bash_terminal":
+        command = _first_tool_arg(args, "command")
+        return f"运行命令：{command}" if command else "运行命令"
+    if name == "read_file":
+        file_path = _first_tool_arg(args, "file_path", "path")
+        return f"读取文件：{file_path}" if file_path else "读取文件"
+    if name == "search_code":
+        pattern = _first_tool_arg(args, "pattern", "query")
+        return f"搜索代码：{pattern}" if pattern else "搜索代码"
+    if name == "git_status":
+        return "检查 Git 状态"
+    if name == "git_diff":
+        return "查看代码差异"
+    if name == "run_pytest":
+        pytest_args = _first_tool_arg(args, "pytest_args", "path")
+        return f"运行测试：{pytest_args}" if pytest_args else "运行测试：pytest"
+    return f"调用工具：{name}"
+
+
+def _summarize_tool_call_records(tool_calls: list[ToolCallRecord]) -> str:
+    if not tool_calls:
+        return "调用工具"
+    first = _summarize_tool_call_record(tool_calls[0])
+    if len(tool_calls) == 1:
+        return first
+    return f"{first} 等 {len(tool_calls)} 个操作"
+
+
 def _load_runtime_env() -> None:
     from dotenv import load_dotenv
 
@@ -239,6 +286,8 @@ class _IssueAssistantTaskRuntime:
         content: str,
         *,
         replan: bool = False,
+        kind: str = "text",
+        tool_calls: list[ToolCallRecord] | None = None,
     ) -> TaskMessage:
         result = self._ensure_result(task)
         message = TaskMessage(
@@ -247,6 +296,8 @@ class _IssueAssistantTaskRuntime:
             content=content,
             created_at=_utcnow(),
             replan=replan,
+            kind=kind,  # type: ignore[arg-type]
+            tool_calls=tool_calls or [],
         )
         result.messages.append(message)
         return message
@@ -585,11 +636,14 @@ class _IssueAssistantTaskRuntime:
             if display_content:
                 self._append_task_message(task, "assistant", display_content)
             elif tool_calls:
-                tool_names = ", ".join(
-                    str(tool_call.get("name", "tool")) for tool_call in tool_calls[:3]
+                tool_call_records = _to_tool_call_records(tool_calls)
+                self._append_task_message(
+                    task,
+                    "assistant",
+                    _summarize_tool_call_records(tool_call_records),
+                    kind="tool_call",
+                    tool_calls=tool_call_records,
                 )
-                suffix = "..." if len(tool_calls) > 3 else ""
-                self._append_task_message(task, "assistant", f"正在调用工具：{tool_names}{suffix}")
             return
 
         if node_name == "reflect":

@@ -89,6 +89,7 @@ export interface ToolUsageItem {
 }
 
 export type TaskMessageRole = "user" | "assistant" | "system";
+export type TaskMessageKind = "text" | "tool_call";
 
 export interface TaskMessage {
   id: string;
@@ -96,6 +97,8 @@ export interface TaskMessage {
   content: string;
   created_at: string;
   replan: boolean;
+  kind?: TaskMessageKind;
+  tool_calls?: ToolCallRecord[];
 }
 
 export interface TaskMessageCreate {
