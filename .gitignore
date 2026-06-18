@@ -30,3 +30,8 @@ agent/gitIssueAssitant/skills/*
 !agent/gitIssueAssitant/skills/patch-review/**
 !agent/gitIssueAssitant/skills/test-failure-fix/
 !agent/gitIssueAssitant/skills/test-failure-fix/**
+
+
+## log
+backend.log
+frontend.log
