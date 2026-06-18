@@ -296,9 +296,39 @@ function summarizeToolCall(toolCall: ToolCallRecord): string {
   return `调用工具：${toolCall.name}`;
 }
 
+function summarizeToolAction(toolCall: ToolCallRecord): string {
+  if (toolCall.name === "bash_terminal") {
+    return "运行命令";
+  }
+  if (toolCall.name === "read_file") {
+    return "读取文件";
+  }
+  if (toolCall.name === "search_code") {
+    return "搜索代码";
+  }
+  if (toolCall.name === "git_status") {
+    return "检查 Git 状态";
+  }
+  if (toolCall.name === "git_diff") {
+    return "查看代码差异";
+  }
+  if (toolCall.name === "run_pytest") {
+    return "运行测试";
+  }
+  return `调用工具：${toolCall.name}`;
+}
+
+function summarizeToolCalls(toolCalls: ToolCallRecord[]): string {
+  if (!toolCalls.length) {
+    return "调用工具";
+  }
+  const first = summarizeToolCall(toolCalls[0]);
+  return toolCalls.length === 1 ? first : `${first} 等 ${toolCalls.length} 个操作`;
+}
+
 function toolCallParamKeys(toolName: string, args: Record<string, unknown>): string[] {
   if (toolName === "bash_terminal") {
-    return ["command", "timeout_seconds"];
+    return ["command", "result_preview"];
   }
   if (toolName === "read_file") {
     return ["file_path", "path", "start_line", "end_line"];
@@ -321,7 +351,10 @@ function toolCallParamKeys(toolName: string, args: Record<string, unknown>): str
 function toolCallParamRows(toolCall: ToolCallRecord): Array<[string, string]> {
   const args = toolCall.args ?? {};
   return toolCallParamKeys(toolCall.name, args)
-    .map((key): [string, string] => [key, formatToolValue(args[key]).trim()])
+    .map((key): [string, string] => [
+      key,
+      formatToolValue(key === "result_preview" ? toolCall.result_preview : args[key]).trim()
+    ])
     .filter(([, value]) => value.length > 0);
 }
 
@@ -376,6 +409,31 @@ function mergeConversationMessages(remoteMessages: TaskMessage[], localMessages:
   return Array.from(byId.values()).sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
+}
+
+function mergeAdjacentToolCallMessages(messages: TaskMessage[]): TaskMessage[] {
+  const merged: TaskMessage[] = [];
+  for (const message of messages) {
+    const toolCalls = message.tool_calls ?? [];
+    const previous = merged[merged.length - 1];
+    if (
+      message.role === "assistant" &&
+      message.kind === "tool_call" &&
+      toolCalls.length > 0 &&
+      previous?.role === "assistant" &&
+      previous.kind === "tool_call"
+    ) {
+      const nextToolCalls = [...(previous.tool_calls ?? []), ...toolCalls];
+      merged[merged.length - 1] = {
+        ...previous,
+        content: summarizeToolCalls(nextToolCalls),
+        tool_calls: nextToolCalls
+      };
+      continue;
+    }
+    merged.push(message);
+  }
+  return merged;
 }
 
 function renderInlineMarkdown(text: string): ReactNode[] {
@@ -1122,7 +1180,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
   const repoSourceLabel = formatRepoSource(task.config.repo_source);
   const hasChanges = !!diffInfo?.has_changes;
   const parsedDiffFiles = parseUnifiedDiff(diffInfo?.diff);
-  const displayedMessages = mergeConversationMessages(messages, localMessages);
+  const displayedMessages = mergeAdjacentToolCallMessages(mergeConversationMessages(messages, localMessages));
   const effectiveTaskStatus = getEffectiveTaskStatus(task);
   const taskIsActive = effectiveTaskStatus === "running" || effectiveTaskStatus === "scheduled";
   const taskIsInterrupted = effectiveTaskStatus === "interrupted";
@@ -1227,7 +1285,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
                       aria-expanded={isExpanded}
                       onClick={() => toggleToolMessage(message.id)}
                     >
-                      <span className="tool-call-title">{message.content || summarizeToolCall(toolCalls[0])}</span>
+                      <span className="tool-call-title">{summarizeToolAction(toolCalls[0])}</span>
                       <span className="tool-call-count">{toolCalls.length} 步</span>
                       <span className="tool-call-chevron" aria-hidden="true">›</span>
                     </button>
@@ -1238,7 +1296,7 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
                             const rows = toolCallParamRows(toolCall);
                             return (
                               <li key={`${message.id}-${index}`}>
-                                <strong>{summarizeToolCall(toolCall)}</strong>
+                                <strong>{summarizeToolAction(toolCall)}</strong>
                                 {rows.length ? (
                                   <dl>
                                     {rows.map(([key, value]) => (
@@ -1395,12 +1453,6 @@ export function TaskDetailPage({ task, busyTaskId, onRunTask, onInterruptTask, o
             ) : "无变更"}
           </strong>
         </button>
-
-        <div className="floating-env-row static">
-          <span className="floating-env-icon">#</span>
-          <span>轮数</span>
-          <strong>{snapshot ? snapshot.iteration_count : "-"}</strong>
-        </div>
 
         <div className="floating-env-row static">
           <span className="floating-env-icon">⑂</span>

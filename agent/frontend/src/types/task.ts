@@ -14,6 +14,7 @@ export interface EvaluationConfig {
 export interface ToolCallRecord {
   name: string;
   args: Record<string, unknown>;
+  result_preview?: string;
 }
 
 export interface SandboxEventStepRecord {

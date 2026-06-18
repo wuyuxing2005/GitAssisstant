@@ -293,6 +293,17 @@ class _IssueAssistantTaskRuntime:
         sandbox_event: SandboxEventRecord | None = None,
     ) -> TaskMessage:
         result = self._ensure_result(task)
+        if kind == "tool_call" and role == "assistant" and tool_calls:
+            previous = result.messages[-1] if result.messages else None
+            if (
+                previous is not None
+                and previous.role == "assistant"
+                and previous.kind == "tool_call"
+            ):
+                previous.tool_calls.extend(tool_calls)
+                previous.content = _summarize_tool_call_records(previous.tool_calls)
+                return previous
+
         message = TaskMessage(
             id=f"{task.id}-msg-{len(result.messages) + 1}",
             role=role,  # type: ignore[arg-type]
