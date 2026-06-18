@@ -2760,6 +2760,42 @@ button.floating-env-row:hover:not(:disabled) {
   transition: transform 180ms ease;
 }
 
+.report-modal {
+  width: min(820px, calc(100vw - 96px));
+  max-height: min(780px, calc(100vh - 48px));
+}
+
+.report-modal-body {
+  display: grid;
+  gap: 16px;
+  padding: 18px 24px 24px;
+}
+
+.report-content {
+  max-height: min(560px, calc(100vh - 220px));
+  margin: 0;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #e5e9ec;
+  border-radius: 14px;
+  background: #fbfcfc;
+  color: #17212b;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.report-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.report-download-link {
+  text-decoration: none;
+}
+
 .trace-modal .settings-modal-header {
   border-radius: 22px 22px 0 0;
 }

@@ -170,6 +170,21 @@ export function taskReportDownloadUrl(taskId: string): string {
   return `${API_ROOT}/tasks/${taskId}/report`;
 }
 
+export async function fetchTaskReportMarkdown(taskId: string): Promise<string> {
+  const response = await fetch(taskReportDownloadUrl(taskId));
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      detail = payload.detail ?? detail;
+    } catch {
+      detail = response.statusText;
+    }
+    throw new Error(detail || "请求失败");
+  }
+  return response.text();
+}
+
 export async function fetchMetadata(): Promise<EvaluationMetadataResponse> {
   return request<EvaluationMetadataResponse>("/metadata/evaluation-options");
 }

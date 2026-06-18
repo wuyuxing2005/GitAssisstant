@@ -13,11 +13,13 @@ import {
   fetchHealth,
   fetchSettings,
   fetchSkills,
+  fetchTaskReportMarkdown,
   fetchTaskTrace,
   fetchTaskIssue,
   fetchTasks,
   interruptTask,
   runTask,
+  taskReportDownloadUrl,
   terminateSandboxTask,
   updateSettings
 } from "./services/api";
@@ -126,6 +128,7 @@ export default function App() {
   const [taskMenu, setTaskMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
   const [pendingDeleteTask, setPendingDeleteTask] = useState<{ taskId: string; taskName: string } | null>(null);
   const [traceModal, setTraceModal] = useState<{ taskId: string; taskName: string; trace: AgentTrace } | null>(null);
+  const [reportModal, setReportModal] = useState<{ taskId: string; taskName: string; markdown: string } | null>(null);
   const [traceDetailsOpen, setTraceDetailsOpen] = useState(false);
   const [traceShowAllEvents, setTraceShowAllEvents] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -346,6 +349,20 @@ export default function App() {
       setTraceModal({ taskId, taskName: task?.name ?? taskId, trace });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "加载 trace 失败");
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  async function handleOpenTaskReport(taskId: string) {
+    try {
+      setTaskMenu(null);
+      setBusyTaskId(taskId);
+      const markdown = await fetchTaskReportMarkdown(taskId);
+      const task = tasks.find((item) => item.id === taskId);
+      setReportModal({ taskId, taskName: task?.name ?? taskId, markdown });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "加载报告失败");
     } finally {
       setBusyTaskId(null);
     }
@@ -596,6 +613,9 @@ export default function App() {
             <button type="button" onClick={() => void handleOpenTaskTrace(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
               查看 trace
             </button>
+            <button type="button" onClick={() => void handleOpenTaskReport(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
+              查看报告
+            </button>
             <button type="button" className="danger" onClick={() => handleRequestDeleteTask(taskMenu.taskId)} disabled={busyTaskId === taskMenu.taskId}>
               删除任务对话
             </button>
@@ -621,6 +641,27 @@ export default function App() {
                 <button className="primary-button delete-confirm-button" type="button" onClick={() => void handleDeleteTask()} disabled={busyTaskId === pendingDeleteTask.taskId}>
                   {busyTaskId === pendingDeleteTask.taskId ? "删除中..." : "确认删除"}
                 </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {reportModal ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setReportModal(null)}>
+          <section className="settings-modal report-modal" role="dialog" aria-modal="true" aria-labelledby="report-modal-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="settings-modal-header">
+              <div>
+                <h2 id="report-modal-title">修复报告</h2>
+                <p>{reportModal.taskName}</p>
+              </div>
+              <button className="modal-close-button" type="button" onClick={() => setReportModal(null)}>关闭</button>
+            </div>
+            <div className="report-modal-body">
+              <pre className="report-content">{reportModal.markdown}</pre>
+              <div className="report-modal-actions">
+                <a className="secondary-button report-download-link" href={taskReportDownloadUrl(reportModal.taskId)} download>
+                  下载报告
+                </a>
               </div>
             </div>
           </section>
