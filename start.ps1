@@ -3,13 +3,69 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $agentRoot = Join-Path $repoRoot "agent"
 $frontendRoot = Join-Path $agentRoot "frontend"
+$venvRoot = Join-Path $agentRoot ".venv"
 $pythonExe = Join-Path $agentRoot ".venv\Scripts\python.exe"
+$nodeModulesRoot = Join-Path $frontendRoot "node_modules"
 
 $backendLog = Join-Path $repoRoot "backend.log"
 $frontendLog = Join-Path $repoRoot "frontend.log"
 
-if (-not (Test-Path -LiteralPath $pythonExe)) {
-  Write-Error "Backend Python venv not found: $pythonExe"
+function Get-PythonLauncher {
+  $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
+  if ($pyLauncher) {
+    return @($pyLauncher.Source, "-3")
+  }
+
+  $pythonLauncher = Get-Command python -ErrorAction SilentlyContinue
+  if ($pythonLauncher) {
+    return @($pythonLauncher.Source)
+  }
+
+  Write-Error "Python 3.11+ is required, but no Python launcher was found in PATH."
+}
+
+function Ensure-BackendDependencies {
+  if (-not (Test-Path -LiteralPath $pythonExe)) {
+    Write-Host "Creating backend Python virtual environment..."
+    $launcher = Get-PythonLauncher
+    $pythonCommand = $launcher[0]
+    $pythonArgs = @()
+    if ($launcher.Count -gt 1) {
+      $pythonArgs = $launcher[1..($launcher.Count - 1)]
+    }
+    & $pythonCommand @pythonArgs -m venv $venvRoot
+  }
+
+  Push-Location $agentRoot
+  try {
+    & $pythonExe -c "import fastapi, uvicorn, gitIssueAssitant" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "Installing backend dependencies..."
+      & $pythonExe -m pip install -e .
+      if ($LASTEXITCODE -ne 0) {
+        Write-Error "Backend dependency installation failed."
+      }
+    }
+  }
+  finally {
+    Pop-Location
+  }
+}
+
+function Ensure-FrontendDependencies {
+  if (-not (Test-Path -LiteralPath $nodeModulesRoot)) {
+    Write-Host "Installing frontend dependencies..."
+    Push-Location $frontendRoot
+    try {
+      npm.cmd install
+      if ($LASTEXITCODE -ne 0) {
+        Write-Error "Frontend dependency installation failed."
+      }
+    }
+    finally {
+      Pop-Location
+    }
+  }
 }
 
 function Stop-PortProcess {
@@ -59,6 +115,9 @@ Write-Host "Starting Code Agent..."
 Write-Host "Backend log:  $backendLog"
 Write-Host "Frontend log: $frontendLog"
 Write-Host ""
+
+Ensure-BackendDependencies
+Ensure-FrontendDependencies
 
 try {
   $backendProcess = Start-Process `

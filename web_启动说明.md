@@ -1,4 +1,4 @@
-项目当前目录运行
+项目agent目录下运行
 python -m venv .venv
 .\.venv\Scripts\activate
 

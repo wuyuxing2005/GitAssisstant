@@ -10,6 +10,7 @@ gitIssueAssitant/RESTAPIAdapter/api/router.py
 gitIssueAssitant/RESTAPIAdapter/api/routes/__init__.py
 gitIssueAssitant/RESTAPIAdapter/api/routes/analytics.py
 gitIssueAssitant/RESTAPIAdapter/api/routes/github.py
+gitIssueAssitant/RESTAPIAdapter/api/routes/memories.py
 gitIssueAssitant/RESTAPIAdapter/api/routes/metadata.py
 gitIssueAssitant/RESTAPIAdapter/api/routes/settings.py
 gitIssueAssitant/RESTAPIAdapter/api/routes/skills.py
@@ -31,14 +32,17 @@ gitIssueAssitant/core/domain/agent_state.py
 gitIssueAssitant/core/domain/git_workflow.py
 gitIssueAssitant/core/domain/session.py
 gitIssueAssitant/core/repositories/__init__.py
+gitIssueAssitant/core/repositories/long_term_memory_repository.py
 gitIssueAssitant/core/repositories/session_state_repository.py
 gitIssueAssitant/core/repositories/task_repository.py
 gitIssueAssitant/core/schemas/__init__.py
+gitIssueAssitant/core/schemas/memory.py
 gitIssueAssitant/core/schemas/settings.py
 gitIssueAssitant/core/schemas/task.py
 gitIssueAssitant/core/services/__init__.py
 gitIssueAssitant/core/services/github_issue_service.py
 gitIssueAssitant/core/services/issue_assistant_service.py
+gitIssueAssitant/core/services/long_term_memory_service.py
 gitIssueAssitant/core/services/session_service.py
 gitIssueAssitant/core/services/settings_service.py
 gitIssueAssitant/core/services/skill_service.py
